@@ -69,14 +69,80 @@ poll_cq(r);     // busy-poll until completion
 
 | Path | Purpose |
 |------|---------|
-| `ce2-group-1/rdma_common.h` | Shared RDMA helpers (device open, QP setup, send/recv) |
-| `ce2-group-1/ce-server.cpp` | RDMA server — receives message |
-| `ce2-group-1/ce-client.cpp` | RDMA client — sends message |
-| `ce2-group-1/step1/helloHPC.cpp` | Simple C++ hello-world (intro exercise) |
-| `cpp_first_steps/step2-ping-cpp/helloServer.cpp` | TCP ping server — run on es-dpu-02 |
-| `cpp_first_steps/step2-ping-cpp/helloClient.cpp` | TCP ping client — run on es-dpu-01, target es-dpu-02 |
+| `ce2-group-1/` | Folder for learing the CPP basics (use for example exercises) |
 | `src/` | GVirtuS core source (frontend, backend, communicators) |
 | `plugins/` | CUDA plugin implementations (cudart, cublas, cudnn, …) |
+
+## GVirtuS core source structure (`src/`)
+
+The `src/` directory is split into four layers:
+
+```
+CUDA Application
+      │  intercepted API call
+      ▼
+src/frontend/          — per-thread shim; serialises call + args → Buffer, sends, reads result
+      │  transport (TCP / RDMA / SHM / …)
+      ▼
+src/communicators/     — pluggable transport layer (Communicator interface + Buffer)
+      │
+      ▼
+src/backend/           — GPU-side daemon; forks one Process per endpoint, dispatches to plugins
+      │  dlopen plugin .so
+      ▼
+plugins/               — CUDA API implementations (cudart, cublas, cudnn, …)
+```
+
+### `src/frontend/`
+- `Frontend` is a **per-thread singleton** (`std::map<pthread_t, Frontend*>`, mutex-protected).
+- On first use reads config from `GVIRTUS_CONFIG`, `$GVIRTUS_HOME/etc/properties.json`, or `./properties.json`.
+- Creates an `Endpoint` + `Communicator`, calls `Connect()`, allocates three `Buffer`s (`mpInputBuffer`, `mpOutputBuffer`, `mpLaunchBuffer`).
+- `Execute()`: write input buffer → read output buffer → decode return value.
+- Opt-in stats: `GVIRTUS_DUMP_STATS=on`; log level: `GVIRTUS_LOGLEVEL=<log4cplus int>`.
+
+### `src/backend/`
+- `Backend` reads `properties.json`, creates one `Process` per endpoint, calls `fork()` for each.
+- `Process` runs the accept loop; spawns a `std::thread` per client; reads function name from Buffer, looks it up in the plugin handler map via `LD_Lib`, writes result back.
+- `Property` is a typed wrapper around the JSON config (endpoints, plugin paths, secure flag).
+
+### `src/communicators/`
+All transports implement `Communicator` (`Read`, `Write`, `Connect`, `Serve`, `Accept`, `Sync`).
+
+| Transport | Class |
+|-----------|-------|
+| TCP | `tcp/TcpCommunicator` |
+| RDMA (RoCE/IB) | `rdma/RdmaCommunicator` — uses `rdma_cm` / `libibverbs` |
+| AF_UNIX | `AfUnixCommunicator` |
+| Shared memory | `ShmCommunicator` / `VMShmCommunicator` |
+| ZeroMQ | `ZmqCommunicator` |
+| VMCI / vsock | `VmciCommunicator` / `VMSocketCommunicator` |
+| Virtio serial | `VirtioCommunicator` |
+| Hybrid (control+data) | `hybrid/HybridCommunicator` |
+
+`CommunicatorFactory` + `EndpointFactory` pick the implementation from `properties.json` at runtime.
+
+`Buffer` is a heap-grown byte buffer with `Add<T>()` (append) and `Get<T>()` (consume) for POD types; it is the sole serialisation container passed between all layers.
+
+### `src/common/`
+| File | Purpose |
+|------|---------|
+| `Encoder` / `Decoder` | Base64-style codec for text-safe binary transfer |
+| `JSON<T>` | Template: parse `properties.json` → typed config object |
+| `LD_Lib` | RAII `dlopen`/`dlsym` — loads plugin `.so` files |
+| `MessageDispatcher` | Observer-based function-name → handler router |
+| `Observable` / `Observer` | Classic observer pattern (Process ↔ plugin handlers) |
+| `Mutex` | RAII `pthread_mutex_t` wrapper |
+| `SignalException` / `SignalState` | Converts POSIX signals to C++ exceptions for clean shutdown |
+
+### `properties.json` (config)
+```json
+{
+  "endpoints": [{ "communicator": "tcp", "server_address": "…", "server_port": 9999 }],
+  "plugins": [["libCudaRt.so"]],
+  "secure": false
+}
+```
+Both frontend and backend read the same file. Change `"communicator"` to `"rdma"`, `"unix"`, `"shm"`, `"zmq"`, or `"hybrid"` to switch transport.
 
 ## What NOT to do
 
