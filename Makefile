@@ -75,13 +75,12 @@ run-openpose-test-local:
 	docker run --rm \
 		--name openpose_container \
 		--network host \
-		-v ./:/workspace/GVirtuS \
 		-v ./examples/openpose/media:/opt/openpose/examples/media \
 		-v ./examples/openpose:/opt/openpose/examples/gvirtus \
 		-v ./examples/openpose/properties.json:/opt/GVirtuS/etc/properties.json \
-		-v ./examples/openpose/entrypoint_local.sh:/entrypoint_local.sh \
+		-v ./examples/openpose/entrypoint.sh:/entrypoint.sh \
 		openpose_local \
-		bash /entrypoint_local.sh
+		bash /entrypoint.sh
 
 run-openpose-test: 
 	docker run --rm \
