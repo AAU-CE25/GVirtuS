@@ -64,6 +64,23 @@ docker-build-openpose:
 		-t darsh916/openpose_gvirtus:cuda12.6 \
 		examples/openpose	
 
+docker-build-openpose-local:
+	docker buildx build \
+		--platform linux/amd64 \
+		-f examples/openpose/Dockerfile-local \
+		-t openpose_local \
+		examples/openpose	
+
+run-openpose-test-local: 
+	docker run --rm \
+		--name openpose_container \
+		--network host \
+		-v ./examples/openpose/media:/opt/openpose/examples/media \
+		-v ./examples/openpose:/opt/openpose/examples/gvirtus \
+		-v ./examples/openpose/properties.json:/opt/GVirtuS/etc/properties.json \
+		-v ./examples/openpose/entrypoint.sh:/entrypoint.sh \
+		openpose_local \
+		bash /entrypoint.sh
 
 run-openpose-test: 
 	docker run --rm \

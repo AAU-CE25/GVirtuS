@@ -137,7 +137,7 @@ void Frontend::Init(Communicator *c) {
     } catch (const std::exception &e) {
         LOG4CPLUS_FATAL(logger, fs::path(__FILE__).filename()
                                     << ":" << __LINE__ << ":"
-                                    << " Exception occurred: " << e.what());
+                                    << " AAAAAAAAAAAAAAa occurred: " << e.what());
         exit(EXIT_FAILURE);
     }
 
