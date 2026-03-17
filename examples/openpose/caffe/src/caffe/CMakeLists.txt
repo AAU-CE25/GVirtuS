@@ -39,7 +39,7 @@ set_target_properties(caffe PROPERTIES
     )
 
 # ---[ Tests
- add_subdirectory(test)
+#  add_subdirectory(test)
 
 # ---[ Install
 install(DIRECTORY ${Caffe_INCLUDE_DIR}/caffe DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})

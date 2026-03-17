@@ -1,5 +1,54 @@
 .PHONY: docker-build-push-dev docker-build-push-prod run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-human-parsing-test
 
+
+docker-build-dev-local:
+	docker buildx build \
+		--platform linux/amd64 \
+		--no-cache \
+		-f docker/dev/Dockerfile \
+		-t gvirtus_backend \
+		.
+
+run-gvirtus-backend-dev-local:
+	docker run \
+		--rm \
+		-it \
+		--network host \
+		--privileged \
+		-v ./cmake:/gvirtus/cmake/ \
+		-v ./etc:/gvirtus/etc/ \
+		-v ./include:/gvirtus/include/ \
+		-v ./plugins:/gvirtus/plugins/ \
+		-v ./src:/gvirtus/src/ \
+		-v ./tools:/gvirtus/tools/ \
+		-v ./tests:/gvirtus/tests/ \
+		-v ./CMakeLists.txt:/gvirtus/CMakeLists.txt \
+		-v ./docker/dev/entrypoint.sh:/entrypoint.sh \
+		-v ./examples:/gvirtus/examples/ \
+		--entrypoint /entrypoint.sh \
+		--name gvirtus \
+		--runtime=nvidia \
+		--shm-size=8G \
+		gvirtus_backend
+
+docker-build-openpose-local:
+	docker buildx build \
+		--platform linux/amd64 \
+		-f examples/openpose/Dockerfile-local \
+		-t openpose_local \
+		examples/openpose	
+
+run-openpose-test-local: 
+	docker run --rm \
+		--name openpose_container \
+		--network host \
+		-v ./examples/openpose/media:/opt/openpose/examples/media \
+		-v ./examples/openpose:/opt/openpose/examples/gvirtus \
+		-v ./examples/openpose/properties.json:/opt/GVirtuS/etc/properties.json \
+		-v ./examples/openpose/entrypoint.sh:/entrypoint.sh \
+		openpose_local \
+		bash /entrypoint.sh
+
 docker-build-push-dev:
 	docker buildx build \
 		--platform linux/amd64 \
