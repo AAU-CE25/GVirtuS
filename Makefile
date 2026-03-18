@@ -1,4 +1,4 @@
-.PHONY: docker-build-push-dev docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test rm-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-human-parsing-test
+.PHONY: docker-build-push-dev docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test rm-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test
 
 USER := $(shell whoami | cut -d'@' -f1)
 DOCKER_HUB_USERNAME := aauce25
@@ -127,3 +127,24 @@ run-2d-human-parsing-test:
 
 stop-2d-human-parsing-test:
 	docker stop human_parsing_test_container-$(USER) || true
+
+docker-build-simple-matrix:
+	docker buildx build \
+		--platform linux/amd64 \
+		--push \
+		--no-cache \
+		-f examples/simple_matrix/Dockerfile \
+		-t $(DOCKER_HUB_USERNAME)/simple_matrix_gvirtus:cuda12.6 \
+		.	
+
+run-simple-matrix-test: 
+	docker run --rm \
+		--name simple_matrix_test_container-$(USER) \
+		--network host \
+		-v ./examples/simple_matrix:/opt/GVirtuS/examples \
+		-v ./etc/properties.json:/opt/GVirtuS/etc/properties.json \
+		$(DOCKER_HUB_USERNAME)/simple_matrix_gvirtus:cuda12.6 \
+		bash /opt/GVirtuS/examples/frontend.sh
+
+stop-simple-matrix-test:
+	docker stop simple_matrix_test_container-$(USER) || true

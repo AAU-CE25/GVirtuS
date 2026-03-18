@@ -11,10 +11,10 @@ export LD_LIBRARY_PATH=${GVIRTUS_HOME}/lib:${GVIRTUS_HOME}/lib/frontend:${LD_LIB
 cd "${GVIRTUS_HOME}/examples" || { echo "Failed to enter ${GVIRTUS_HOME}/examples"; exit 1; }
 
 # --- Compile the CUDA program ---
-nvcc simple_matrix.cu -o simple_matrix \
+nvcc simple_matrix.cu -o /tmp/simple_matrix \
     -L${GVIRTUS_HOME}/lib/frontend \
     -L${GVIRTUS_HOME}/lib/ \
     -lcuda -lcudart -lcublas 
 
 # --- Run the compiled program ---
-./simple_matrix
+/tmp/simple_matrix
