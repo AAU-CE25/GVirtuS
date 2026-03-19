@@ -115,25 +115,13 @@ void Frontend::Init(Communicator *c) {
         }
     }
 
-    std::unique_ptr<char> default_endpoint;
-
-    // no frontend found
-    {
-        std::lock_guard<std::mutex> lock(gFrontendMutex);
-        if (mpFrontends->find(tid) == mpFrontends->end()) {
-            Frontend *f = new Frontend();
-            mpFrontends->insert(make_pair(tid, f));
-        }
-    }
-
     LOG4CPLUS_INFO(logger, "Using properties file: " + config_path);
 
     try {
         auto endpoint = EndpointFactory::get_endpoint(config_path);
 
-        mpFrontends->find(tid)->second->_communicator =
-            CommunicatorFactory::get_communicator(endpoint);
-        mpFrontends->find(tid)->second->_communicator->obj_ptr()->Connect();
+        _communicator = CommunicatorFactory::get_communicator(endpoint);
+        _communicator->obj_ptr()->Connect();
     } catch (const std::exception &e) {
         LOG4CPLUS_FATAL(logger, fs::path(__FILE__).filename()
                                     << ":" << __LINE__ << ":"
@@ -141,11 +129,11 @@ void Frontend::Init(Communicator *c) {
         exit(EXIT_FAILURE);
     }
 
-    mpFrontends->find(tid)->second->mpInputBuffer = std::make_shared<Buffer>();
-    mpFrontends->find(tid)->second->mpOutputBuffer = std::make_shared<Buffer>();
-    mpFrontends->find(tid)->second->mpLaunchBuffer = std::make_shared<Buffer>();
-    mpFrontends->find(tid)->second->mExitCode = -1;
-    mpFrontends->find(tid)->second->mpInitialized = true;
+    mpInputBuffer = std::make_shared<Buffer>();
+    mpOutputBuffer = std::make_shared<Buffer>();
+    mpLaunchBuffer = std::make_shared<Buffer>();
+    mExitCode = -1;
+    mpInitialized = true;
 }
 
 Frontend::~Frontend() {
@@ -204,14 +192,24 @@ Frontend *Frontend::GetFrontend(Communicator *c) {
     }
 
     Frontend *f = new Frontend();
+    {
+        std::lock_guard<std::mutex> lock(gFrontendMutex);
+        auto [it, inserted] = mpFrontends->insert(make_pair(tid, f));
+        if (!inserted) {
+            delete f;
+            return it->second;
+        }
+    }
+
     try {
         f->Init(c);
-        {
-            std::lock_guard<std::mutex> lock(gFrontendMutex);
-            mpFrontends->insert(make_pair(tid, f));
-        }
     } catch (const std::exception &e) {
         LOG4CPLUS_ERROR(logger, "Error initializing Frontend: " << e.what());
+        {
+            std::lock_guard<std::mutex> lock(gFrontendMutex);
+            auto it = mpFrontends->find(tid);
+            if (it != mpFrontends->end() && it->second == f) mpFrontends->erase(it);
+        }
         delete f;  // Clean up on failure
         return nullptr;
     }
@@ -327,8 +325,10 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
 
 void Frontend::Prepare() {
     pid_t tid = syscall(SYS_gettid);
-    {
-        if (this->mpFrontends->find(tid) != mpFrontends->end())
-            mpFrontends->find(tid)->second->mpInputBuffer->Reset();
-    }
+    std::lock_guard<std::mutex> lock(gFrontendMutex);
+    if (mpFrontends == nullptr) return;
+
+    auto it = mpFrontends->find(tid);
+    if (it == mpFrontends->end() || it->second == nullptr) return;
+    if (it->second->mpInputBuffer) it->second->mpInputBuffer->Reset();
 }

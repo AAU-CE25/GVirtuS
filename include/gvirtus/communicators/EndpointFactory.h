@@ -57,13 +57,13 @@ class EndpointFactory {
             ptr = std::make_shared<Endpoint_Tcp>(end);
         }
         // infiniband
-        else if ("infiniband-rdma" == j["communicator"][ind_endpoint]["endpoint"].at("suite")) {
+        else if (suite == "infiniband-rdma") {
 #ifdef DEBUG
             std::cout << "EndpointFactory::get_endpoint() found infiniband endpoint" << std::endl;
 #endif
             auto end = common::JSON<Endpoint_Rdma>(json_path).parser();
             ptr = std::make_shared<Endpoint_Rdma>(end);
-        } else if ("roce-rdma" == j["communicator"][ind_endpoint]["endpoint"].at("suite")) {
+        } else if (suite == "roce-rdma") {
 #ifdef DEBUG
             std::cout << "EndpointFactory::get_endpoint() found rdma-roce endpoint (reusing "
                          "Endpoint_Rdma)"
@@ -71,7 +71,7 @@ class EndpointFactory {
 #endif
             auto end = common::JSON<Endpoint_Rdma>(json_path).parser();
             ptr = std::make_shared<Endpoint_Rdma>(end);
-        } else if ("hybrid" == j["communicator"][ind_endpoint]["endpoint"].at("suite")) {
+        } else if (suite == "hybrid") {
 #ifdef DEBUG
             std::cout << "EndpointFactory::get_endpoint() found hybrid endpoint" << std::endl;
 #endif
@@ -81,8 +81,6 @@ class EndpointFactory {
             throw std::runtime_error(
                 "EndpointFactory::get_endpoint(): Your suite is not compatible!");
         }
-
-        ind_endpoint++;
 
         j.clear();
         ifs.close();
@@ -95,9 +93,7 @@ class EndpointFactory {
         return ptr;
     }
 
-    static int index() { return ind_endpoint; }
-
-   private:
-    static int ind_endpoint;
+    // Current frontend configs use a single communicator entry.
+    static int index() { return 0; }
 };
 }  // namespace gvirtus::communicators
