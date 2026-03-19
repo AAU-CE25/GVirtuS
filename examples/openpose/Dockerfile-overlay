@@ -1,0 +1,23 @@
+ARG BASE_IMAGE=darsh916/openpose_gvirtus:cuda12.6
+FROM ${BASE_IMAGE}
+
+ENV GVIRTUS_HOME=/opt/GVirtuS
+ENV GVIRTUS_SRC=/opt/GVirtuS-src
+ENV LD_LIBRARY_PATH=${GVIRTUS_HOME}/lib:${GVIRTUS_HOME}/lib/frontend:${LD_LIBRARY_PATH}
+
+WORKDIR ${GVIRTUS_SRC}
+
+COPY cmake cmake
+COPY etc etc
+COPY include include
+COPY plugins plugins
+COPY src src
+COPY tools tools
+COPY tests tests
+COPY CMakeLists.txt CMakeLists.txt
+
+RUN mkdir -p build && \
+    cd build && \
+    cmake -DCMAKE_INSTALL_PREFIX=${GVIRTUS_HOME} .. && \
+    make -j"$(nproc)" && \
+    make install

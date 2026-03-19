@@ -1,9 +1,11 @@
-.PHONY: docker-build-push-dev docker-build-push-prod run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-human-parsing-test
+.PHONY: docker-build-dev-local run-gvirtus-backend-dev-local docker-build-openpose-local run-openpose-test-local docker-build-openpose-overlay run-openpose-test-overlay docker-build-push-dev docker-build-push-prod run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-human-parsing-test
 
+# Backend local
 
 docker-build-dev-local:
 	docker buildx build \
 		--platform linux/amd64 \
+		--load \
 		--no-cache \
 		-f docker/dev/Dockerfile \
 		-t gvirtus_backend \
@@ -31,9 +33,12 @@ run-gvirtus-backend-dev-local:
 		--shm-size=8G \
 		gvirtus_backend
 
+# Frontend local
+
 docker-build-openpose-local:
 	docker buildx build \
 		--platform linux/amd64 \
+		--load \
 		-f examples/openpose/Dockerfile-local \
 		-t openpose_local \
 		examples/openpose	
@@ -48,6 +53,29 @@ run-openpose-test-local:
 		-v ./examples/openpose/entrypoint.sh:/entrypoint.sh \
 		openpose_local \
 		bash /entrypoint.sh
+
+docker-build-openpose-overlay:
+	docker buildx build \
+		--platform linux/amd64 \
+		--load \
+		-f examples/openpose/Dockerfile-overlay \
+		-t openpose_overlay \
+		.
+
+run-openpose-test-overlay:
+	docker run --rm \
+		--name openpose_container \
+		--network host \
+		-v ./examples/openpose/media:/opt/openpose/examples/media \
+		-v ./examples/openpose:/opt/openpose/examples/gvirtus \
+		-v ./examples/openpose/properties.json:/opt/GVirtuS/etc/properties.json \
+		-v ./examples/openpose/entrypoint.sh:/entrypoint.sh \
+		openpose_overlay \
+		bash /entrypoint.sh
+
+
+################################
+
 
 docker-build-push-dev:
 	docker buildx build \
