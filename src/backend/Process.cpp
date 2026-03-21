@@ -39,6 +39,7 @@
 #include <functional>
 #include <iostream>
 #include <thread>
+#include <vector>
 
 #include "communicators/hybrid/HybridCommunicator.h"
 
@@ -98,13 +99,15 @@ bool getstring(Communicator *c, string &s) {
     } else if (c->to_string() == "rdmacommunicator") {
         try {
             s = "";
-            size_t size = 30;
-            char *buf = (char *)malloc(size);
-            size = c->Read(buf, size);
+            constexpr size_t kMaxRoutineName = 256;
+            std::vector<char> buf(kMaxRoutineName, '\0');
+            size_t size = c->Read(buf.data(), kMaxRoutineName);
 
             // if read, return true
             if (size > 0) {
-                s += std::string(buf);
+                // Keep a hard trailing terminator in case sender omits/truncates null.
+                buf[kMaxRoutineName - 1] = '\0';
+                s.assign(buf.data());
                 return true;
             }
         } catch (const std::exception &e) {
