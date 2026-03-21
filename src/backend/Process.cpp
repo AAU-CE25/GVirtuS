@@ -160,69 +160,86 @@ void Process::Start() {
                                             << "Process::Start()'s \"execute\" lambda called");
         // carica i puntatori ai simboli dei moduli in mHandlers
 
-        string routine;
-        std::shared_ptr<Buffer> input_buffer = std::make_shared<Buffer>();
+        try {
+            string routine;
+            std::shared_ptr<Buffer> input_buffer = std::make_shared<Buffer>();
 
-        while (getstring(client_comm, routine)) {
-            LOG4CPLUS_DEBUG(logger, "Received routine " << routine);
+            while (getstring(client_comm, routine)) {
+                LOG4CPLUS_DEBUG(logger, "Received routine " << routine);
 
-            // === before reading buffer, chose the protocol of this round by rountine ===
-            gvirtus::communicators::HybridCommunicator *hybrid = nullptr;
-            if (client_comm && client_comm->to_string() == "hybridcommunicator") {
-                hybrid = dynamic_cast<gvirtus::communicators::HybridCommunicator *>(client_comm);
-            }
-            if (hybrid) {
-                // all those function payload will transfer by RDMA
-                const bool use_rdma = routine.rfind("cudaRegisterFatBinary", 0) == 0 ||
-                                      routine.rfind("cudaRegisterFatBinaryEnd", 0) == 0 ||
-                                      routine.rfind("cudaMemcpyAsync", 0) == 0 ||
-                                      routine.rfind("cudaMemcpy", 0) == 0;
+                // === before reading buffer, chose the protocol of this round by rountine ===
+                gvirtus::communicators::HybridCommunicator *hybrid = nullptr;
+                if (client_comm && client_comm->to_string() == "hybridcommunicator") {
+                    hybrid = dynamic_cast<gvirtus::communicators::HybridCommunicator *>(client_comm);
+                }
+                if (hybrid) {
+                    // all those function payload will transfer by RDMA
+                    const bool use_rdma = routine.rfind("cudaRegisterFatBinary", 0) == 0 ||
+                                          routine.rfind("cudaRegisterFatBinaryEnd", 0) == 0 ||
+                                          routine.rfind("cudaMemcpyAsync", 0) == 0 ||
+                                          routine.rfind("cudaMemcpy", 0) == 0;
 
-                if (use_rdma) {
-                    // bytes_hint if >0 ,then trigger the first 8B under TCP moniter.
-                    // real payload size after 8B head.
-                    hybrid->begin_call(routine, gvirtus::communicators::Transport::RDMA,
-                                       /*bytes_hint*/ 1);
+                    if (use_rdma) {
+                        // bytes_hint if >0 ,then trigger the first 8B under TCP moniter.
+                        // real payload size after 8B head.
+                        hybrid->begin_call(routine, gvirtus::communicators::Transport::RDMA,
+                                           /*bytes_hint*/ 1);
+                    } else {
+                        hybrid->begin_call(routine, gvirtus::communicators::Transport::TCP, 0);
+                    }
+                }
+
+                // now reading buffer：8B from TCP, payload will transfer by the selected protocol
+                input_buffer->Reset(client_comm);
+
+                std::shared_ptr<Handler> h = nullptr;
+                for (auto &ptr_el : _handlers) {
+                    if (ptr_el->obj_ptr()->CanExecute(routine)) {
+                        h = ptr_el->obj_ptr();
+                        break;
+                    }
+                }
+
+                std::shared_ptr<communicators::Result> result;
+                if (h == nullptr) {
+                    LOG4CPLUS_ERROR(logger, "[Process " << getpid()
+                                                        << "]: Requested unknown routine '"
+                                                        << routine << "'.");
+                    result = std::make_shared<communicators::Result>(-1, std::make_shared<Buffer>());
                 } else {
-                    hybrid->begin_call(routine, gvirtus::communicators::Transport::TCP, 0);
+                    auto start = steady_clock::now();
+                    result = h->Execute(routine, input_buffer);
+                    result->TimeTaken(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                          steady_clock::now() - start)
+                                          .count() /
+                                      1000.0);
                 }
-            }
 
-            // now reading buffer：8B from TCP, payload will transfer by the selected protocol
-            input_buffer->Reset(client_comm);
+                // return info：control the head transfer by TCP，then payload RDMA
+                result->Dump(client_comm);
 
-            std::shared_ptr<Handler> h = nullptr;
-            for (auto &ptr_el : _handlers) {
-                if (ptr_el->obj_ptr()->CanExecute(routine)) {
-                    h = ptr_el->obj_ptr();
-                    break;
+                // stop this round, and clean all context
+                if (hybrid) {
+                    hybrid->end_call();
                 }
+
+                LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "]: Routine '" << routine
+                                                    << "' returned " << result->GetExitCode()
+                                                    << ".");
             }
+        } catch (const std::exception &e) {
+            LOG4CPLUS_ERROR(logger, "Execution exception: " << e.what());
+        } catch (...) {
+            LOG4CPLUS_ERROR(logger, "Execution exception: unknown error");
+        }
 
-            std::shared_ptr<communicators::Result> result;
-            if (h == nullptr) {
-                LOG4CPLUS_ERROR(logger, "[Process " << getpid() << "]: Requested unknown routine '"
-                                                    << routine << "'.");
-                result = std::make_shared<communicators::Result>(-1, std::make_shared<Buffer>());
-            } else {
-                auto start = steady_clock::now();
-                result = h->Execute(routine, input_buffer);
-                result->TimeTaken(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                      steady_clock::now() - start)
-                                      .count() /
-                                  1000.0);
+        if (client_comm) {
+            try {
+                client_comm->Close();
+            } catch (...) {
             }
-
-            // return info：control the head transfer by TCP，then payload RDMA
-            result->Dump(client_comm);
-
-            // stop this round, and clean all context
-            if (hybrid) {
-                hybrid->end_call();
-            }
-
-            LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "]: Routine '" << routine
-                                                << "' returned " << result->GetExitCode() << ".");
+            delete client_comm;
+            client_comm = nullptr;
         }
 
         Notify("process-ended");

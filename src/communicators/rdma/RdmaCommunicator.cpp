@@ -11,6 +11,7 @@
 
 #include <iostream>
 #include <sstream>
+#include <stdexcept>
 
 using gvirtus::communicators::RdmaCommunicator;
 
@@ -35,9 +36,6 @@ RdmaCommunicator::RdmaCommunicator(const std::string &hostname, const std::strin
 
     strcpy(this->hostname, hostname.c_str());
     strcpy(this->port, port.c_str());
-
-    memset(&rdmaCmId, 0, sizeof(rdmaCmId));
-    memset(&rdmaCmListenId, 0, sizeof(rdmaCmListenId));
 }
 
 // Constructor used on the server side when a connection is accepted
@@ -46,6 +44,8 @@ RdmaCommunicator::RdmaCommunicator(rdma_cm_id *rdmaCmId) : isRoce(false) {
     std::cout << "Called RdmaCommunicator(rdma_cm_id *rdmaCmId)" << std::endl;
 #endif
     this->rdmaCmId = rdmaCmId;
+    isConnected = true;
+    createdWithCreateEp = false;
     preregisteredMr = ktm_rdma_reg_msgs(rdmaCmId, preregisteredBuffer, 1024 * 5);
 }
 
@@ -53,8 +53,11 @@ RdmaCommunicator::~RdmaCommunicator() {
 #ifdef DEBUG
     std::cout << "Called ~RdmaCommunicator()" << std::endl;
 #endif
-    rdma_disconnect(rdmaCmId);
-    rdma_destroy_id(rdmaCmId);
+    try {
+        Close();
+    } catch (...) {
+        // Never throw from destructor.
+    }
 }
 
 void RdmaCommunicator::Serve() {
@@ -129,9 +132,11 @@ void RdmaCommunicator::Connect() {
     qpInitAttr.qp_type = IBV_QPT_RC;
 
     ktm_rdma_create_ep(&rdmaCmId, rdmaAddrinfo, nullptr, &qpInitAttr);
+    createdWithCreateEp = true;
     rdma_freeaddrinfo(rdmaAddrinfo);
 
     ktm_rdma_connect(rdmaCmId, nullptr);
+    isConnected = true;
 
     auto *ibvQpAttr = static_cast<ibv_qp_attr *>(malloc(sizeof(ibv_qp_attr)));
     ibvQpAttr->min_rnr_timer = 1;
@@ -147,6 +152,10 @@ size_t RdmaCommunicator::Read(char *buffer, size_t size) {
     std::cout << "Called Read(char *buffer, size_t size) - Size: " << size << std::endl;
 #endif
 
+    if (writeFailed) {
+        throw std::runtime_error("RdmaCommunicator::Read blocked after prior write failure");
+    }
+
     if (size < 1024 * 5) {
         ktm_rdma_post_recv(rdmaCmId, nullptr, preregisteredBuffer, size, preregisteredMr);
     } else {
@@ -157,9 +166,12 @@ size_t RdmaCommunicator::Read(char *buffer, size_t size) {
     int num_comp;
     do num_comp = ibv_poll_cq(rdmaCmId->recv_cq, 1, &workCompletion);
     while (num_comp == 0);
-    if (num_comp < 0) throw "ibv_poll_cq() failed";
+    if (num_comp < 0)
+        throw std::runtime_error("RdmaCommunicator::Read: ibv_poll_cq(recv) failed");
     if (workCompletion.status != IBV_WC_SUCCESS)
-        throw "Failed status " + std::string(ibv_wc_status_str(workCompletion.status));
+        throw std::runtime_error("RdmaCommunicator::Read: completion failed, size=" +
+                                 std::to_string(size) + ", status=" +
+                                 std::string(ibv_wc_status_str(workCompletion.status)));
 
     if (size < 1024 * 5) {
         memcpy(buffer, preregisteredBuffer, size);
@@ -172,6 +184,10 @@ size_t RdmaCommunicator::Write(const char *buffer, size_t size) {
 #ifdef DEBUG
     std::cout << "Called Write(const char *buffer, size_t size) - Size: " << size << std::endl;
 #endif
+
+    if (writeFailed) {
+        throw std::runtime_error("RdmaCommunicator::Write blocked after prior completion failure");
+    }
 
     char *actualBuffer = nullptr;
 
@@ -189,9 +205,16 @@ size_t RdmaCommunicator::Write(const char *buffer, size_t size) {
     int num_comp;
     do num_comp = ibv_poll_cq(rdmaCmId->send_cq, 1, &workCompletion);
     while (num_comp == 0);
-    if (num_comp < 0) throw "ibv_poll_cq() failed";
-    if (workCompletion.status != IBV_WC_SUCCESS)
-        throw "Failed status " + std::string(ibv_wc_status_str(workCompletion.status));
+    if (num_comp < 0) {
+        writeFailed = true;
+        throw std::runtime_error("RdmaCommunicator::Write: ibv_poll_cq(send) failed");
+    }
+    if (workCompletion.status != IBV_WC_SUCCESS) {
+        writeFailed = true;
+        throw std::runtime_error("RdmaCommunicator::Write: completion failed, size=" +
+                                 std::to_string(size) + ", status=" +
+                                 std::string(ibv_wc_status_str(workCompletion.status)));
+    }
 
     if (size > 1024 * 5) {
         free(actualBuffer);
@@ -210,8 +233,30 @@ void RdmaCommunicator::Close() {
 #ifdef DEBUG
     std::cout << "RdmaCommunicator::Close(): called." << std::endl;
 #endif
-    rdma_disconnect(rdmaCmId);
-    rdma_destroy_id(rdmaCmId);
+    if (isClosed) {
+        return;
+    }
+    isClosed = true;
+
+    if (rdmaCmId != nullptr) {
+        if (isConnected) {
+            // Teardown races are expected when peer exits first.
+            rdma_disconnect(rdmaCmId);
+            isConnected = false;
+        }
+
+        if (createdWithCreateEp) {
+            rdma_destroy_ep(rdmaCmId);
+        } else {
+            rdma_destroy_id(rdmaCmId);
+        }
+        rdmaCmId = nullptr;
+    }
+
+    if (rdmaCmListenId != nullptr) {
+        rdma_destroy_ep(rdmaCmListenId);
+        rdmaCmListenId = nullptr;
+    }
 }
 
 // Factory function to create an RDMA communicator

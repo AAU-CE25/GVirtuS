@@ -25,20 +25,24 @@
 namespace gvirtus::communicators {
 class RdmaCommunicator : public Communicator {
    private:
-    rdma_cm_id* rdmaCmId;
-    rdma_cm_id* rdmaCmListenId;
+    rdma_cm_id* rdmaCmId = nullptr;
+    rdma_cm_id* rdmaCmListenId = nullptr;
 
     char hostname[256];
     char port[6];
 
     ibv_wc workCompletion;
 
-    ibv_mr* memoryRegion;
+    ibv_mr* memoryRegion = nullptr;
 
     char preregisteredBuffer[1024 * 5];
-    ibv_mr* preregisteredMr;
+    ibv_mr* preregisteredMr = nullptr;
 
     bool isRoce = false;
+    bool isConnected = false;
+    bool createdWithCreateEp = false;
+    bool isClosed = false;
+    bool writeFailed = false;
 
    public:
     RdmaCommunicator() = default;
