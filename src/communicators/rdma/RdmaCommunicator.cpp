@@ -12,8 +12,15 @@
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
+#include <chrono>
+#include <thread>
 
 using gvirtus::communicators::RdmaCommunicator;
+
+namespace {
+constexpr auto kCompletionPollTimeout = std::chrono::milliseconds(2000);
+constexpr auto kCompletionPollSleep = std::chrono::milliseconds(1);
+}
 
 RdmaCommunicator::RdmaCommunicator(const std::string &hostname, const std::string &port,
                                    bool isRoce)
@@ -164,8 +171,16 @@ size_t RdmaCommunicator::Read(char *buffer, size_t size) {
     }
 
     int num_comp;
-    do num_comp = ibv_poll_cq(rdmaCmId->recv_cq, 1, &workCompletion);
-    while (num_comp == 0);
+    const auto recv_poll_start = std::chrono::steady_clock::now();
+    do {
+        num_comp = ibv_poll_cq(rdmaCmId->recv_cq, 1, &workCompletion);
+        if (num_comp == 0) {
+            if (std::chrono::steady_clock::now() - recv_poll_start > kCompletionPollTimeout) {
+                throw std::runtime_error("RdmaCommunicator::Read: completion timeout");
+            }
+            std::this_thread::sleep_for(kCompletionPollSleep);
+        }
+    } while (num_comp == 0);
     if (num_comp < 0)
         throw std::runtime_error("RdmaCommunicator::Read: ibv_poll_cq(recv) failed");
     if (workCompletion.status != IBV_WC_SUCCESS)
@@ -203,8 +218,17 @@ size_t RdmaCommunicator::Write(const char *buffer, size_t size) {
     }
 
     int num_comp;
-    do num_comp = ibv_poll_cq(rdmaCmId->send_cq, 1, &workCompletion);
-    while (num_comp == 0);
+    const auto send_poll_start = std::chrono::steady_clock::now();
+    do {
+        num_comp = ibv_poll_cq(rdmaCmId->send_cq, 1, &workCompletion);
+        if (num_comp == 0) {
+            if (std::chrono::steady_clock::now() - send_poll_start > kCompletionPollTimeout) {
+                writeFailed = true;
+                throw std::runtime_error("RdmaCommunicator::Write: completion timeout");
+            }
+            std::this_thread::sleep_for(kCompletionPollSleep);
+        }
+    } while (num_comp == 0);
     if (num_comp < 0) {
         writeFailed = true;
         throw std::runtime_error("RdmaCommunicator::Write: ibv_poll_cq(send) failed");
@@ -239,11 +263,8 @@ void RdmaCommunicator::Close() {
     isClosed = true;
 
     if (rdmaCmId != nullptr) {
-        if (isConnected) {
-            // Teardown races are expected when peer exits first.
-            rdma_disconnect(rdmaCmId);
-            isConnected = false;
-        }
+        // Avoid blocking teardown when peer has already exited or queue pair is in error.
+        isConnected = false;
 
         if (createdWithCreateEp) {
             rdma_destroy_ep(rdmaCmId);
