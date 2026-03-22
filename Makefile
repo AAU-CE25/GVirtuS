@@ -1,4 +1,4 @@
-.PHONY: docker-build-dev-local run-gvirtus-backend-dev-local docker-build-openpose-local run-openpose-test-local docker-build-openpose-overlay run-openpose-test-overlay docker-build-push-dev docker-build-push-prod run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-human-parsing-test
+.PHONY: docker-build-dev-local run-gvirtus-backend-dev-local docker-build-openpose-local run-openpose-test-local docker-build-openpose-overlay run-openpose-test-overlay docker-build-push-dev docker-build-push-prod run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-human-parsing-test docker-build-simple-matrix run-simple-matrix-test
 
 # Backend local
 
@@ -47,6 +47,7 @@ run-openpose-test-local:
 	docker run --rm \
 		--name openpose_container \
 		--network host \
+		--privileged \
 		-v ./examples/openpose/media:/opt/openpose/examples/media \
 		-v ./examples/openpose:/opt/openpose/examples/gvirtus \
 		-v ./examples/openpose/properties.json:/opt/GVirtuS/etc/properties.json \
@@ -66,6 +67,7 @@ run-openpose-test-overlay:
 	docker run --rm \
 		--name openpose_container \
 		--network host \
+		--privileged \
 		-v ./examples/openpose/media:/opt/openpose/examples/media \
 		-v ./examples/openpose:/opt/openpose/examples/gvirtus \
 		-v ./examples/openpose/properties.json:/opt/GVirtuS/etc/properties.json \
@@ -182,3 +184,28 @@ run-2d-human-parsing-test:
 
 stop-2d-human-parsing-test:
 	docker stop human-parsing_test_container || true
+
+
+docker-build-simple-matrix:
+	docker buildx build \
+		--platform linux/amd64 \
+		--load \
+		-f examples/simple_matrix/Dockerfile \
+		-t simple_matrix_gvirtus_local:cuda12.6 \
+		.
+
+run-simple-matrix-test:
+	docker run --rm \
+		--name simple_matrix_test_container \
+		--network host \
+		--privileged \
+		--device /dev/infiniband \
+		-v ./etc/properties.json:/opt/GVirtuS/etc/properties.json:ro \
+		simple_matrix_gvirtus_local:cuda12.6 \
+		bash -lc 'set -e; \
+			export GVIRTUS_HOME=/opt/GVirtuS; \
+			export GVIRTUS_CONFIG=/opt/GVirtuS/etc/properties.json; \
+			export LD_LIBRARY_PATH=/opt/GVirtuS/lib:/opt/GVirtuS/lib/frontend:$$LD_LIBRARY_PATH; \
+			cd /opt/GVirtuS/examples/simple_matrix; \
+			nvcc simple_matrix.cu -o simple_matrix -L/opt/GVirtuS/lib/frontend -L/opt/GVirtuS/lib -lcuda -lcudart -lcublas; \
+			./simple_matrix'

@@ -53,9 +53,9 @@ RUN pip3 install opencv-python-headless
 
 # # Clone and build GVirtuS
 WORKDIR /opt
-RUN git clone https://github.com/2026CE2/GVirtuS.git && \
+RUN git clone https://github.com/AAU-CE25/GVirtuS.git && \
     cd GVirtuS && \
-    git checkout CSP-9-Implement-udp-protocol && \
+    git checkout dev && \
     mkdir build && cd build && \
     cmake -DCMAKE_INSTALL_PREFIX=${GVIRTUS_HOME} .. && \
     make -j$(nproc) && make install
