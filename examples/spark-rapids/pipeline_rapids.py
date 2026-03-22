@@ -85,6 +85,7 @@ def create_rapids_spark_session(use_gvirtus: bool = False) -> SparkSession:
     import os
     jars_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "jars")
     rapids_jar = os.path.join(jars_dir, "rapids-4-spark_2.12-24.10.0.jar")
+    discovery_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "discover_gpu.sh")
 
     builder = (
         SparkSession.builder
@@ -93,18 +94,21 @@ def create_rapids_spark_session(use_gvirtus: bool = False) -> SparkSession:
         .config("spark.executor.memory", SPARK_EXECUTOR_MEMORY)
         .config("spark.driver.memory", SPARK_DRIVER_MEMORY)
 
-        # ── RAPIDS JAR ──
+        # RAPIDS JAR
         .config("spark.jars", rapids_jar)
         .config("spark.driver.extraClassPath", rapids_jar)
         .config("spark.executor.extraClassPath", rapids_jar)
 
-        # ── RAPIDS Plugin Configuration ──
+        # RAPIDS Plugin
         .config("spark.plugins", "com.nvidia.spark.SQLPlugin")
         .config("spark.rapids.sql.enabled", "true")
         .config("spark.rapids.sql.explain", "ALL")
 
-        # GPU resource allocation
+        # GPU Discovery
+        .config("spark.driver.resource.gpu.amount", "1")
+        .config("spark.driver.resource.gpu.discoveryScript", discovery_script)
         .config("spark.executor.resource.gpu.amount", "1")
+        .config("spark.executor.resource.gpu.discoveryScript", discovery_script)
         .config("spark.task.resource.gpu.amount", "0.5")
         .config("spark.rapids.sql.concurrentGpuTasks", "2")
 
@@ -112,27 +116,19 @@ def create_rapids_spark_session(use_gvirtus: bool = False) -> SparkSession:
         .config("spark.rapids.memory.pinnedPool.size", "2g")
         .config("spark.rapids.sql.batchSizeBytes", str(256 * 1024 * 1024))
 
-        # Enable GPU operations
+        # GPU operations
         .config("spark.rapids.sql.incompatibleOps.enabled", "true")
         .config("spark.rapids.sql.variableFloatAgg.enabled", "true")
         .config("spark.rapids.sql.hasNans", "false")
 
-        # Kryo serialization — RAPIDS requires this registrator
+        # Kryo
         .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
         .config("spark.kryo.registrator", "com.nvidia.spark.rapids.GpuKryoRegistrator")
 
-        # Adaptive query execution
+        # Query execution
         .config("spark.sql.adaptive.enabled", "true")
         .config("spark.sql.shuffle.partitions", "200")
     )
-
-    # ── GVirtuS Configuration ──
-    if use_gvirtus:
-        builder = (
-            builder
-            .config("spark.executorEnv.LD_PRELOAD", "/path/to/gvirtus/libcuda-frontend.so")
-            .config("spark.executorEnv.GVIRTUS_CONFIG", "/path/to/gvirtus/gvirtus.yaml")
-        )
 
     return builder.getOrCreate()
 
