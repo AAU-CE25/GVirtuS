@@ -11,10 +11,16 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 from datetime import datetime, timedelta
-from config import (
-    SCALE_FACTOR, NUM_CUSTOMERS, NUM_PRODUCTS,
-    NUM_ORDERS, NUM_ORDER_ITEMS, NUM_CLICKSTREAM, DATA_DIR
-)
+try:
+    from .config import (
+        SCALE_FACTOR, NUM_CUSTOMERS, NUM_PRODUCTS,
+        NUM_ORDERS, NUM_ORDER_ITEMS, NUM_CLICKSTREAM, DATA_DIR
+    )
+except ImportError:
+    from config import (
+        SCALE_FACTOR, NUM_CUSTOMERS, NUM_PRODUCTS,
+        NUM_ORDERS, NUM_ORDER_ITEMS, NUM_CLICKSTREAM, DATA_DIR
+    )
 
 
 def save_parquet(df: pd.DataFrame, output_path: str):

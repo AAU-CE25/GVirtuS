@@ -15,7 +15,10 @@ import os
 import subprocess
 import time
 from datetime import datetime
-from config import RESULTS_DIR
+try:
+    from .config import RESULTS_DIR
+except ImportError:
+    from config import RESULTS_DIR
 
 
 CONFIGURATIONS = {
