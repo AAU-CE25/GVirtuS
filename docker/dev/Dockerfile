@@ -3,12 +3,7 @@
 ## The image will be pushed at taslanidis/gvirtus-dependencies:cuda12.6.3-cudnn-ubuntu22.04 using the `make docker-build-push-dev` command.
 
 FROM nvidia/cuda:12.6.3-cudnn-devel-ubuntu22.04
-RUN apt-get clean && \
-    apt update -o Acquire::AllowInsecureRepositories=true -o Acquire::AllowDowngradeToInsecureRepositories=true && \
-    apt-get install -y --no-install-recommends \
-    -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
-    --no-install-suggests \
-    -o Dir::Cache::pkgcache="" -o Dir::Cache::srcpkgcache="" \
+RUN apt update && apt install -y --no-install-recommends \
     build-essential \
     libxmu-dev \
     libxi-dev \
