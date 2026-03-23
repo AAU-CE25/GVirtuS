@@ -1,4 +1,4 @@
-.PHONY: docker-build-push-dev docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test rm-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test
+.PHONY: docker-build-push-dev docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test rm-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test docker-build-spark-rapids run-spark-rapids-test stop-spark-rapids-test
 
 USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
 DOCKER_HUB_USERNAME := aauce25
@@ -148,3 +148,28 @@ run-simple-matrix-test:
 
 stop-simple-matrix-test:
 	docker stop simple_matrix_test_container-$(USER) || true
+
+docker-build-spark-rapids:
+	docker buildx build \
+		--platform linux/amd64 \
+		--no-cache \
+		-f examples/spark-rapids/docker/Dockerfile \
+		-t $(DOCKER_HUB_USERNAME)/spark_rapids_gvirtus:cuda12.6 \
+		.
+run-spark-rapids: 
+	docker run --rm -it \
+		--name spark_rapids_test_container-$(USER) \
+		--network host \
+		-v ./examples/simple_matrix:/opt/GVirtuS/examples \
+		-v ./etc/properties.json:/opt/GVirtuS/etc/properties.json \
+		$(DOCKER_HUB_USERNAME)/spark_rapids_gvirtus:cuda12.6 \
+		bash -c "cd /opt/spark-rapids && bash docker/entrypoint.sh"
+
+run-spark-rapids-shell:
+	docker run --rm -it \
+		--name spark_rapids_shell-$(USER) \
+		--entrypoint bash \
+		$(DOCKER_HUB_USERNAME)/spark_rapids_gvirtus:cuda12.6
+
+stop-spark-rapids-test:
+	docker stop spark_rapids_test_container-$(USER) || true

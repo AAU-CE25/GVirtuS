@@ -28,3 +28,9 @@ SPARK_EXECUTOR_MEMORY = "8g"
 SPARK_DRIVER_MEMORY = "4g"
 
 RAPIDS_JAR_PATH = "jars/rapids-4-spark_2.12-25.02.1.jar"
+
+# ── GVirtuS ──
+GVIRTUS_BACKEND_HOST = "24.24.24.1"
+GVIRTUS_BACKEND_PORT = "2222"
+GVIRTUS_HOME = "/usr/local/gvirtus"
+GVIRTUS_CONFIG = "/etc/gvirtus/gvirtus.properties"
