@@ -57,6 +57,7 @@ def create_spark_session() -> SparkSession:
         SparkSession.builder
         .appName("EcommerceAnalytics-CPU")
         .master(SPARK_MASTER)
+        .config("spark.local.dir", "/data/wg38up/spark-temp")
         .config("spark.executor.memory", SPARK_EXECUTOR_MEMORY)
         .config("spark.driver.memory", SPARK_DRIVER_MEMORY)
         .config("spark.sql.adaptive.enabled", "true")
