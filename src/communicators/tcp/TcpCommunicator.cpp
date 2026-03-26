@@ -32,7 +32,8 @@
  *
  *
  */
-// #define DEBUG
+
+ #define DEBUG
 
 #include "TcpCommunicator.h"
 
@@ -175,7 +176,7 @@ const gvirtus::communicators::Communicator *const TcpCommunicator::Accept() cons
 
 void TcpCommunicator::Connect() {
 #ifdef DEBUG
-    cout << "TcpCommunicator::Connect() called " < < < < endl;
+    cout << "TcpCommunicator::Connect() called " << endl;
 #endif
 
     struct sockaddr_in remote;
