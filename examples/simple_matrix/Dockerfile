@@ -14,7 +14,7 @@ RUN apt update && apt install -y --no-install-recommends \
     libibverbs-dev \
     libgtest-dev \
     liblz4-dev \
-    git\
+    git \
     cmake \
     && rm -rf /var/lib/apt/lists/*
 
