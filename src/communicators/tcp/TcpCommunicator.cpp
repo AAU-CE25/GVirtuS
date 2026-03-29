@@ -54,7 +54,9 @@ static bool initialized = false;
 
 #include <cstdlib>
 #include <cstring>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 
 using namespace std;
 using gvirtus::communicators::TcpCommunicator;
@@ -203,7 +205,14 @@ size_t TcpCommunicator::Read(char *buffer, size_t size) {
     else
         ret_value = size;
 
-    LOG4CPLUS_TRACE(logger, "Read() returned " << ret_value << " bytes");
+    if (logger.isEnabledFor(TRACE_LOG_LEVEL)) {
+        std::ostringstream hex;
+        for (unsigned int i = 0; i < ret_value; i++)
+            hex << i << " READ " << std::uppercase << std::hex
+                << std::setw(2) << std::setfill('0')
+                << (0xFF & (unsigned int)buffer[i]) << "\n";
+        LOG4CPLUS_TRACE(logger, "Read() returned " << ret_value << " bytes:\n" << hex.str());
+    }
     return ret_value;
 }
 
@@ -212,7 +221,14 @@ size_t TcpCommunicator::Write(const char *buffer, size_t size) {
 
     mpOutput->write(buffer, size);
 
-    LOG4CPLUS_TRACE(logger, "Write() returned " << size << " bytes");
+    if (logger.isEnabledFor(TRACE_LOG_LEVEL)) {
+        std::ostringstream hex;
+        for (unsigned int i = 0; i < size; i++)
+            hex << i << " WRITTEN " << std::uppercase << std::hex
+                << std::setw(2) << std::setfill('0')
+                << (0xFF & (unsigned int)buffer[i]) << "\n";
+        LOG4CPLUS_TRACE(logger, "Write() returned " << size << " bytes:\n" << hex.str());
+    }
     return size;
 }
 
