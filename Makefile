@@ -1,6 +1,6 @@
 .PHONY: docker-build-push-dev docker-build-dev-local docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test
 USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
-DOCKER_HUB_USERNAME ?= entroopie # change username for local dev!
+DOCKER_HUB_USERNAME ?= aauce25 # change username for local dev!
 
 GVIRTUS_LOG_LEVEL ?= 20000
 
@@ -17,13 +17,13 @@ docker-build-push-dev:
 		-t $(DOCKER_REPO_DEV):cuda12.6.3-cudnn-ubuntu22.04 \
 		.
 
-local-backend:
+local-docker-build-backend:
 	docker buildx build \
 		--platform linux/amd64 \
 		--load \
 		--no-cache \
 		-f docker/dev/Dockerfile \
-		-t $(DOCKER_HUB_USERNAME):cuda12.6.3-cudnn-ubuntu22.04 \
+		-t $(DOCKER_REPO_DEV):cuda12.6.3-cudnn-ubuntu22.04 \
 		.
 
 docker-build-push-prod:
@@ -74,7 +74,7 @@ run-gvirtus-backend-dev:
 		--runtime=nvidia \
 		--shm-size=8G \
 		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
-		$(DOCKER_HUB_USERNAME):cuda12.6.3-cudnn-ubuntu22.04
+		$(DOCKER_REPO_DEV):cuda12.6.3-cudnn-ubuntu22.04
 
 attach-gvirtus-bash:
 		docker exec -it gvirtus-$(USER) bash
@@ -154,7 +154,7 @@ local-docker-build-simple-matrix:
 		--load \
 		--no-cache \
 		-f examples/simple_matrix/Dockerfile \
-		-t $(DOCKER_HUB_USERNAME)/simple_matrix_gvirtus:cuda12.6 \
+		-t $(DOCKER_REPO_DEV)/simple_matrix_gvirtus:cuda12.6 \
 		.
 
 run-simple-matrix-test: 
@@ -164,7 +164,7 @@ run-simple-matrix-test:
 		--network host \
 		-v ./examples/simple_matrix:/opt/GVirtuS/examples \
 		-v ./etc/properties_ucx.json:/opt/GVirtuS/etc/properties_ucx.json \
-		$(DOCKER_HUB_USERNAME)/simple_matrix_gvirtus:cuda12.6 \
+		$(DOCKER_REPO_DEV)/simple_matrix_gvirtus:cuda12.6 \
 		bash /opt/GVirtuS/examples/frontend.sh
 
 stop-simple-matrix-test:
