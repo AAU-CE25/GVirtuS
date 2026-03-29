@@ -42,7 +42,7 @@
 
 #include "communicators/hybrid/HybridCommunicator.h"
 
-#define DEBUG
+// DEBUG replaced with log4cplus, so that all diagnostics respect GVIRTUS_LOGLEVEL and share the unified format.
 
 using gvirtus::backend::Process;
 using gvirtus::common::LD_Lib;
@@ -64,24 +64,32 @@ Process::Process(std::shared_ptr<LD_Lib<Communicator, std::shared_ptr<Endpoint>>
     mPlugins = plugins;
 }
 
-bool getstring(Communicator *c, string &s) {
-    printf("[getstring] c=%p to_string=%s\n", (void *)c, c ? c->to_string().c_str() : "<null>");
+// File-scope logger for the free function getstring(), which has no access to
+// the Process class member.  Using log4cplus instead of raw printf so every
+// diagnostic message respects GVIRTUS_LOGLEVEL and shares the unified format.
+static log4cplus::Logger gs_logger =
+    log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("Process.getstring"));
 
-#ifdef DEBUG
-    // print all to_string info
-    const char *rtti = "<no-rtti>";
-    try {
-        rtti = typeid(*c).name();
-    } catch (...) {
+bool getstring(Communicator *c, string &s) {
+    // TRACE: fires on every routine call, too noisy for DEBUG
+    // RTTI diagnostics merged into one TRACE log.
+    // Only fires when GVIRTUS_LOGLEVEL=0 (TRACE).
+    if (gs_logger.isEnabledFor(log4cplus::TRACE_LOG_LEVEL)) {
+        const char *rtti = "<no-rtti>";
+        try {
+            rtti = typeid(*c).name();
+        } catch (...) {
+        }
+        std::string name;
+        try {
+            name = c->to_string();
+        } catch (...) {
+            name = "<no to_string()>";
+        }
+        LOG4CPLUS_TRACE(gs_logger,
+                        "[getstring] c=" << (void *)c
+                        << " rtti=" << rtti << " to_string()=" << name);
     }
-    std::string name;
-    try {
-        name = c->to_string();
-    } catch (...) {
-        name = "<no to_string()>";
-    }
-    printf("[getstring] c=%p rtti=%s to_string()=%s\n", (void *)c, rtti, name.c_str());
-#endif
 
     // TODO: FIX LISKOV SUBSTITUTION AND DIPENDENCE INVERSION!!!!!
     if (c->to_string() == "tcpcommunicator") {
@@ -164,7 +172,7 @@ void Process::Start() {
         std::shared_ptr<Buffer> input_buffer = std::make_shared<Buffer>();
 
         while (getstring(client_comm, routine)) {
-            LOG4CPLUS_DEBUG(logger, "Received routine " << routine);
+            LOG4CPLUS_TRACE(logger, "Received routine " << routine);
 
             // === before reading buffer, chose the protocol of this round by rountine ===
             gvirtus::communicators::HybridCommunicator *hybrid = nullptr;
@@ -225,6 +233,7 @@ void Process::Start() {
                                                 << "' returned " << result->GetExitCode() << ".");
         }
 
+        LOG4CPLUS_INFO(logger, "Client disconnected");
         Notify("process-ended");
     };
 
@@ -239,8 +248,11 @@ void Process::Start() {
         int pid = 0;
         while (true) {
             Communicator *client = const_cast<Communicator *>(_communicator->obj_ptr()->Accept());
-            printf("[Process] Accept client=%p, comm=%s\n", (void *)client,
-                   client ? client->to_string().c_str() : "<null>");
+
+            // Client connect is already logged at INFO by TcpCommunicator::Accept() with IP
+            LOG4CPLUS_TRACE(logger,
+                            "Accept raw: client=" << (void *)client
+                            << ", comm=" << (client ? client->to_string() : "<null>"));
 
             if (client != nullptr) {
                 //      if ((pid = fork()) == 0) {

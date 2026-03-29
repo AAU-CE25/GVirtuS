@@ -32,7 +32,6 @@
  *
  *
  */
-// #define DEBUG
 
 #include "TcpCommunicator.h"
 
@@ -55,7 +54,9 @@ static bool initialized = false;
 
 #include <cstdlib>
 #include <cstring>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 
 using namespace std;
 using gvirtus::communicators::TcpCommunicator;
@@ -105,6 +106,7 @@ TcpCommunicator::TcpCommunicator(const char *hostname, short port) {
 
 TcpCommunicator::TcpCommunicator(int fd, const char *hostname) {
     mSocketFd = fd;
+    mHostname = hostname ? std::string(hostname) : "unknown";
     InitializeStream();
 }
 
@@ -114,9 +116,7 @@ TcpCommunicator::~TcpCommunicator() {
 }
 
 void TcpCommunicator::Serve() {
-#ifdef DEBUG
-    printf("TcpCommunicator::Serve() called\n");
-#endif
+    LOG4CPLUS_DEBUG(logger, "Serve() called");
 
     struct sockaddr_in socket_addr;
 
@@ -142,15 +142,11 @@ void TcpCommunicator::Serve() {
         throw runtime_error(
             "TcpCommunicator: Can't listen from socket: " + string(strerror(errno)) + ".");
 
-#ifdef DEBUG
-    cout << "TcpCommunicator::Serve() returned" << endl;
-#endif
+    LOG4CPLUS_INFO(logger, "Listening on port " << mPort);
 }
 
 const gvirtus::communicators::Communicator *const TcpCommunicator::Accept() const {
-#ifdef DEBUG
-    cout << "TcpCommunicator::Accept() called" << endl;
-#endif
+    LOG4CPLUS_TRACE(logger, "Accept() waiting for connection...");
 
     unsigned client_socket_fd;
     struct sockaddr_in client_socket_addr;
@@ -167,16 +163,15 @@ const gvirtus::communicators::Communicator *const TcpCommunicator::Accept() cons
         return nullptr;
     }
 
-#ifdef DEBUG
-    cout << "TcpCommunicator::Accept() client_socket_fd: " << client_socket_fd << endl;
-#endif
-    return new TcpCommunicator(client_socket_fd, inet_ntoa(client_socket_addr.sin_addr));
+    const char *client_ip = inet_ntoa(client_socket_addr.sin_addr);
+    int client_port = ntohs(client_socket_addr.sin_port);
+    LOG4CPLUS_INFO(logger, "Client connected from " << client_ip << ":" << client_port
+                           << " (fd=" << client_socket_fd << ")");
+    return new TcpCommunicator(client_socket_fd, client_ip);
 }
 
 void TcpCommunicator::Connect() {
-#ifdef DEBUG
-    cout << "TcpCommunicator::Connect() called " < < < < endl;
-#endif
+    LOG4CPLUS_DEBUG(logger, "Connect() to " << mHostname << ":" << mPort);
 
     struct sockaddr_in remote;
 
@@ -194,23 +189,15 @@ void TcpCommunicator::Connect() {
 
     InitializeStream();
 
-#ifdef DEBUG
-    cout << "TcpCommunicator::Connect() returned" << endl;
-#endif
+    LOG4CPLUS_INFO(logger, "Connected to " << mHostname << ":" << mPort);
 }
 
 void TcpCommunicator::Close() {}
 
 size_t TcpCommunicator::Read(char *buffer, size_t size) {
-#ifdef DEBUG
-    cout << "TcpCommunicator::Read() size: " << size << endl;
-#endif
+    LOG4CPLUS_TRACE(logger, "Read() size=" << size);
 
     mpInput->read(buffer, size);
-
-#ifdef DEBUG
-    for (unsigned int i = 0; i < size; i++) printf("%d LETTO %02X\n", i, buffer[i]);
-#endif
 
     size_t ret_value;
     if (mpInput->bad() || mpInput->eof())
@@ -218,28 +205,30 @@ size_t TcpCommunicator::Read(char *buffer, size_t size) {
     else
         ret_value = size;
 
-#ifdef DEBUG
-    cout << "TcpCommunicator::Read() returned " << ret_value << endl;
-#endif
-
+    if (logger.isEnabledFor(log4cplus::TRACE_LOG_LEVEL)) {
+        std::ostringstream hex;
+        for (unsigned int i = 0; i < ret_value; i++)
+            hex << i << " READ " << std::uppercase << std::hex
+                << std::setw(2) << std::setfill('0')
+                << (0xFF & (unsigned int)buffer[i]) << "\n";
+        LOG4CPLUS_TRACE(logger, "Read() returned " << ret_value << " bytes:\n" << hex.str());
+    }
     return ret_value;
 }
 
 size_t TcpCommunicator::Write(const char *buffer, size_t size) {
-#ifdef DEBUG
-    cout << "TcpCommunicator::Write() called" << endl;
-#endif
+    LOG4CPLUS_TRACE(logger, "Write() size=" << size);
 
     mpOutput->write(buffer, size);
 
-#ifdef DEBUG
-    for (unsigned int i = 0; i < size; i++) printf("%d SCRITTO %02X \n", i, buffer[i]);
-#endif
-
-#ifdef DEBUG
-    cout << "TcpCommunicator::Write() returned" << size << endl;
-#endif
-
+    if (logger.isEnabledFor(log4cplus::TRACE_LOG_LEVEL)) {
+        std::ostringstream hex;
+        for (unsigned int i = 0; i < size; i++)
+            hex << i << " WRITTEN " << std::uppercase << std::hex
+                << std::setw(2) << std::setfill('0')
+                << (0xFF & (unsigned int)buffer[i]) << "\n";
+        LOG4CPLUS_TRACE(logger, "Write() returned " << size << " bytes:\n" << hex.str());
+    }
     return size;
 }
 
