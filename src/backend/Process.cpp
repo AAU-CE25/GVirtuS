@@ -42,7 +42,7 @@
 
 #include "communicators/hybrid/HybridCommunicator.h"
 
-#define DEBUG
+// DEBUG replaced with log4cplus, so that all diagnostics respect GVIRTUS_LOGLEVEL and share the unified format.
 
 using gvirtus::backend::Process;
 using gvirtus::common::LD_Lib;
@@ -72,28 +72,24 @@ static log4cplus::Logger gs_logger =
 
 bool getstring(Communicator *c, string &s) {
     // TRACE: fires on every routine call, too noisy for DEBUG
-    LOG4CPLUS_TRACE(gs_logger,
-                    "[getstring] c=" << (void *)c
-                    << " to_string=" << (c ? c->to_string() : "<null>"));
-
-#ifdef DEBUG
-    // Replaced printf → LOG4CPLUS_TRACE: RTTI diagnostics are very verbose,
-    // so they belong at TRACE level (only visible with GVIRTUS_LOGLEVEL=0).
-    const char *rtti = "<no-rtti>";
-    try {
-        rtti = typeid(*c).name();
-    } catch (...) {
+    // RTTI diagnostics merged into one TRACE log.
+    // Only fires when GVIRTUS_LOGLEVEL=0 (TRACE).
+    if (gs_logger.isEnabledFor(TRACE_LOG_LEVEL)) {
+        const char *rtti = "<no-rtti>";
+        try {
+            rtti = typeid(*c).name();
+        } catch (...) {
+        }
+        std::string name;
+        try {
+            name = c->to_string();
+        } catch (...) {
+            name = "<no to_string()>";
+        }
+        LOG4CPLUS_TRACE(gs_logger,
+                        "[getstring] c=" << (void *)c
+                        << " rtti=" << rtti << " to_string()=" << name);
     }
-    std::string name;
-    try {
-        name = c->to_string();
-    } catch (...) {
-        name = "<no to_string()>";
-    }
-    LOG4CPLUS_TRACE(gs_logger,
-                    "[getstring] c=" << (void *)c
-                    << " rtti=" << rtti << " to_string()=" << name);
-#endif
 
     // TODO: FIX LISKOV SUBSTITUTION AND DIPENDENCE INVERSION!!!!!
     if (c->to_string() == "tcpcommunicator") {
