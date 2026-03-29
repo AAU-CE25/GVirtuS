@@ -205,7 +205,7 @@ size_t TcpCommunicator::Read(char *buffer, size_t size) {
     else
         ret_value = size;
 
-    if (logger.isEnabledFor(TRACE_LOG_LEVEL)) {
+    if (logger.isEnabledFor(log4cplus::TRACE_LOG_LEVEL)) {
         std::ostringstream hex;
         for (unsigned int i = 0; i < ret_value; i++)
             hex << i << " READ " << std::uppercase << std::hex
@@ -221,7 +221,7 @@ size_t TcpCommunicator::Write(const char *buffer, size_t size) {
 
     mpOutput->write(buffer, size);
 
-    if (logger.isEnabledFor(TRACE_LOG_LEVEL)) {
+    if (logger.isEnabledFor(log4cplus::TRACE_LOG_LEVEL)) {
         std::ostringstream hex;
         for (unsigned int i = 0; i < size; i++)
             hex << i << " WRITTEN " << std::uppercase << std::hex

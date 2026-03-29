@@ -64,24 +64,36 @@ Backend::Backend(const fs::path &path) {
                        "Application serves on " << _properties.endpoints() << " several endpoint");
 
     try {
-        for (int i = 0; i < _properties.endpoints(); i++) {
-            LOG4CPLUS_DEBUG(logger, "Setting up endpoint " << i << "/" << _properties.endpoints());
+        if (logger.isEnabledFor(log4cplus::TRACE_LOG_LEVEL)) {
+            for (int i = 0; i < _properties.endpoints(); i++) {
+                LOG4CPLUS_DEBUG(logger, "Setting up endpoint " << i << "/" << _properties.endpoints());
 
-            auto secure = _properties.secure();
-            LOG4CPLUS_TRACE(logger, "  secure = " << secure);
+                auto secure = _properties.secure();
+                LOG4CPLUS_TRACE(logger, "  secure = " << secure);
 
-            auto endpoint = communicators::EndpointFactory::get_endpoint(path);
-            LOG4CPLUS_TRACE(logger, "  endpoint created");
+                auto endpoint = communicators::EndpointFactory::get_endpoint(path);
+                LOG4CPLUS_TRACE(logger, "  endpoint created");
 
-            auto communicator =
-                communicators::CommunicatorFactory::get_communicator(endpoint, secure);
-            LOG4CPLUS_TRACE(logger, "  communicator created");
+                auto communicator =
+                   communicators::CommunicatorFactory::get_communicator(endpoint, secure);
+                LOG4CPLUS_TRACE(logger, "  communicator created");
 
-            auto plugins = _properties.plugins().at(i);
-            LOG4CPLUS_TRACE(logger, "  plugins loaded (" << plugins.size() << " entries)");
+                auto plugins = _properties.plugins().at(i);
+                LOG4CPLUS_TRACE(logger, "  plugins loaded (" << plugins.size() << " entries)");
 
-            _children.push_back(std::make_unique<Process>(communicator, plugins));
-            LOG4CPLUS_DEBUG(logger, "Endpoint " << i << " ready");
+                _children.push_back(std::make_unique<Process>(communicator, plugins));
+                LOG4CPLUS_DEBUG(logger, "Endpoint " << i << " ready");
+            }
+        }
+        else {
+            for (int i = 0; i < _properties.endpoints(); i++) {
+                LOG4CPLUS_DEBUG(logger, "Setting up endpoint " << i << "/" << _properties.endpoints());
+                _children.push_back(std::make_unique<Process>(
+                    communicators::CommunicatorFactory::get_communicator(
+                        communicators::EndpointFactory::get_endpoint(path), _properties.secure()),
+                    _properties.plugins().at(i)));
+                    LOG4CPLUS_DEBUG(logger, "Endpoint " << i << " ready");
+            }
         }
     } catch (const std::exception &e) {
         LOG4CPLUS_ERROR(logger, "Exception during process setup: " << e.what());

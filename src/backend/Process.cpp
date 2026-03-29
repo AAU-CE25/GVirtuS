@@ -74,7 +74,7 @@ bool getstring(Communicator *c, string &s) {
     // TRACE: fires on every routine call, too noisy for DEBUG
     // RTTI diagnostics merged into one TRACE log.
     // Only fires when GVIRTUS_LOGLEVEL=0 (TRACE).
-    if (gs_logger.isEnabledFor(TRACE_LOG_LEVEL)) {
+    if (gs_logger.isEnabledFor(log4cplus::TRACE_LOG_LEVEL)) {
         const char *rtti = "<no-rtti>";
         try {
             rtti = typeid(*c).name();
