@@ -139,6 +139,29 @@ make run-gvirtus-backend-dev
 >
 > * Before running the OpenPose–GVirtuS integrated application on a **frontend (non-GPU) device**, ensure that the `properties.json` configuration file in the frontend contains the correct **IP address**, **port**, and **endpoint suite** of the backend.
 
+> [!TIP]
+> **Controlling log verbosity** — Both the backend and frontend read the `GVIRTUS_LOGLEVEL` environment variable to set the log4cplus log level.
+> Set it **before** launching the process:
+>
+> ```bash
+> # Example: enable DEBUG output for the backend
+> export GVIRTUS_LOGLEVEL=10000
+> make run-gvirtus-backend-dev
+> ```
+>
+> | Level | Value | What you will see |
+> |-------|------:|-------------------|
+> | TRACE | `0` | Everything (most verbose) |
+> | DEBUG | `10000` | Debug messages + all below |
+> | INFO | `20000` | Startup / shutdown info (**default**) |
+> | WARN | `30000` | Warnings + errors only |
+> | ERROR | `40000` | Errors + fatal only |
+> | FATAL | `50000` | Fatal errors only |
+> | OFF | `60000` | Logging disabled |
+>
+> The same variable works on the **frontend** side (`src/frontend/Frontend.cpp` reads it identically).
+> Inside Docker the Dockerfiles already set a default — override it with `docker run -e GVIRTUS_LOGLEVEL=10000 …` or by editing the `entrypoint.sh`.
+
 ### Case 1: Distributed Setup (Different Devices)
 
 If the **GVirtuS backend** is running on a GPU server (or edge device) and the **frontend** is on a different non-GPU device:

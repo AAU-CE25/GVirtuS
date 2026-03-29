@@ -2,6 +2,8 @@
 USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
 DOCKER_HUB_USERNAME := aauce25
 
+GVIRTUS_LOG_LEVEL := 10000
+
 DOCKER_REPO_DEV := $(DOCKER_HUB_USERNAME)/gvirtus-dev
 DOCKER_REPO_TEST := $(DOCKER_HUB_USERNAME)/gvirtus-test
 DOCKER_REPO_PROD := $(DOCKER_HUB_USERNAME)/gvirtus
@@ -62,6 +64,7 @@ run-gvirtus-backend-dev:
 		--name gvirtus-$(USER) \
 		--runtime=nvidia \
 		--shm-size=8G \
+		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
 		$(DOCKER_REPO_DEV):cuda12.6.3-cudnn-ubuntu22.04
 
 attach-gvirtus-bash:

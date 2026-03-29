@@ -64,11 +64,21 @@ Process::Process(std::shared_ptr<LD_Lib<Communicator, std::shared_ptr<Endpoint>>
     mPlugins = plugins;
 }
 
+// File-scope logger for the free function getstring(), which has no access to
+// the Process class member.  Using log4cplus instead of raw printf so every
+// diagnostic message respects GVIRTUS_LOGLEVEL and shares the unified format.
+static log4cplus::Logger gs_logger =
+    log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("Process.getstring"));
+
 bool getstring(Communicator *c, string &s) {
-    printf("[getstring] c=%p to_string=%s\n", (void *)c, c ? c->to_string().c_str() : "<null>");
+    // TRACE: fires on every routine call, too noisy for DEBUG
+    LOG4CPLUS_TRACE(gs_logger,
+                    "[getstring] c=" << (void *)c
+                    << " to_string=" << (c ? c->to_string() : "<null>"));
 
 #ifdef DEBUG
-    // print all to_string info
+    // Replaced printf → LOG4CPLUS_TRACE: RTTI diagnostics are very verbose,
+    // so they belong at TRACE level (only visible with GVIRTUS_LOGLEVEL=0).
     const char *rtti = "<no-rtti>";
     try {
         rtti = typeid(*c).name();
@@ -80,7 +90,9 @@ bool getstring(Communicator *c, string &s) {
     } catch (...) {
         name = "<no to_string()>";
     }
-    printf("[getstring] c=%p rtti=%s to_string()=%s\n", (void *)c, rtti, name.c_str());
+    LOG4CPLUS_TRACE(gs_logger,
+                    "[getstring] c=" << (void *)c
+                    << " rtti=" << rtti << " to_string()=" << name);
 #endif
 
     // TODO: FIX LISKOV SUBSTITUTION AND DIPENDENCE INVERSION!!!!!
@@ -164,7 +176,7 @@ void Process::Start() {
         std::shared_ptr<Buffer> input_buffer = std::make_shared<Buffer>();
 
         while (getstring(client_comm, routine)) {
-            LOG4CPLUS_DEBUG(logger, "Received routine " << routine);
+            LOG4CPLUS_TRACE(logger, "Received routine " << routine);
 
             // === before reading buffer, chose the protocol of this round by rountine ===
             gvirtus::communicators::HybridCommunicator *hybrid = nullptr;
@@ -225,6 +237,7 @@ void Process::Start() {
                                                 << "' returned " << result->GetExitCode() << ".");
         }
 
+        LOG4CPLUS_INFO(logger, "Client disconnected");
         Notify("process-ended");
     };
 
@@ -239,8 +252,11 @@ void Process::Start() {
         int pid = 0;
         while (true) {
             Communicator *client = const_cast<Communicator *>(_communicator->obj_ptr()->Accept());
-            printf("[Process] Accept client=%p, comm=%s\n", (void *)client,
-                   client ? client->to_string().c_str() : "<null>");
+
+            // Client connect is already logged at INFO by TcpCommunicator::Accept() with IP
+            LOG4CPLUS_TRACE(logger,
+                            "Accept raw: client=" << (void *)client
+                            << ", comm=" << (client ? client->to_string() : "<null>"));
 
             if (client != nullptr) {
                 //      if ((pid = fork()) == 0) {

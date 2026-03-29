@@ -42,6 +42,8 @@
 #endif
 
 #include "gvirtus/communicators/Communicator.h"
+#include "log4cplus/logger.h"
+#include "log4cplus/loggingmacros.h"
 
 namespace gvirtus::communicators {
 /**
@@ -63,8 +65,10 @@ class TcpCommunicator : public Communicator {
     void Close();
 
     std::string to_string() override { return "tcpcommunicator"; }
+    std::string get_client_address() const { return mHostname; }
 
    private:
+    log4cplus::Logger logger = log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("TcpCommunicator"));
     void InitializeStream();
     std::istream *mpInput;
     std::ostream *mpOutput;
