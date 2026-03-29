@@ -12,6 +12,8 @@ RUN apt update && apt install -y --no-install-recommends \
     liblog4cplus-dev \
     librdmacm-dev \
     libibverbs-dev \
+    libucx0 \
+    libucx-dev \
     libgtest-dev \
     liblz4-dev \
     cmake \
