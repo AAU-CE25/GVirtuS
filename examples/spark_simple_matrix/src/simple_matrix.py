@@ -1,0 +1,207 @@
+#!/usr/bin/env python3
+"""
+Simple matrix multiplication using Apache Spark.
+Generates two random matrices, multiplies them, and saves the result.
+
+Usage:
+    python simple_matrix.py                    # CPU-only (default)
+    python simple_matrix.py --mode rapids      # RAPIDS GPU acceleration
+    python simple_matrix.py --mode both        # run CPU then RAPIDS
+
+The RAPIDS JAR is placed on the JVM classpath automatically via
+PYSPARK_SUBMIT_ARGS (set in config.py), so no spark-submit is needed.
+"""
+
+import argparse
+import logging
+import time
+import json
+import os
+
+# Import config FIRST — it sets PYSPARK_SUBMIT_ARGS so the RAPIDS JAR
+# is on the JVM classpath before PySpark boots.
+from config import (
+    LOG_LEVEL,
+    SPARK_LOG_LEVEL,
+    SCALE_FACTOR,
+    RESULTS_DIR,
+    SPARK_MASTER, 
+    SPARK_CONFIG,
+    SPARK_RAPIDS_CONFIG,
+)
+
+from pyspark.sql import SparkSession
+
+# ── Logger (log4cplus-style format) ──
+LOG_FORMAT = "%(asctime)s [%(levelname)-5s] [%(name)s] (%(filename)s:%(lineno)d) - %(message)s"
+LOG_DATE_FORMAT = "%Y/%m/%d %H:%M:%S"
+
+logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
+log = logging.getLogger("SimpleMatrix")
+
+# Suppress noisy third-party loggers
+logging.getLogger("py4j").setLevel(logging.WARNING)
+
+# Matrix size scales with SCALE_FACTOR
+N = 100 * SCALE_FACTOR  # NxN matrices
+
+
+def create_spark_session(use_rapids=False):
+    config = SPARK_RAPIDS_CONFIG if use_rapids else SPARK_CONFIG
+    app_name = "SimpleMatrixMultiply-RAPIDS" if use_rapids else "SimpleMatrixMultiply-CPU"
+    builder = (
+        SparkSession.builder
+        .appName(app_name)
+        .master(SPARK_MASTER)
+    )
+
+    for k, v in config:
+        builder = builder.config(k, v)
+
+    log.debug(f"Spark config for {app_name}: {dict(config)}")
+    spark = builder.getOrCreate()
+
+    # Suppress Spark's verbose Java logs (keep only WARN+)
+    spark.sparkContext.setLogLevel(SPARK_LOG_LEVEL)
+    return spark
+
+
+def multiply_matrices_df(spark, n):
+    """
+    Multiply two NxN matrices using Spark DataFrames.
+
+    Uses DataFrame join + groupBy + sum so the RAPIDS SQL plugin can
+    accelerate the computation on GPU.  (RDD operations are invisible
+    to the plugin — only Catalyst/SQL plans get GPU-offloaded.)
+
+    C[i][j] = sum_k  A[i][k] * B[k][j]
+    """
+    import random
+    from pyspark.sql import functions as F
+    from pyspark.sql.types import StructType, StructField, IntegerType, DoubleType
+
+    random.seed(42)
+
+    schema = StructType([
+        StructField("row", IntegerType(), False),
+        StructField("col", IntegerType(), False),
+        StructField("val", DoubleType(), False),
+    ])
+
+    # Generate flat list of (row, col, value) entries for A and B
+    a_entries = [(i, k, random.random()) for i in range(n) for k in range(n)]
+    b_entries = [(k, j, random.random()) for k in range(n) for j in range(n)]
+
+    # Create DataFrames (column names: row, col, val)
+    df_a = spark.createDataFrame(a_entries, schema=schema)
+    df_b = spark.createDataFrame(b_entries, schema=schema)
+
+    # Rename to avoid ambiguity after join
+    a = df_a.alias("a")
+    b = df_b.alias("b")
+
+    # Join on A.col == B.row  (the shared "k" dimension)
+    # Then compute products and sum per (i, j)
+    t0 = time.time()
+    result = (
+        a.join(b, F.col("a.col") == F.col("b.row"))
+         .select(
+             F.col("a.row").alias("i"),
+             F.col("b.col").alias("j"),
+             (F.col("a.val") * F.col("b.val")).alias("product"),
+         )
+         .groupBy("i", "j")
+         .agg(F.sum("product").alias("value"))
+    )
+    elapsed = time.time() - t0
+
+    return result, elapsed
+
+
+def save_summary(filepath, summary, overwrite=True):
+    """
+    Save a JSON summary to *filepath*.
+
+    Args:
+        filepath:  Destination path.
+        summary:   Dict to persist.
+        overwrite: If True (default), replace the file entirely.
+                   If False, merge *summary* into the existing file
+                   (top-level keys are updated/added; the rest is kept).
+    """
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
+    if not overwrite and os.path.exists(filepath):
+        with open(filepath, "r") as f:
+            existing = json.load(f)
+        existing.update(summary)
+        summary = existing
+
+    with open(filepath, "w") as f:
+        json.dump(summary, f, indent=2)
+
+    log.info(f"Results saved to {filepath} (overwrite={overwrite})")
+
+
+def main(use_rapids=False, overwrite=True):
+
+    mode = "rapids" if use_rapids else "cpu"
+    log.info(f"Mode: {mode} | Matrix size: {N}x{N}  (scale factor {SCALE_FACTOR})")
+
+    spark = create_spark_session(use_rapids=use_rapids)
+    config = SPARK_RAPIDS_CONFIG if use_rapids else SPARK_CONFIG
+
+    t0 = time.time()
+    result_df, mul_time_elapsed = multiply_matrices_df(spark, N)
+    count = result_df.count()
+    elapsed = time.time() - t0
+
+    log.debug(f"Result has {count} elements ({N}x{N} = {N*N} expected)")
+    log.debug(f"Elapsed: {elapsed:.4f}s")
+    log.debug(f"Matrix multiplication time: {mul_time_elapsed:.4f}s")
+
+    # Save summary
+    summary = {
+        "mode": mode,
+        "scale_factor": SCALE_FACTOR,
+        "matrix_size": N,
+        "result_elements": count,
+        "elapsed_seconds": round(elapsed, 4),
+        "matrix_multiplication_time": round(mul_time_elapsed, 4),
+        "spark_config": dict(config),
+    }
+    out_path = os.path.join(RESULTS_DIR, f"simple_matrix_{mode}_results.json")
+    save_summary(out_path, summary, overwrite=overwrite)
+
+    spark.stop()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Spark matrix multiplication")
+    parser.add_argument(
+        "--mode",
+        choices=["cpu", "rapids", "both"],
+        default="cpu",
+        help="Execution mode: cpu (default), rapids (needs GPU), or both",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        default=True,
+        help="Overwrite existing results file (default: True)",
+    )
+    parser.add_argument(
+        "--no-overwrite",
+        action="store_false",
+        dest="overwrite",
+        help="Merge new results into the existing results file instead of replacing it",
+    )
+    args = parser.parse_args()
+
+    if args.mode == "cpu":
+        main(False, overwrite=args.overwrite)
+    if args.mode == "rapids":
+        main(True, overwrite=args.overwrite)
+    if args.mode == "both":
+        main(False, overwrite=args.overwrite)
+        main(True, overwrite=args.overwrite)
