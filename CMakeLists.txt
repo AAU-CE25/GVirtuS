@@ -113,12 +113,28 @@ target_link_libraries(gvirtus-communicators-hybrid
 gvirtus_install_target(gvirtus-communicators-hybrid)
 
 ## UCX COMMUNICATOR
-add_library(gvirtus-communicators-ucx SHARED
-    src/communicators/FramedStream.cpp
-    src/communicators/ucx/UcxCommunicator.cpp
-)
-target_link_libraries(gvirtus-communicators-ucx gvirtus-communicators)
-gvirtus_install_target(gvirtus-communicators-ucx)
+find_path(UCX_INCLUDE_DIR ucp/api/ucp.h)
+find_library(UCX_UCP_LIB ucp)
+find_library(UCX_UCS_LIB ucs)
+find_library(UCX_UCT_LIB uct)
+
+if(UCX_INCLUDE_DIR AND UCX_UCP_LIB AND UCX_UCS_LIB AND UCX_UCT_LIB)
+    add_library(gvirtus-communicators-ucx SHARED
+        src/communicators/FramedStream.cpp
+        src/communicators/ucx/UcxCommunicator.cpp
+    )
+    target_include_directories(gvirtus-communicators-ucx PRIVATE ${UCX_INCLUDE_DIR})
+    target_link_libraries(gvirtus-communicators-ucx 
+        PRIVATE
+            gvirtus-communicators
+            ${UCX_UCP_LIB}
+            ${UCX_UCS_LIB}
+            ${UCX_UCT_LIB}
+    )
+    gvirtus_install_target(gvirtus-communicators-ucx)
+else()
+    message(WARNING "UCX libraries not found, skipping gvirtus-communicators-ucx")
+endif()
 
 # ===== FRONTEND =====
 add_library(gvirtus-frontend SHARED
