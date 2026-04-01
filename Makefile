@@ -1,4 +1,4 @@
-.PHONY: docker-build-push-dev docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test
+.PHONY: docker-build-push-dev docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test docker-build-spark-simple-matrix run-spark-simple-matrix run-spark-simple-matrix-rapids stop-spark-simple-matrix
 USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
 DOCKER_HUB_USERNAME ?= aauce25
 
@@ -150,3 +150,43 @@ run-simple-matrix-test:
 
 stop-simple-matrix-test:
 	docker stop simple_matrix_test_container-$(USER) || true
+
+# ── spark_simple_matrix ──
+
+DOCKER_SPARK_MATRIX := $(DOCKER_HUB_USERNAME)/spark_simple_matrix:latest
+
+docker-build-spark-simple-matrix:
+	docker buildx build \
+		--platform linux/amd64 \
+		-f examples/spark_simple_matrix/Dockerfile \
+		-t $(DOCKER_SPARK_MATRIX) \
+		examples/spark_simple_matrix
+
+run-spark-simple-matrix: docker-build-spark-simple-matrix
+	docker run --rm \
+		--name spark-simple-matrix-$(USER) \
+		--network host \
+		-v ./examples/spark_simple_matrix/src:/app/src \
+		-v ./examples/spark_simple_matrix/results:/app/results \
+		-v ./examples/spark_simple_matrix/jars:/app/jars \
+		-e PYSPARK_PYTHON=python3 \
+		-e PYSPARK_DRIVER_PYTHON=python3 \
+		--shm-size=8G \
+		$(DOCKER_SPARK_MATRIX)
+
+run-spark-simple-matrix-rapids: docker-build-spark-simple-matrix
+	docker run --rm \
+		--name spark-simple-matrix-$(USER) \
+		--network host \
+		--runtime=nvidia \
+		-v ./examples/spark_simple_matrix/src:/app/src \
+		-v ./examples/spark_simple_matrix/results:/app/results \
+		-v ./examples/spark_simple_matrix/jars:/app/jars \
+		-e PYSPARK_PYTHON=python3 \
+		-e PYSPARK_DRIVER_PYTHON=python3 \
+		--shm-size=8G \
+		$(DOCKER_SPARK_MATRIX) \
+		python3 simple_matrix.py --mode rapids
+
+stop-spark-simple-matrix:
+	docker stop spark-simple-matrix-$(USER) || true
