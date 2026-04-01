@@ -155,30 +155,32 @@ stop-simple-matrix-test:
 
 DOCKER_SPARK_MATRIX := $(DOCKER_HUB_USERNAME)/spark_simple_matrix:latest
 
-docker-build-spark-simple-matrix:
+docker-build-push-spark-simple-matrix:
 	docker buildx build \
 		--platform linux/amd64 \
+		--push \
 		-f examples/spark_simple_matrix/Dockerfile \
 		-t $(DOCKER_SPARK_MATRIX) \
 		examples/spark_simple_matrix
 
-run-spark-simple-matrix: docker-build-spark-simple-matrix
+run-spark-simple-matrix: 
 	docker run --rm \
 		--name spark-simple-matrix-$(USER) \
 		--network host \
+		--gpus all \
 		-v ./examples/spark_simple_matrix/src:/app/src \
 		-v ./examples/spark_simple_matrix/results:/app/results \
 		-v ./examples/spark_simple_matrix/jars:/app/jars \
 		-e PYSPARK_PYTHON=python3 \
 		-e PYSPARK_DRIVER_PYTHON=python3 \
 		--shm-size=8G \
-		$(DOCKER_SPARK_MATRIX)
+		$(DOCKER_SPARK_MATRIX) 
 
 run-spark-simple-matrix-rapids: docker-build-spark-simple-matrix
 	docker run --rm \
 		--name spark-simple-matrix-$(USER) \
 		--network host \
-		--runtime=nvidia \
+		--gpus all \
 		-v ./examples/spark_simple_matrix/src:/app/src \
 		-v ./examples/spark_simple_matrix/results:/app/results \
 		-v ./examples/spark_simple_matrix/jars:/app/jars \

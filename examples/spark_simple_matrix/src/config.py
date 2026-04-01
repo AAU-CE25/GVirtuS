@@ -17,7 +17,7 @@ DATA_DIR = f"/data/wg38up/spark_simple_matrix/sf{SCALE_FACTOR}"
 RESULTS_DIR = f"../results/sf{SCALE_FACTOR}"
 
 # RAPIDS JAR path (assumes it's already built and placed here)
-RAPIDS_JAR_PATH = "../jars/rapids-4-spark_2.12-25.02.1.jar"
+RAPIDS_JAR_PATH = "../jars/rapids-4-spark_2.12-26.02.1.jar"
 
 # ── Spark config (CPU-only, no RAPIDS plugin enabled) ──
 # JAR is on classpath so the JVM doesn't need to restart when switching modes.
