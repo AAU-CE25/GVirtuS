@@ -114,6 +114,7 @@ gvirtus_install_target(gvirtus-communicators-hybrid)
 
 ## UCX COMMUNICATOR
 add_library(gvirtus-communicators-ucx SHARED
+    src/communicators/FramedStream.cpp
     src/communicators/ucx/UcxCommunicator.cpp
 )
 target_link_libraries(gvirtus-communicators-ucx gvirtus-communicators)

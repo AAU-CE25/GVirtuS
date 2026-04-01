@@ -68,3 +68,24 @@ foreach(TEST_SRC ${TEST_SOURCES})
     # Register the test with ctest
     add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
 endforeach()
+
+find_path(UCX_INCLUDE_DIR ucp/api/ucp.h)
+find_library(UCX_UCP_LIB ucp)
+find_library(UCX_UCS_LIB ucs)
+find_library(UCX_UCT_LIB uct)
+
+if(UCX_INCLUDE_DIR AND UCX_UCP_LIB AND UCX_UCS_LIB AND UCX_UCT_LIB)
+    add_executable(test_framed_stream test_framed_stream.cpp)
+    target_include_directories(test_framed_stream PRIVATE ${GTEST_INCLUDE_DIRS} ${UCX_INCLUDE_DIR})
+    target_link_libraries(test_framed_stream PRIVATE
+        GTest::GTest
+        GTest::Main
+        gvirtus-communicators-ucx
+        ${UCX_UCP_LIB}
+        ${UCX_UCS_LIB}
+        ${UCX_UCT_LIB}
+    )
+    add_test(NAME test_framed_stream COMMAND test_framed_stream)
+else()
+    message(WARNING "UCX libraries not found, skipping test_framed_stream")
+endif()
