@@ -157,6 +157,7 @@ DOCKER_SPARK_MATRIX := $(DOCKER_HUB_USERNAME)/spark_simple_matrix:latest
 
 docker-build-push-spark-simple-matrix:
 	docker buildx build \
+		--no-cache \
 		--platform linux/amd64 \
 		--push \
 		-f examples/spark_simple_matrix/Dockerfile \
@@ -167,7 +168,6 @@ run-spark-simple-matrix:
 	docker run --rm \
 		--name spark-simple-matrix-$(USER) \
 		--network host \
-		--gpus all \
 		-v ./examples/spark_simple_matrix/src:/app/src \
 		-v ./examples/spark_simple_matrix/results:/app/results \
 		-v ./examples/spark_simple_matrix/jars:/app/jars \
@@ -180,7 +180,6 @@ run-spark-simple-matrix-rapids: docker-build-spark-simple-matrix
 	docker run --rm \
 		--name spark-simple-matrix-$(USER) \
 		--network host \
-		--gpus all \
 		-v ./examples/spark_simple_matrix/src:/app/src \
 		-v ./examples/spark_simple_matrix/results:/app/results \
 		-v ./examples/spark_simple_matrix/jars:/app/jars \

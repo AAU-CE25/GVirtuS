@@ -4,9 +4,12 @@ Simple matrix multiplication using Apache Spark.
 Generates two random matrices, multiplies them, and saves the result.
 
 Usage:
-    python simple_matrix.py                    # CPU-only (default)
-    python simple_matrix.py --mode rapids      # RAPIDS GPU acceleration
-    python simple_matrix.py --mode both        # run CPU then RAPIDS
+    python simple_matrix.py local              # Run locally (native)
+    python simple_matrix.py docker             # Run through Docker
+    python simple_matrix.py gvirtus            # Run using GVirtuS
+
+    python simple_matrix.py local --mode rapids      # RAPIDS GPU acceleration
+    python simple_matrix.py docker --mode both       # run CPU then RAPIDS
 
 The RAPIDS JAR is placed on the JVM classpath automatically via
 PYSPARK_SUBMIT_ARGS (set in config.py), so no spark-submit is needed.
@@ -143,10 +146,10 @@ def save_summary(filepath, summary, overwrite=True):
     log.info(f"Results saved to {filepath} (overwrite={overwrite})")
 
 
-def main(use_rapids=False, overwrite=True):
+def main(env, use_rapids=False, overwrite=True):
 
     mode = "rapids" if use_rapids else "cpu"
-    log.info(f"Mode: {mode} | Matrix size: {N}x{N}  (scale factor {SCALE_FACTOR})")
+    log.info(f"Env: {env} | Mode: {mode} | Matrix size: {N}x{N}  (scale factor {SCALE_FACTOR})")
 
     spark = create_spark_session(use_rapids=use_rapids)
     config = SPARK_RAPIDS_CONFIG if use_rapids else SPARK_CONFIG
@@ -162,6 +165,7 @@ def main(use_rapids=False, overwrite=True):
 
     # Save summary
     summary = {
+        "env": env,
         "mode": mode,
         "scale_factor": SCALE_FACTOR,
         "matrix_size": N,
@@ -178,6 +182,11 @@ def main(use_rapids=False, overwrite=True):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Spark matrix multiplication")
+    parser.add_argument(
+        "env",
+        choices=["local", "docker", "gvirtus"],
+        help="Execution environment: local (native), docker, or gvirtus",
+    )
     parser.add_argument(
         "--mode",
         choices=["cpu", "rapids", "both"],
@@ -199,9 +208,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.mode == "cpu":
-        main(False, overwrite=args.overwrite)
+        main(args.env, False, overwrite=args.overwrite)
     if args.mode == "rapids":
-        main(True, overwrite=args.overwrite)
+        main(args.env, True, overwrite=args.overwrite)
     if args.mode == "both":
-        main(False, overwrite=args.overwrite)
-        main(True, overwrite=args.overwrite)
+        main(args.env, False, overwrite=args.overwrite)
+        main(args.env, True, overwrite=args.overwrite)

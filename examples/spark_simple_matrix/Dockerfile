@@ -38,4 +38,4 @@ WORKDIR /app/src
 # Default: run simple_matrix.py both
 # The RAPIDS JAR path is configured in config.py (spark.jars),
 # so no --jars flag is needed on the command line.
-CMD ["python3", "simple_matrix.py", "--mode=both"]
+CMD ["python3", "simple_matrix.py", "docker" ,"--mode=both"]

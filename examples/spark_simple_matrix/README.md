@@ -22,13 +22,13 @@ The RAPIDS Accelerator JAR must be placed in a `jars/` folder at the project roo
 ```bash
 mkdir -p jars
 # Download the JAR (pick the version matching your Spark):
-wget -P jars/ https://repo1.maven.org/maven2/com/nvidia/rapids-4-spark_2.12/25.02.1/rapids-4-spark_2.12-25.02.1.jar
+wget -P jars/ https://repo1.maven.org/maven2/com/nvidia/rapids-4-spark_2.12/26.02.1/rapids-4-spark_2.12-26.02.1.jar
 ```
 
 The JAR filename is configured in `src/config.py` via `RAPIDS_JAR_PATH`:
 
 ```python
-RAPIDS_JAR_PATH = "../jars/rapids-4-spark_2.12-25.02.1.jar"
+RAPIDS_JAR_PATH = "../jars/rapids-4-spark_2.12-26.02.1.jar"
 ```
 
 If you use a different version, update this path to match.
