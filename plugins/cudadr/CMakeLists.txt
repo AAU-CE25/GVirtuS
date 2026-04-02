@@ -39,7 +39,16 @@ function(configure_cudadr_plugin)
         )
     endwhile()
     message(STATUS "Resolved CUDADR version: ${CUDADR_VERSION}")
-    string(REGEX REPLACE ".*\\.so\\.([0-9]+(\\.[0-9]+)*)" "\\1" CUDADR_VERSION "${CUDADR_VERSION}")
+    
+    # Extract version from libcuda.so.XXX — if no version suffix, default to "1"
+    # This handles the CUDA stubs library which has no version suffix
+    # This would allow us to support both the stubs library and the actual CUDA library without needing separate handling for GPU-less environments
+    if(CUDADR_VERSION MATCHES ".*\\.so\\.([0-9]+(\\.[0-9]+)*)")
+        string(REGEX REPLACE ".*\\.so\\.([0-9]+(\\.[0-9]+)*)" "\\1" CUDADR_VERSION "${CUDADR_VERSION}")
+    else()
+        set(CUDADR_VERSION "1")
+        message(STATUS "No version suffix found in libcuda.so, using default: ${CUDADR_VERSION}")
+    endif()
 
 
     gvirtus_add_backend(cuda ${CUDADR_VERSION}
