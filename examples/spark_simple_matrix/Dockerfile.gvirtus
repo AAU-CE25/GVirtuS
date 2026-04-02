@@ -1,16 +1,44 @@
-# Multi-stage build: use pre-built GVirtuS dev image, then copy frontend stubs
-# to plain Ubuntu. This ensures RAPIDS JNI loads GVirtuS stubs (no real CUDA libs).
+# Multi-stage build: build GVirtuS frontend from nvidia base image, then copy
+# frontend stubs to plain Ubuntu. This ensures RAPIDS JNI loads GVirtuS stubs (no real CUDA libs).
 
 # ════════════════════════════════════════════════════════════════════════════════
-# Stage 1: Use existing gvirtus-dev image (has all plugins built)
+# Stage 1: Build GVirtuS frontend from nvidia CUDA devel image
 # ════════════════════════════════════════════════════════════════════════════════
-FROM aauce25/gvirtus-dev:cuda12.6.3-cudnn-ubuntu22.04 AS builder
+FROM nvidia/cuda:12.6.3-cudnn-devel-ubuntu22.04 AS builder
 
-# GVirtuS is already installed at /opt/GVirtuS
-# Just verify the frontend stubs exist
-RUN echo "=== GVirtuS frontend libs from dev image ===" && \
-    ls -la /opt/GVirtuS/lib/frontend/ && \
-    ls -la /opt/GVirtuS/lib/
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        libxmu-dev \
+        libxi-dev \
+        libgl-dev \
+        libosmesa-dev \
+        liblog4cplus-dev \
+        librdmacm-dev \
+        libibverbs-dev \
+        libgtest-dev \
+        liblz4-dev \
+        cmake \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV GVIRTUS_HOME=/opt/GVirtuS
+
+# Copy GVirtuS source and build
+COPY cmake /gvirtus/cmake
+COPY etc /gvirtus/etc
+COPY include /gvirtus/include
+COPY plugins /gvirtus/plugins
+COPY src /gvirtus/src
+COPY tools /gvirtus/tools
+COPY CMakeLists.txt /gvirtus/
+
+WORKDIR /gvirtus/build
+RUN cmake .. && make -j$(nproc) && make install
+
+# Verify the frontend stubs exist
+RUN echo "=== GVirtuS frontend libs ===" && \
+    ls -la ${GVIRTUS_HOME}/lib/frontend/ && \
+    ls -la ${GVIRTUS_HOME}/lib/
 
 # ════════════════════════════════════════════════════════════════════════════════
 # Stage 2: Runtime — plain Ubuntu (NO real CUDA libs)
@@ -49,7 +77,7 @@ RUN echo "=== Checking: no real CUDA libs ===" && \
     ls -la ${GVIRTUS_HOME}/lib/frontend/
 
 # ── Python deps (PySpark, numpy, etc.) ──
-COPY requirements.txt /tmp/requirements.txt
+COPY examples/spark_simple_matrix/requirements.txt /tmp/requirements.txt
 RUN pip3 install --no-cache-dir --upgrade pip && \
     pip3 install --no-cache-dir -r /tmp/requirements.txt && \
     rm /tmp/requirements.txt
@@ -61,7 +89,7 @@ RUN python3 -c "import pyspark; print(f'PySpark {pyspark.__version__} OK')"
 WORKDIR /app/src
 
 # GVirtuS frontend entrypoint sets LD_LIBRARY_PATH
-COPY entrypoint-gvirtus.sh /entrypoint-gvirtus.sh
+COPY examples/spark_simple_matrix/entrypoint-gvirtus.sh /entrypoint-gvirtus.sh
 RUN chmod +x /entrypoint-gvirtus.sh
 
 ENTRYPOINT ["/entrypoint-gvirtus.sh"]

@@ -229,11 +229,10 @@ DOCKER_SPARK_GVIRTUS := $(DOCKER_HUB_USERNAME)/spark_simple_matrix:gvirtus
 docker-build-push-spark-gvirtus:
 	docker buildx build \
 		--platform linux/amd64 \
-		--push \
 		--no-cache \
 		-f $(SPARK_MATRIX_DIR)/Dockerfile.gvirtus \
 		-t $(DOCKER_SPARK_GVIRTUS) \
-		$(SPARK_MATRIX_DIR)
+		.
 
 run-spark-gvirtus:
 	docker run --rm \
