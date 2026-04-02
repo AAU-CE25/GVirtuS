@@ -1,0 +1,59 @@
+# This image builds GVirtuS frontend libraries and configures LD_LIBRARY_PATH
+# so CUDA calls from RAPIDS/cuDF are intercepted and forwarded to a remote backend.
+
+FROM nvidia/cuda:12.6.3-cudnn-devel-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# ── GVirtuS build dependencies ──
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        libxmu-dev \
+        libxi-dev \
+        libgl-dev \
+        libosmesa-dev \
+        liblog4cplus-dev \
+        librdmacm-dev \
+        libibverbs-dev \
+        libgtest-dev \
+        liblz4-dev \
+        git \
+        cmake \
+        openjdk-17-jre-headless \
+        python3 \
+        python3-pip \
+        python3-venv \
+        procps \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+ENV GVIRTUS_HOME=/opt/GVirtuS
+
+# ── Build GVirtuS ──
+WORKDIR /opt
+RUN git clone https://github.com/ecn-aau/GVirtuS.git && \
+    cd GVirtuS && mkdir build && cd build && \
+    cmake -DCMAKE_INSTALL_PREFIX=${GVIRTUS_HOME} .. && \
+    make -j$(nproc) && make install
+
+# ── Python deps (PySpark, numpy, etc.) ──
+COPY requirements.txt /tmp/requirements.txt
+RUN pip3 install --no-cache-dir --upgrade pip && \
+    pip3 install --no-cache-dir -r /tmp/requirements.txt && \
+    rm /tmp/requirements.txt
+
+# Verify Spark is reachable
+RUN python3 -c "import pyspark; print(f'PySpark {pyspark.__version__} OK')"
+
+# ── Working directory ──
+WORKDIR /app/src
+
+# GVirtuS frontend entrypoint sets LD_LIBRARY_PATH
+COPY entrypoint-gvirtus.sh /entrypoint-gvirtus.sh
+RUN chmod +x /entrypoint-gvirtus.sh
+
+ENTRYPOINT ["/entrypoint-gvirtus.sh"]
+

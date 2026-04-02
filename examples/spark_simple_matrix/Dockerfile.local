@@ -31,11 +31,15 @@ RUN pip3 install --no-cache-dir --upgrade pip && \
 # Verify Spark is reachable
 RUN python3 -c "import pyspark; print(f'PySpark {pyspark.__version__} OK')"
 
+# ── Entrypoint ──
+COPY entrypoint-local-gpu.sh /entrypoint-local-gpu.sh
+RUN chmod +x /entrypoint-local-gpu.sh
+
 # ── Working directory ──
 # src/, results/, jars/ are mounted under /app at runtime
 WORKDIR /app/src
 
-# Default: run simple_matrix.py both
+# Default: run simple_matrix.py with both CPU and RAPIDS modes
 # The RAPIDS JAR path is configured in config.py (spark.jars),
 # so no --jars flag is needed on the command line.
-CMD ["python3", "simple_matrix.py", "docker" ,"--mode=both"]
+ENTRYPOINT ["/entrypoint-local-gpu.sh"]

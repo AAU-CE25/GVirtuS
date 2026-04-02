@@ -8,8 +8,8 @@ Usage:
     python simple_matrix.py docker             # Run through Docker
     python simple_matrix.py gvirtus            # Run using GVirtuS
 
-    python simple_matrix.py local --mode rapids      # RAPIDS GPU acceleration
-    python simple_matrix.py docker --mode both       # run CPU then RAPIDS
+    python simple_matrix.py local --mode rapids           # RAPIDS GPU acceleration
+    python simple_matrix.py local --overwrite no          # Merge results into existing file
 
 The RAPIDS JAR is placed on the JVM classpath automatically via
 PYSPARK_SUBMIT_ARGS (set in config.py), so no spark-submit is needed.
@@ -146,10 +146,10 @@ def save_summary(filepath, summary, overwrite=True):
     log.info(f"Results saved to {filepath} (overwrite={overwrite})")
 
 
-def main(env, use_rapids=False, overwrite=True):
+def main(env, compute_mode, results_overwrite):
 
-    mode = "rapids" if use_rapids else "cpu"
-    log.info(f"Env: {env} | Mode: {mode} | Matrix size: {N}x{N}  (scale factor {SCALE_FACTOR})")
+    use_rapids = compute_mode == "rapids"
+    log.info(f"Env: {env} | Mode: {compute_mode} | Matrix size: {N}x{N}  (scale factor {SCALE_FACTOR})")
 
     spark = create_spark_session(use_rapids=use_rapids)
     config = SPARK_RAPIDS_CONFIG if use_rapids else SPARK_CONFIG
@@ -166,7 +166,7 @@ def main(env, use_rapids=False, overwrite=True):
     # Save summary
     summary = {
         "env": env,
-        "mode": mode,
+        "mode": compute_mode,
         "scale_factor": SCALE_FACTOR,
         "matrix_size": N,
         "result_elements": count,
@@ -174,8 +174,8 @@ def main(env, use_rapids=False, overwrite=True):
         "matrix_multiplication_time": round(mul_time_elapsed, 4),
         "spark_config": dict(config),
     }
-    out_path = os.path.join(RESULTS_DIR, f"simple_matrix_{mode}_results.json")
-    save_summary(out_path, summary, overwrite=overwrite)
+    out_path = os.path.join(RESULTS_DIR, f"simple_matrix_{env}_{compute_mode}_results.json")
+    save_summary(out_path, summary, overwrite=results_overwrite)
 
     spark.stop()
 
@@ -185,32 +185,23 @@ if __name__ == "__main__":
     parser.add_argument(
         "env",
         choices=["local", "docker", "gvirtus"],
+        default="local",
         help="Execution environment: local (native), docker, or gvirtus",
     )
     parser.add_argument(
         "--mode",
-        choices=["cpu", "rapids", "both"],
+        choices=["cpu", "rapids"],
         default="cpu",
-        help="Execution mode: cpu (default), rapids (needs GPU), or both",
+        help="Execution mode: cpu (default) or rapids (needs GPU)",
     )
     parser.add_argument(
         "--overwrite",
-        action="store_true",
-        default=True,
-        help="Overwrite existing results file (default: True)",
+        choices=["yes", "no"],
+        default="yes",
+        help="Overwrite existing results file (default: yes). If no, merge new results into existing file.",
     )
-    parser.add_argument(
-        "--no-overwrite",
-        action="store_false",
-        dest="overwrite",
-        help="Merge new results into the existing results file instead of replacing it",
-    )
+  
     args = parser.parse_args()
-
-    if args.mode == "cpu":
-        main(args.env, False, overwrite=args.overwrite)
-    if args.mode == "rapids":
-        main(args.env, True, overwrite=args.overwrite)
-    if args.mode == "both":
-        main(args.env, False, overwrite=args.overwrite)
-        main(args.env, True, overwrite=args.overwrite)
+    overwrite = args.overwrite == "yes"
+    main(args.env, args.mode, results_overwrite=overwrite)
+   

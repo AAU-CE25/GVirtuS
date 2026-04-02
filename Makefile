@@ -1,4 +1,4 @@
-.PHONY: docker-build-push-dev docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test docker-build-spark-simple-matrix run-spark-simple-matrix run-spark-simple-matrix-rapids stop-spark-simple-matrix
+.PHONY: docker-build-push-dev docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test run-spark-local-cpu run-spark-local-rapids run-spark-local docker-build-spark-local run-spark-docker-local run-spark-docker-local-cpu run-spark-docker-local-rapids stop-spark-simple-matrix docker-build-spark-gvirtus run-spark-docker-gvirtus
 USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
 DOCKER_HUB_USERNAME ?= aauce25
 
@@ -151,43 +151,100 @@ run-simple-matrix-test:
 stop-simple-matrix-test:
 	docker stop simple_matrix_test_container-$(USER) || true
 
-# ── spark_simple_matrix ──
+# ═══════════════════════════════════════════════════════════════════════════════
+# spark_simple_matrix - Matrix multiplication benchmark with Spark + RAPIDS
+#
+# Three execution modes:
+#   1. Local native   - Run directly on host (make run-spark-local-*)
+#   2. Docker local   - Run in Docker with local GPU (make run-spark-docker-local-*)
+#   3. Docker GVirtuS - Run in Docker with remote GPU (make run-spark-docker-gvirtus)
+# ═══════════════════════════════════════════════════════════════════════════════
 
-DOCKER_SPARK_MATRIX := $(DOCKER_HUB_USERNAME)/spark_simple_matrix:latest
+SPARK_MATRIX_DIR := examples/spark_simple_matrix
 
-docker-build-push-spark-simple-matrix:
+# ── 1. LOCAL NATIVE (run directly on host) ──
+# Requirements: Python 3.10+, Java 17+, NVIDIA GPU + driver
+
+run-spark-local-cpu:
+	cd $(SPARK_MATRIX_DIR)/src && python3 simple_matrix.py local \
+		--mode cpu \
+		--overwrite yes
+
+run-spark-local-rapids: 
+	cd $(SPARK_MATRIX_DIR)/src && python3 simple_matrix.py local \
+		--mode rapids \
+		--overwrite yes
+
+
+# ── 2. DOCKER LOCAL GPU  ──
+# Requirements: Docker, NVIDIA Container Toolkit, local GPU
+
+DOCKER_SPARK_LOCAL := $(DOCKER_HUB_USERNAME)/spark_simple_matrix:local
+
+docker-build-push-spark-local:
 	docker buildx build \
-		--no-cache \
 		--platform linux/amd64 \
 		--push \
-		-f examples/spark_simple_matrix/Dockerfile \
-		-t $(DOCKER_SPARK_MATRIX) \
-		examples/spark_simple_matrix
-
-run-spark-simple-matrix: 
+		--no-cache \
+		-f $(SPARK_MATRIX_DIR)/Dockerfile.local \
+		-t $(DOCKER_SPARK_LOCAL) \
+		$(SPARK_MATRIX_DIR)
+	
+run-spark-docker-cpu:
 	docker run --rm \
 		--name spark-simple-matrix-$(USER) \
 		--network host \
-		-v ./examples/spark_simple_matrix/src:/app/src \
-		-v ./examples/spark_simple_matrix/results:/app/results \
-		-v ./examples/spark_simple_matrix/jars:/app/jars \
+		-v ./$(SPARK_MATRIX_DIR)/src:/app/src \
+		-v ./$(SPARK_MATRIX_DIR)/results:/app/results \
+		-v ./$(SPARK_MATRIX_DIR)/jars:/app/jars \
 		-e PYSPARK_PYTHON=python3 \
 		-e PYSPARK_DRIVER_PYTHON=python3 \
 		--shm-size=8G \
-		$(DOCKER_SPARK_MATRIX) 
+		$(DOCKER_SPARK_LOCAL) --mode cpu --overwrite yes
 
-run-spark-simple-matrix-rapids: docker-build-spark-simple-matrix
+run-spark-docker-rapids:
 	docker run --rm \
-		--name spark-simple-matrix-$(USER) \
+		-it \
 		--network host \
-		-v ./examples/spark_simple_matrix/src:/app/src \
-		-v ./examples/spark_simple_matrix/results:/app/results \
-		-v ./examples/spark_simple_matrix/jars:/app/jars \
+		--privileged \
+		-v ./$(SPARK_MATRIX_DIR)/src:/app/src \
+		-v ./$(SPARK_MATRIX_DIR)/results:/app/results \
+		-v ./$(SPARK_MATRIX_DIR)/jars:/app/jars \
 		-e PYSPARK_PYTHON=python3 \
 		-e PYSPARK_DRIVER_PYTHON=python3 \
+		--name spark-simple-matrix-$(USER) \
+		--runtime=nvidia \
 		--shm-size=8G \
-		$(DOCKER_SPARK_MATRIX) \
-		python3 simple_matrix.py --mode rapids
+		$(DOCKER_SPARK_LOCAL) --mode rapids --overwrite yes
 
 stop-spark-simple-matrix:
 	docker stop spark-simple-matrix-$(USER) || true
+	docker stop spark-simple-matrix-gvirtus-$(USER) || true
+
+# ── 3. DOCKER GVIRTUS (Docker with GVirtuS frontend, no local GPU needed) ──
+# Requirements: Docker, GVirtuS backend running on remote host
+
+DOCKER_SPARK_GVIRTUS := $(DOCKER_HUB_USERNAME)/spark_simple_matrix:gvirtus
+
+docker-build-push-spark-gvirtus:
+	docker buildx build \
+		--platform linux/amd64 \
+		--push \
+		--no-cache \
+		-f $(SPARK_MATRIX_DIR)/Dockerfile.gvirtus \
+		-t $(DOCKER_SPARK_GVIRTUS) \
+		$(SPARK_MATRIX_DIR)
+
+run-spark-gvirtus:
+	docker run --rm \
+		--name spark-simple-matrix-gvirtus-$(USER) \
+		--network host \
+		-v ./$(SPARK_MATRIX_DIR)/src:/app/src \
+		-v ./$(SPARK_MATRIX_DIR)/results:/app/results \
+		-v ./$(SPARK_MATRIX_DIR)/jars:/app/jars \
+		-v ./etc/properties.json:/opt/GVirtuS/etc/properties.json \
+		-e PYSPARK_PYTHON=python3 \
+		-e PYSPARK_DRIVER_PYTHON=python3 \
+		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
+		--shm-size=8G \
+		$(DOCKER_SPARK_GVIRTUS) --mode rapids --overwrite yes 
