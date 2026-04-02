@@ -31,6 +31,7 @@ from config import (
     SPARK_MASTER, 
     SPARK_CONFIG,
     SPARK_RAPIDS_CONFIG,
+    SPARK_RAPIDS_GVIRTUS_CONFIG,
 )
 
 from pyspark.sql import SparkSession
@@ -49,9 +50,16 @@ logging.getLogger("py4j").setLevel(logging.WARNING)
 N = 100 * SCALE_FACTOR  # NxN matrices
 
 
-def create_spark_session(use_rapids=False):
-    config = SPARK_RAPIDS_CONFIG if use_rapids else SPARK_CONFIG
-    app_name = "SimpleMatrixMultiply-RAPIDS" if use_rapids else "SimpleMatrixMultiply-CPU"
+def create_spark_session(use_rapids=False, env="local"):
+    # Choose config based on env and mode
+    if env == "gvirtus" and use_rapids:
+        config = SPARK_RAPIDS_GVIRTUS_CONFIG
+    elif use_rapids:
+        config = SPARK_RAPIDS_CONFIG
+    else:
+        config = SPARK_CONFIG
+    
+    app_name = f"SimpleMatrixMultiply-{'RAPIDS' if use_rapids else 'CPU'}-{env}"
     builder = (
         SparkSession.builder
         .appName(app_name)
@@ -151,8 +159,13 @@ def main(env, compute_mode, results_overwrite):
     use_rapids = compute_mode == "rapids"
     log.info(f"Env: {env} | Mode: {compute_mode} | Matrix size: {N}x{N}  (scale factor {SCALE_FACTOR})")
 
-    spark = create_spark_session(use_rapids=use_rapids)
-    config = SPARK_RAPIDS_CONFIG if use_rapids else SPARK_CONFIG
+    spark = create_spark_session(use_rapids=use_rapids, env=env)
+    if env == "gvirtus" and use_rapids:
+        config = SPARK_RAPIDS_GVIRTUS_CONFIG
+    elif use_rapids:
+        config = SPARK_RAPIDS_CONFIG
+    else:
+        config = SPARK_CONFIG
 
     t0 = time.time()
     result_df, mul_time_elapsed = multiply_matrices_df(spark, N)

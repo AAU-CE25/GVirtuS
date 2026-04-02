@@ -1,8 +1,8 @@
-.PHONY: docker-build-push-dev docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test run-spark-local-cpu run-spark-local-rapids run-spark-local docker-build-spark-local run-spark-docker-local run-spark-docker-local-cpu run-spark-docker-local-rapids stop-spark-simple-matrix docker-build-spark-gvirtus run-spark-docker-gvirtus
+.PHONY: docker-build-push-dev docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test run-spark-local-cpu run-spark-local-rapids run-spark-local docker-build-spark-local run-spark-docker-local run-spark-docker-local-cpu run-spark-docker-local-rapids stop-spark-simple-matrix docker-build-spark-gvirtus run-spark-docker-gvirtus test-spark-gvirtus
 USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
 DOCKER_HUB_USERNAME ?= aauce25
 
-GVIRTUS_LOG_LEVEL ?= 20000
+GVIRTUS_LOG_LEVEL ?= 0
 
 DOCKER_REPO_DEV := $(DOCKER_HUB_USERNAME)/gvirtus-dev
 DOCKER_REPO_TEST := $(DOCKER_HUB_USERNAME)/gvirtus-test
@@ -244,6 +244,17 @@ run-spark-gvirtus:
 		-v ./etc/properties.json:/opt/GVirtuS/etc/properties.json \
 		-e PYSPARK_PYTHON=python3 \
 		-e PYSPARK_DRIVER_PYTHON=python3 \
-		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
+		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL)  \
 		--shm-size=8G \
-		$(DOCKER_SPARK_GVIRTUS) --mode rapids --overwrite yes 
+		$(DOCKER_SPARK_GVIRTUS) --mode rapids --overwrite yes
+
+# Quick GVirtuS connectivity test (no Spark, just cudaGetDeviceCount etc.)
+test-spark-gvirtus:
+	docker run --rm \
+		--name spark-gvirtus-test-$(USER) \
+		--network host \
+		-v ./$(SPARK_MATRIX_DIR)/src:/app/src \
+		-v ./$(SPARK_MATRIX_DIR)/jars:/app/jars \
+		-v ./etc/properties.json:/opt/GVirtuS/etc/properties.json \
+		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
+		$(DOCKER_SPARK_GVIRTUS) --test

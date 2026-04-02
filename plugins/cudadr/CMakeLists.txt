@@ -19,9 +19,18 @@ function(configure_cudadr_plugin)
 
     include_directories(${CUDADR_INCLUDE_DIRECTORY} ${CUDA_INCLUDE_DIRS})
 
+    # Derive library path from CUDA toolkit location
+    get_filename_component(CUDA_LIBRARIES_PATH ${CUDA_CUDART_LIBRARY} DIRECTORY FALSE)
+
+    # Search for libcuda.so in standard locations AND stubs directory
+    # The stubs library is available even without a GPU (for compile/link purposes)
     find_library(CUDADR_LIBRARY
         cuda
-        PATHS ${CUDA_LIBRARIES_PATH})
+        PATHS 
+            ${CUDA_LIBRARIES_PATH}
+            ${CUDA_LIBRARIES_PATH}/stubs
+            ${CUDA_TOOLKIT_ROOT_DIR}/lib64/stubs
+            /usr/local/cuda/lib64/stubs)
 
     if(NOT CUDADR_LIBRARY)
         message(WARNING "cudaDr library not found, skipping plugins/cudadr")

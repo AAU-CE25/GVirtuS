@@ -30,6 +30,7 @@ COPY include /gvirtus/include
 COPY plugins /gvirtus/plugins
 COPY src /gvirtus/src
 COPY tools /gvirtus/tools
+COPY tests /gvirtus/tests
 COPY CMakeLists.txt /gvirtus/
 
 WORKDIR /gvirtus/build
@@ -61,6 +62,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         liblz4-dev \
         procps \
         curl \
+        unzip \
     && rm -rf /var/lib/apt/lists/*
 
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
@@ -85,10 +87,16 @@ RUN pip3 install --no-cache-dir --upgrade pip && \
 # Verify Spark is reachable
 RUN python3 -c "import pyspark; print(f'PySpark {pyspark.__version__} OK')"
 
+# ── GVirtuS environment (set here so ALL processes use GVirtuS stubs) ──
+ENV GVIRTUS_HOME=/opt/GVirtuS \
+    GVIRTUS_LOGLEVEL=40000 \
+    LD_LIBRARY_PATH=/opt/GVirtuS/lib/frontend:/opt/GVirtuS/lib \
+    LD_PRELOAD=/opt/GVirtuS/lib/frontend/libcudart.so:/opt/GVirtuS/lib/frontend/libcuda.so
+
 # ── Working directory ──
 WORKDIR /app/src
 
-# GVirtuS frontend entrypoint sets LD_LIBRARY_PATH
+# Simple entrypoint (env vars already set above)
 COPY examples/spark_simple_matrix/entrypoint-gvirtus.sh /entrypoint-gvirtus.sh
 RUN chmod +x /entrypoint-gvirtus.sh
 
