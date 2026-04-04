@@ -4,8 +4,11 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <thread>
+#include <unordered_map>
 #include <ucp/api/ucp.h>
 #include <vector>
 
@@ -73,13 +76,19 @@ class FramedStream {
     static void ThrowIfErrorFrame(const FrameHeader& hdr, const std::vector<uint8_t>& payload);
 
    private:
+    struct PendingRequest;
+
     ucp_worker_h worker_;
     std::thread progress_thread_;
     std::atomic<bool> stop_{false};
     std::atomic<uint32_t> next_request_id_{1};
+    std::mutex map_mtx_;
+    std::unordered_map<uint32_t, std::shared_ptr<PendingRequest>> in_flight_;
 
     // Progress loop — only thread allowed to call ucp_worker_progress
     void ProgressLoop();
+    std::shared_ptr<PendingRequest> RegisterRequest(uint32_t id);
+    void CompleteRequest(uint32_t id, std::vector<uint8_t> payload);
 
     // Synchronization helpers
     static uint32_t header_crc32(const FrameHeader& hdr);

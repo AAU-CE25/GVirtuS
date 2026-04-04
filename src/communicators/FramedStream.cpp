@@ -23,6 +23,14 @@ void validate_header(const FrameHeader& h, uint32_t (*header_crc32_fn)(const Fra
 
 namespace gvirtus::communicators {
 
+struct FramedStream::PendingRequest {
+    std::mutex mtx;
+    std::condition_variable cv;
+    bool complete = false;
+    ucs_status_t status = UCS_INPROGRESS;
+    std::vector<uint8_t> response_payload;
+};
+
 FramedStream::FramedStream(ucp_worker_h worker) : worker_(worker) {
     progress_thread_ = std::thread([this] { ProgressLoop(); });
 }
@@ -59,6 +67,34 @@ void FramedStream::ProgressLoop() {
         // Sleep until UCX signals (eventfd / epoll under the hood)
         ucp_worker_wait(worker_);
     }
+}
+
+std::shared_ptr<FramedStream::PendingRequest> FramedStream::RegisterRequest(uint32_t id) {
+    auto pr = std::make_shared<PendingRequest>();
+    std::lock_guard<std::mutex> lk(map_mtx_);
+    in_flight_[id] = pr;
+    return pr;
+}
+
+void FramedStream::CompleteRequest(uint32_t id, std::vector<uint8_t> payload) {
+    std::shared_ptr<PendingRequest> pr;
+    {
+        std::lock_guard<std::mutex> lk(map_mtx_);
+        const auto it = in_flight_.find(id);
+        if (it == in_flight_.end()) {
+            return;
+        }
+        pr = it->second;
+        in_flight_.erase(it);
+    }
+
+    {
+        std::lock_guard<std::mutex> lk2(pr->mtx);
+        pr->response_payload = std::move(payload);
+        pr->status = UCS_OK;
+        pr->complete = true;
+    }
+    pr->cv.notify_one();
 }
 
 void FramedStream::wait_request(ucs_status_ptr_t req, std::chrono::milliseconds timeout,
@@ -193,6 +229,11 @@ uint32_t FramedStream::header_crc32(const FrameHeader& hdr) {
 
 void FramedStream::Send(ucp_ep_h ep, MsgType type, uint32_t request_id, const void* payload,
                         uint32_t len) {
+    std::shared_ptr<PendingRequest> pending;
+    if (type == MsgType::REQUEST) {
+        pending = RegisterRequest(request_id);
+    }
+
     FrameHeader hdr{};
     hdr.magic = GV_MAGIC;
     hdr.msg_type = static_cast<uint8_t>(type);
@@ -210,8 +251,16 @@ void FramedStream::Send(ucp_ep_h ep, MsgType type, uint32_t request_id, const vo
     ucp_request_param_t param{};
     param.op_attr_mask = 0;
 
-    ucs_status_ptr_t req = ucp_stream_send_nbx(ep, frame.data(), frame.size(), &param);
-    wait_request(req, std::chrono::milliseconds(5000), "FramedStream::Send");
+    try {
+        ucs_status_ptr_t req = ucp_stream_send_nbx(ep, frame.data(), frame.size(), &param);
+        wait_request(req, std::chrono::milliseconds(5000), "FramedStream::Send");
+    } catch (...) {
+        if (pending) {
+            std::lock_guard<std::mutex> lk(map_mtx_);
+            in_flight_.erase(request_id);
+        }
+        throw;
+    }
 }
 
 void FramedStream::SendError(ucp_ep_h ep, uint16_t request_seq, uint32_t cuda_error) {
@@ -317,6 +366,10 @@ bool FramedStream::RecvInternal(ucp_ep_h ep, FrameHeader& hdr_out, std::vector<u
     }
 
     RecvExact(ep, payload_out.data(), hdr_out.payload_len, timeout);
+
+    if (hdr_out.msg_type == static_cast<uint8_t>(MsgType::RESPONSE)) {
+        CompleteRequest(hdr_out.request_id, payload_out);
+    }
 
     return true;
 }
