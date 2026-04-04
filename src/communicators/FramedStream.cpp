@@ -27,6 +27,10 @@ FramedStream::FramedStream(ucp_worker_h worker) : worker_(worker) {
     progress_thread_ = std::thread([this] { ProgressLoop(); });
 }
 
+uint32_t FramedStream::NextRequestId() {
+    return next_request_id_.fetch_add(1, std::memory_order_relaxed);
+}
+
 FramedStream::~FramedStream() {
     stop_.store(true, std::memory_order_release);
     // Wake the worker so ucp_worker_wait returns and the progress loop can exit promptly.
@@ -187,11 +191,12 @@ uint32_t FramedStream::header_crc32(const FrameHeader& hdr) {
 }
 
 
-void FramedStream::Send(ucp_ep_h ep, MsgType type, uint16_t seq, const void* payload, uint32_t len) {
+void FramedStream::Send(ucp_ep_h ep, MsgType type, uint32_t request_id, const void* payload,
+                        uint32_t len) {
     FrameHeader hdr{};
     hdr.magic = GV_MAGIC;
     hdr.msg_type = static_cast<uint8_t>(type);
-    hdr.seq = seq;
+    hdr.request_id = request_id;
     hdr.payload_len = len;
     hdr.header_crc = header_crc32(hdr);
 
@@ -216,10 +221,10 @@ void FramedStream::SendError(ucp_ep_h ep, uint16_t request_seq, uint32_t cuda_er
     Send(ep, MsgType::ERROR, request_seq, &payload, static_cast<uint32_t>(sizeof(ErrorPayload)));
 }
 
-void FramedStream::SendResponse(ucp_ep_h ep, uint16_t frame_seq, uint16_t request_seq,
+void FramedStream::SendResponse(ucp_ep_h ep, uint32_t frame_request_id, uint32_t request_id,
                                 const void* result_data, uint32_t result_len) {
     ResponseHeader resp_hdr{};
-    resp_hdr.request_seq = request_seq;
+    resp_hdr.request_id = request_id;
     resp_hdr.result_len = result_len;
 
     std::vector<uint8_t> payload(sizeof(ResponseHeader) + result_len);
@@ -228,7 +233,8 @@ void FramedStream::SendResponse(ucp_ep_h ep, uint16_t frame_seq, uint16_t reques
         std::memcpy(payload.data() + sizeof(ResponseHeader), result_data, result_len);
     }
 
-    Send(ep, MsgType::RESPONSE, frame_seq, payload.data(), static_cast<uint32_t>(payload.size()));
+    Send(ep, MsgType::RESPONSE, frame_request_id, payload.data(),
+         static_cast<uint32_t>(payload.size()));
 }
 
 void FramedStream::SendResync(ucp_ep_h ep) {
@@ -241,7 +247,7 @@ bool FramedStream::Recv(ucp_ep_h ep, FrameHeader& hdr_out, std::vector<uint8_t>&
 }
 
 ResponseHeader FramedStream::ParseAndValidateResponseHeader(const std::vector<uint8_t>& payload,
-                                                            uint16_t expected_seq) {
+                                                            uint32_t expected_request_id) {
     if (payload.size() < sizeof(ResponseHeader)) {
         throw std::runtime_error("response payload too short");
     }
@@ -249,8 +255,8 @@ ResponseHeader FramedStream::ParseAndValidateResponseHeader(const std::vector<ui
     ResponseHeader resp{};
     std::memcpy(&resp, payload.data(), sizeof(ResponseHeader));
 
-    if (resp.request_seq != expected_seq) {
-        throw std::runtime_error("seq mismatch -- stale or wrong response");
+    if (resp.request_id != expected_request_id) {
+        throw std::runtime_error("request_id mismatch -- stale or wrong response");
     }
 
     const size_t expected_size = sizeof(ResponseHeader) + static_cast<size_t>(resp.result_len);

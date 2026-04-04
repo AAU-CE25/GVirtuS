@@ -96,11 +96,11 @@ uint32_t test_header_crc32(const FrameHeader& hdr) {
 }
 
 void send_truncated_payload(ucp_ep_h ep, ucp_worker_h worker_a, ucp_worker_h worker_b,
-                            uint16_t seq, uint32_t declared_len, uint32_t actual_len) {
+                            uint32_t request_id, uint32_t declared_len, uint32_t actual_len) {
     FrameHeader hdr{};
     hdr.magic = ::GV_MAGIC;
     hdr.msg_type = static_cast<uint8_t>(::MsgType::REQUEST);
-    hdr.seq = seq;
+    hdr.request_id = request_id;
     hdr.payload_len = declared_len;
     hdr.header_crc = test_header_crc32(hdr);
 
@@ -309,7 +309,7 @@ TEST_F(StreamTimeoutFixture, RecvCompletesWithinTimeout) {
     tx.join();
 
     EXPECT_EQ(hdr.msg_type, static_cast<uint8_t>(::MsgType::REQUEST));
-    EXPECT_EQ(hdr.seq, 4);
+    EXPECT_EQ(hdr.request_id, 4u);
 }
 
 TEST_F(StreamTimeoutFixture, NoIndefiniteHangOnMissingPeer) {

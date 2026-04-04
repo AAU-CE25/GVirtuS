@@ -21,10 +21,10 @@ enum class MsgType : uint8_t {
 struct __attribute__((__packed__)) FrameHeader {
     uint32_t magic;        // always GV_MAGIC
     uint8_t msg_type;      // MsgType enum value
-    uint16_t seq;          // sequence number (wraps at 65535)
+    uint32_t request_id;   // request identifier
     uint32_t payload_len;  // bytes that follow this header
-    uint32_t header_crc;   // CRC32 of the 11 bytes above
-    // total: 4+1+2+4+4 = 15 bytes
+    uint32_t header_crc;   // CRC32 of the 13 bytes above
+    // total: 4+1+4+4+4 = 17 bytes
 };
 
 struct __attribute__((__packed__)) ErrorPayload {
@@ -33,7 +33,7 @@ struct __attribute__((__packed__)) ErrorPayload {
 };
 
 struct __attribute__((__packed__)) ResponseHeader {
-    uint16_t request_seq;  // echoes REQUEST frame seq
+    uint32_t request_id;   // echoes REQUEST frame request_id
     uint32_t result_len;   // bytes of result data that follow
 };
 
@@ -58,23 +58,25 @@ class FramedStream {
    public:
     explicit FramedStream(ucp_worker_h worker);
     ~FramedStream();
+    uint32_t NextRequestId();
 
     // Non-blocking APIs with timeout
-    void Send(ucp_ep_h ep, MsgType type, uint16_t seq, const void* payload, uint32_t len);
+    void Send(ucp_ep_h ep, MsgType type, uint32_t request_id, const void* payload, uint32_t len);
     void SendError(ucp_ep_h ep, uint16_t request_seq, uint32_t cuda_error);
-    void SendResponse(ucp_ep_h ep, uint16_t frame_seq, uint16_t request_seq,
+    void SendResponse(ucp_ep_h ep, uint32_t frame_request_id, uint32_t request_id,
                       const void* result_data, uint32_t result_len);
     void SendResync(ucp_ep_h ep);
     bool Recv(ucp_ep_h ep, FrameHeader& hdr_out, std::vector<uint8_t>& payload_out,
               std::chrono::milliseconds timeout = std::chrono::milliseconds(5000));
     static ResponseHeader ParseAndValidateResponseHeader(const std::vector<uint8_t>& payload,
-                                                         uint16_t expected_seq);
+                                                         uint32_t expected_request_id);
     static void ThrowIfErrorFrame(const FrameHeader& hdr, const std::vector<uint8_t>& payload);
 
    private:
     ucp_worker_h worker_;
     std::thread progress_thread_;
     std::atomic<bool> stop_{false};
+    std::atomic<uint32_t> next_request_id_{1};
 
     // Progress loop — only thread allowed to call ucp_worker_progress
     void ProgressLoop();

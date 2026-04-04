@@ -257,11 +257,11 @@ uint32_t test_header_crc32(const FrameHeader& hdr) {
 }
 
 void send_truncated_payload(ucp_ep_h ep, ucp_worker_h worker_a, ucp_worker_h worker_b,
-                            uint16_t seq, uint32_t declared_len, uint32_t actual_len) {
+                            uint32_t request_id, uint32_t declared_len, uint32_t actual_len) {
     FrameHeader hdr{};
     hdr.magic = ::GV_MAGIC;
     hdr.msg_type = static_cast<uint8_t>(MsgType::RESPONSE);
-    hdr.seq = seq;
+    hdr.request_id = request_id;
     hdr.payload_len = declared_len;
     hdr.header_crc = test_header_crc32(hdr);
 
@@ -307,7 +307,7 @@ TEST_F(UcxLoopbackFixture, SendAndRecvFrameRoundTrip) {
 
     EXPECT_EQ(hdr.magic, ::GV_MAGIC);
     EXPECT_EQ(hdr.msg_type, static_cast<uint8_t>(MsgType::REQUEST));
-    EXPECT_EQ(hdr.seq, 42);
+    EXPECT_EQ(hdr.request_id, 42u);
     EXPECT_EQ(hdr.payload_len, msg_len);
     ASSERT_EQ(payload.size(), msg_len);
     EXPECT_EQ(std::memcmp(payload.data(), msg, msg_len), 0);
@@ -337,7 +337,7 @@ TEST_F(UcxLoopbackFixture, JunkPrefixResyncsAndRecovers) {
 
     EXPECT_EQ(hdr.magic, ::GV_MAGIC);
     EXPECT_EQ(hdr.msg_type, static_cast<uint8_t>(MsgType::REQUEST));
-    EXPECT_EQ(hdr.seq, 8);
+    EXPECT_EQ(hdr.request_id, 8u);
     ASSERT_EQ(payload.size(), std::strlen(second_msg));
     EXPECT_EQ(std::memcmp(payload.data(), second_msg, std::strlen(second_msg)), 0);
 }
@@ -368,20 +368,20 @@ TEST_F(UcxLoopbackFixture, ResponseFrameEchoesRequestSeqAndResultLen) {
     FramedStream sender(worker_client_);
     FramedStream receiver(worker_server_);
 
-    constexpr uint16_t request_seq = 33;
-    constexpr uint16_t frame_seq = 90;
+    constexpr uint32_t request_id = 33;
+    constexpr uint32_t frame_request_id = 90;
     const char* result = "result-bytes";
     const uint32_t result_len = static_cast<uint32_t>(std::strlen(result));
 
-    sender.SendResponse(ep_client_, frame_seq, request_seq, result, result_len);
+    sender.SendResponse(ep_client_, frame_request_id, request_id, result, result_len);
 
     FrameHeader hdr{};
     std::vector<uint8_t> payload;
     ASSERT_TRUE(receiver.Recv(ep_server_, hdr, payload));
 
     ASSERT_EQ(hdr.msg_type, static_cast<uint8_t>(MsgType::RESPONSE));
-    const ResponseHeader resp = FramedStream::ParseAndValidateResponseHeader(payload, request_seq);
-    EXPECT_EQ(resp.request_seq, request_seq);
+    const ResponseHeader resp = FramedStream::ParseAndValidateResponseHeader(payload, request_id);
+    EXPECT_EQ(resp.request_id, request_id);
     EXPECT_EQ(resp.result_len, result_len);
 
     const uint8_t* result_ptr = payload.data() + sizeof(ResponseHeader);
@@ -392,17 +392,17 @@ TEST_F(UcxLoopbackFixture, ResponseSeqMismatchThrows) {
     FramedStream sender(worker_client_);
     FramedStream receiver(worker_server_);
 
-    constexpr uint16_t request_seq = 12;
-    constexpr uint16_t wrong_expected_seq = 99;
+    constexpr uint32_t request_id = 12;
+    constexpr uint32_t wrong_expected_request_id = 99;
 
-    sender.SendResponse(ep_client_, 1, request_seq, nullptr, 0);
+    sender.SendResponse(ep_client_, 1, request_id, nullptr, 0);
 
     FrameHeader hdr{};
     std::vector<uint8_t> payload;
     ASSERT_TRUE(receiver.Recv(ep_server_, hdr, payload));
 
     EXPECT_THROW({
-        (void)FramedStream::ParseAndValidateResponseHeader(payload, wrong_expected_seq);
+        (void)FramedStream::ParseAndValidateResponseHeader(payload, wrong_expected_request_id);
     }, std::runtime_error);
 }
 
@@ -429,16 +429,16 @@ TEST_F(UcxLoopbackFixture, FaultInjection_ExecutionErrorPropagatesAndStreamRemai
     ASSERT_TRUE(caught);
 
     // Stream should still be healthy after an ERROR frame.
-    constexpr uint16_t ok_request_seq = 42;
-    constexpr uint16_t ok_frame_seq = 100;
+    constexpr uint32_t ok_request_id = 42;
+    constexpr uint32_t ok_frame_request_id = 100;
     const char* result = "post-error-ok";
     const uint32_t result_len = static_cast<uint32_t>(std::strlen(result));
 
-    sender.SendResponse(ep_client_, ok_frame_seq, ok_request_seq, result, result_len);
+    sender.SendResponse(ep_client_, ok_frame_request_id, ok_request_id, result, result_len);
 
     ASSERT_TRUE(receiver.Recv(ep_server_, hdr, payload));
     ASSERT_EQ(hdr.msg_type, static_cast<uint8_t>(MsgType::RESPONSE));
-    const ResponseHeader resp = FramedStream::ParseAndValidateResponseHeader(payload, ok_request_seq);
+    const ResponseHeader resp = FramedStream::ParseAndValidateResponseHeader(payload, ok_request_id);
     EXPECT_EQ(resp.result_len, result_len);
 }
 
@@ -471,7 +471,7 @@ TEST_F(UcxLoopbackFixture, FaultInjection_CorruptedByteThenResyncAndRecovery) {
 
     ASSERT_TRUE(recovered);
     EXPECT_EQ(hdr.msg_type, static_cast<uint8_t>(MsgType::REQUEST));
-    EXPECT_EQ(hdr.seq, 502);
+    EXPECT_EQ(hdr.request_id, 502u);
     ASSERT_EQ(payload.size(), std::strlen(second));
     EXPECT_EQ(std::memcmp(payload.data(), second, std::strlen(second)), 0);
 }
