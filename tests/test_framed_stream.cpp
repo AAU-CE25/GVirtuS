@@ -299,7 +299,8 @@ TEST_F(UcxLoopbackFixture, SendAndRecvFrameRoundTrip) {
     FramedStream sender(worker_client_);
     FramedStream receiver(worker_server_);
 
-    sender.Send(ep_client_, MsgType::REQUEST, 42, msg, msg_len);
+    auto pending = sender.SendAsync(ep_client_, MsgType::REQUEST, msg, msg_len);
+    (void)pending;
 
     FrameHeader hdr{};
     std::vector<uint8_t> payload;
@@ -307,7 +308,7 @@ TEST_F(UcxLoopbackFixture, SendAndRecvFrameRoundTrip) {
 
     EXPECT_EQ(hdr.magic, ::GV_MAGIC);
     EXPECT_EQ(hdr.msg_type, static_cast<uint8_t>(MsgType::REQUEST));
-    EXPECT_EQ(hdr.request_id, 42u);
+    EXPECT_EQ(hdr.request_id, 1u);
     EXPECT_EQ(hdr.payload_len, msg_len);
     ASSERT_EQ(payload.size(), msg_len);
     EXPECT_EQ(std::memcmp(payload.data(), msg, msg_len), 0);
@@ -325,11 +326,13 @@ TEST_F(UcxLoopbackFixture, JunkPrefixResyncsAndRecovers) {
     FramedStream receiver(worker_server_);
 
     // First frame may be partially consumed by bad alignment + resync scan.
-    sender.Send(ep_client_, MsgType::REQUEST, 7, first_msg,
-                static_cast<uint32_t>(std::strlen(first_msg)));
+    auto pending_first = sender.SendAsync(ep_client_, MsgType::REQUEST, first_msg,
+                                          static_cast<uint32_t>(std::strlen(first_msg)));
+    (void)pending_first;
     // Second frame is expected to be recovered and delivered.
-    sender.Send(ep_client_, MsgType::REQUEST, 8, second_msg,
-                static_cast<uint32_t>(std::strlen(second_msg)));
+    auto pending_second = sender.SendAsync(ep_client_, MsgType::REQUEST, second_msg,
+                                           static_cast<uint32_t>(std::strlen(second_msg)));
+    (void)pending_second;
 
     FrameHeader hdr{};
     std::vector<uint8_t> payload;
@@ -337,9 +340,32 @@ TEST_F(UcxLoopbackFixture, JunkPrefixResyncsAndRecovers) {
 
     EXPECT_EQ(hdr.magic, ::GV_MAGIC);
     EXPECT_EQ(hdr.msg_type, static_cast<uint8_t>(MsgType::REQUEST));
-    EXPECT_EQ(hdr.request_id, 8u);
+    EXPECT_EQ(hdr.request_id, 2u);
     ASSERT_EQ(payload.size(), std::strlen(second_msg));
     EXPECT_EQ(std::memcmp(payload.data(), second_msg, std::strlen(second_msg)), 0);
+}
+
+TEST_F(UcxLoopbackFixture, SendAsyncHandleCompletesAfterResponseReceive) {
+    FramedStream client_stream(worker_client_);
+    FramedStream server_stream(worker_server_);
+
+    const char* request = "work";
+    auto pending = client_stream.SendAsync(ep_client_, MsgType::REQUEST, request,
+                                           static_cast<uint32_t>(std::strlen(request)));
+
+    FrameHeader request_hdr{};
+    std::vector<uint8_t> request_payload;
+    ASSERT_TRUE(server_stream.Recv(ep_server_, request_hdr, request_payload));
+    ASSERT_EQ(request_hdr.msg_type, static_cast<uint8_t>(MsgType::REQUEST));
+
+    const char* result = "done";
+    const uint32_t result_len = static_cast<uint32_t>(std::strlen(result));
+    server_stream.SendResponse(ep_server_, request_hdr.request_id, request_hdr.request_id, result,
+                               result_len);
+
+    std::vector<uint8_t> awaited = pending->Wait(std::chrono::milliseconds(1000));
+    ASSERT_EQ(awaited.size(), result_len);
+    EXPECT_EQ(std::memcmp(awaited.data(), result, result_len), 0);
 }
 
 TEST_F(UcxLoopbackFixture, ErrorFrameRoundTripCarriesCudaCodeAndRequestSeq) {
@@ -454,11 +480,15 @@ TEST_F(UcxLoopbackFixture, FaultInjection_CorruptedByteThenResyncAndRecovery) {
 
     // First frame may be sacrificed by resync procedure.
     const char* first = "sacrificial";
-    sender.Send(ep_client_, MsgType::REQUEST, 501, first, static_cast<uint32_t>(std::strlen(first)));
+    auto pending_first = sender.SendAsync(ep_client_, MsgType::REQUEST, first,
+                                          static_cast<uint32_t>(std::strlen(first)));
+    (void)pending_first;
 
     // Second frame should be the one we recover to.
     const char* second = "recovered";
-    sender.Send(ep_client_, MsgType::REQUEST, 502, second, static_cast<uint32_t>(std::strlen(second)));
+    auto pending_second = sender.SendAsync(ep_client_, MsgType::REQUEST, second,
+                                           static_cast<uint32_t>(std::strlen(second)));
+    (void)pending_second;
 
     FrameHeader hdr{};
     std::vector<uint8_t> payload;
@@ -471,7 +501,7 @@ TEST_F(UcxLoopbackFixture, FaultInjection_CorruptedByteThenResyncAndRecovery) {
 
     ASSERT_TRUE(recovered);
     EXPECT_EQ(hdr.msg_type, static_cast<uint8_t>(MsgType::REQUEST));
-    EXPECT_EQ(hdr.request_id, 502u);
+    EXPECT_EQ(hdr.request_id, 2u);
     ASSERT_EQ(payload.size(), std::strlen(second));
     EXPECT_EQ(std::memcmp(payload.data(), second, std::strlen(second)), 0);
 }

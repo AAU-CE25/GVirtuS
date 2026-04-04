@@ -47,12 +47,25 @@ typedef struct __configureFunction {
 
 class CudaRtFrontend {
    public:
+    class PendingCall {
+       public:
+        void Wait() const {
+            // Legacy frontend path is synchronous; this is an API shim for async call style.
+        }
+    };
+
     static inline void Execute(const char* routine, const Buffer* input_buffer = NULL) {
         try {
             gvirtus::frontend::Frontend::GetFrontend()->Execute(routine, input_buffer);
         } catch (const std::exception& e) {
             cerr << "Execution exception: " << e.what() << endl;
         }
+    }
+
+    static inline PendingCall ExecuteAsync(const char* routine,
+                                           const Buffer* input_buffer = NULL) {
+        Execute(routine, input_buffer);
+        return PendingCall{};
     }
 
     /**

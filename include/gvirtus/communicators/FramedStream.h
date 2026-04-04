@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -59,12 +60,28 @@ class CudaRemoteError : public std::runtime_error {
 
 class FramedStream {
    public:
+    class PendingRequest {
+       public:
+        std::vector<uint8_t> Wait(
+            std::chrono::milliseconds timeout = std::chrono::milliseconds(5000));
+
+       private:
+        friend class FramedStream;
+        std::mutex mtx;
+        std::condition_variable cv;
+        bool complete = false;
+        ucs_status_t status = UCS_INPROGRESS;
+        uint32_t cuda_error = 0;
+        std::vector<uint8_t> response_payload;
+    };
+
     explicit FramedStream(ucp_worker_h worker);
     ~FramedStream();
     uint32_t NextRequestId();
 
-    // Non-blocking APIs with timeout
-    void Send(ucp_ep_h ep, MsgType type, uint32_t request_id, const void* payload, uint32_t len);
+    // Posts a REQUEST frame and returns immediately with a handle to wait on response later.
+    std::shared_ptr<PendingRequest> SendAsync(ucp_ep_h ep, MsgType type, const void* payload,
+                                              uint32_t len);
     void SendError(ucp_ep_h ep, uint16_t request_seq, uint32_t cuda_error);
     void SendResponse(ucp_ep_h ep, uint32_t frame_request_id, uint32_t request_id,
                       const void* result_data, uint32_t result_len);
@@ -76,19 +93,25 @@ class FramedStream {
     static void ThrowIfErrorFrame(const FrameHeader& hdr, const std::vector<uint8_t>& payload);
 
    private:
-    struct PendingRequest;
-
     ucp_worker_h worker_;
     std::thread progress_thread_;
+    std::thread dispatch_thread_;
     std::atomic<bool> stop_{false};
     std::atomic<uint32_t> next_request_id_{1};
     std::mutex map_mtx_;
+    std::mutex dispatch_mtx_;
+    ucp_ep_h dispatch_ep_{nullptr};
     std::unordered_map<uint32_t, std::shared_ptr<PendingRequest>> in_flight_;
 
     // Progress loop — only thread allowed to call ucp_worker_progress
     void ProgressLoop();
+    void DispatchLoop(ucp_ep_h ep);
+    void EnsureDispatchLoop(ucp_ep_h ep);
     std::shared_ptr<PendingRequest> RegisterRequest(uint32_t id);
     void CompleteRequest(uint32_t id, std::vector<uint8_t> payload);
+    void CompleteRequestWithError(uint32_t id, uint32_t cuda_error);
+    void PostFrameNoWait(ucp_ep_h ep, MsgType type, uint32_t request_id, const void* payload,
+                         uint32_t len);
 
     // Synchronization helpers
     static uint32_t header_crc32(const FrameHeader& hdr);

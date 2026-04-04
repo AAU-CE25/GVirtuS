@@ -84,7 +84,8 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaFree(void *devPtr) {
 
     CudaRtFrontend::Prepare();
     CudaRtFrontend::AddDevicePointerForArguments(devPtr);
-    CudaRtFrontend::Execute("cudaFree");
+    auto pending = CudaRtFrontend::ExecuteAsync("cudaFree");
+    pending.Wait();
     return CudaRtFrontend::GetExitCode();
 }
 
@@ -152,7 +153,8 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMalloc(void **devPtr, size_t size)
     CudaRtFrontend::Prepare();
     CudaRtFrontend::AddVariableForArguments(size);
     // cout << "cudaMalloc frontend size: " << size << endl;
-    CudaRtFrontend::Execute("cudaMalloc");
+    auto pending = CudaRtFrontend::ExecuteAsync("cudaMalloc");
+    pending.Wait();
 
     if (CudaRtFrontend::Success()) {
         *devPtr = CudaRtFrontend::GetOutputDevicePointer();

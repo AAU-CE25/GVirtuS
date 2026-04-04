@@ -37,7 +37,11 @@
 #include <unistd.h>
 
 #include <functional>
+#include <atomic>
+#include <condition_variable>
 #include <iostream>
+#include <mutex>
+#include <queue>
 #include <thread>
 
 #include "communicators/hybrid/HybridCommunicator.h"
@@ -53,6 +57,75 @@ using gvirtus::communicators::Endpoint;
 using std::chrono::steady_clock;
 
 using namespace std;
+
+namespace {
+
+struct DeserializedRequest {
+    std::string routine;
+    std::shared_ptr<Buffer> input_buffer;
+};
+
+class BackendWorkerPool {
+   public:
+    BackendWorkerPool(size_t workers, std::function<void(DeserializedRequest)> execute_fn)
+        : execute_fn_(std::move(execute_fn)) {
+        workers_.reserve(workers);
+        for (size_t i = 0; i < workers; ++i) {
+            workers_.emplace_back([this] { WorkerLoop(); });
+        }
+    }
+
+    ~BackendWorkerPool() { Stop(); }
+
+    void Submit(DeserializedRequest req) {
+        {
+            std::lock_guard<std::mutex> lk(q_mtx_);
+            queue_.push(std::move(req));
+        }
+        q_cv_.notify_one();
+    }
+
+    void Stop() {
+        bool expected = false;
+        if (!stop_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+            return;
+        }
+        q_cv_.notify_all();
+        for (auto& t : workers_) {
+            if (t.joinable()) {
+                t.join();
+            }
+        }
+    }
+
+   private:
+    void WorkerLoop() {
+        while (true) {
+            DeserializedRequest req;
+            {
+                std::unique_lock<std::mutex> lk(q_mtx_);
+                q_cv_.wait(lk, [this] {
+                    return !queue_.empty() || stop_.load(std::memory_order_acquire);
+                });
+                if (stop_.load(std::memory_order_acquire) && queue_.empty()) {
+                    return;
+                }
+                req = std::move(queue_.front());
+                queue_.pop();
+            }
+            execute_fn_(std::move(req));
+        }
+    }
+
+    std::vector<std::thread> workers_;
+    std::queue<DeserializedRequest> queue_;
+    std::mutex q_mtx_;
+    std::condition_variable q_cv_;
+    std::atomic<bool> stop_{false};
+    std::function<void(DeserializedRequest)> execute_fn_;
+};
+
+}  // namespace
 
 Process::Process(std::shared_ptr<LD_Lib<Communicator, std::shared_ptr<Endpoint>>> communicator,
                  vector<string> &plugins)
@@ -166,29 +239,77 @@ void Process::Start() {
     std::function<void(Communicator *)> execute = [this](Communicator *client_comm) {
         LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "]"
                                             << "Process::Start()'s \"execute\" lambda called");
-        // carica i puntatori ai simboli dei moduli in mHandlers
+        constexpr size_t kBackendWorkerCount = 4;
+        std::mutex response_write_mtx;
+
+        auto execute_and_respond = [this, client_comm, &response_write_mtx](DeserializedRequest req) {
+            try {
+                std::shared_ptr<Handler> h = nullptr;
+                for (auto& ptr_el : _handlers) {
+                    if (ptr_el->obj_ptr()->CanExecute(req.routine)) {
+                        h = ptr_el->obj_ptr();
+                        break;
+                    }
+                }
+
+                std::shared_ptr<communicators::Result> result;
+                if (h == nullptr) {
+                    LOG4CPLUS_ERROR(logger, "[Process " << getpid()
+                                                        << "]: Requested unknown routine '"
+                                                        << req.routine << "'.");
+                    result =
+                        std::make_shared<communicators::Result>(-1, std::make_shared<Buffer>());
+                } else {
+                    auto start = steady_clock::now();
+                    result = h->Execute(req.routine, req.input_buffer);
+                    result->TimeTaken(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                          steady_clock::now() - start)
+                                          .count() /
+                                      1000.0);
+                }
+
+                // Writes to the same client communicator must stay serialized.
+                {
+                    std::lock_guard<std::mutex> lk(response_write_mtx);
+                    result->Dump(client_comm);
+                }
+
+                LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "]: Routine '" << req.routine
+                                                    << "' returned " << result->GetExitCode()
+                                                    << ".");
+            } catch (const std::exception& e) {
+                LOG4CPLUS_ERROR(logger, "[Process " << getpid()
+                                                    << "]: worker execution failed: " << e.what());
+            }
+        };
+
+        gvirtus::communicators::HybridCommunicator* hybrid = nullptr;
+        if (client_comm && client_comm->to_string() == "hybridcommunicator") {
+            hybrid = dynamic_cast<gvirtus::communicators::HybridCommunicator*>(client_comm);
+            LOG4CPLUS_WARN(
+                logger,
+                "[Process " << getpid()
+                             << "]: hybrid communicator uses sequential execution per connection");
+        }
+
+        std::unique_ptr<BackendWorkerPool> pool;
+        if (hybrid == nullptr) {
+            pool = std::make_unique<BackendWorkerPool>(kBackendWorkerCount, execute_and_respond);
+        }
 
         string routine;
-        std::shared_ptr<Buffer> input_buffer = std::make_shared<Buffer>();
-
         while (getstring(client_comm, routine)) {
             LOG4CPLUS_TRACE(logger, "Received routine " << routine);
 
-            // === before reading buffer, chose the protocol of this round by rountine ===
-            gvirtus::communicators::HybridCommunicator *hybrid = nullptr;
-            if (client_comm && client_comm->to_string() == "hybridcommunicator") {
-                hybrid = dynamic_cast<gvirtus::communicators::HybridCommunicator *>(client_comm);
-            }
+            auto input_buffer = std::make_shared<Buffer>();
+
             if (hybrid) {
-                // all those function payload will transfer by RDMA
                 const bool use_rdma = routine.rfind("cudaRegisterFatBinary", 0) == 0 ||
                                       routine.rfind("cudaRegisterFatBinaryEnd", 0) == 0 ||
                                       routine.rfind("cudaMemcpyAsync", 0) == 0 ||
                                       routine.rfind("cudaMemcpy", 0) == 0;
 
                 if (use_rdma) {
-                    // bytes_hint if >0 ,then trigger the first 8B under TCP moniter.
-                    // real payload size after 8B head.
                     hybrid->begin_call(routine, gvirtus::communicators::Transport::RDMA,
                                        /*bytes_hint*/ 1);
                 } else {
@@ -196,41 +317,18 @@ void Process::Start() {
                 }
             }
 
-            // now reading buffer：8B from TCP, payload will transfer by the selected protocol
             input_buffer->Reset(client_comm);
 
-            std::shared_ptr<Handler> h = nullptr;
-            for (auto &ptr_el : _handlers) {
-                if (ptr_el->obj_ptr()->CanExecute(routine)) {
-                    h = ptr_el->obj_ptr();
-                    break;
-                }
-            }
-
-            std::shared_ptr<communicators::Result> result;
-            if (h == nullptr) {
-                LOG4CPLUS_ERROR(logger, "[Process " << getpid() << "]: Requested unknown routine '"
-                                                    << routine << "'.");
-                result = std::make_shared<communicators::Result>(-1, std::make_shared<Buffer>());
+            if (pool) {
+                pool->Submit(DeserializedRequest{routine, input_buffer});
             } else {
-                auto start = steady_clock::now();
-                result = h->Execute(routine, input_buffer);
-                result->TimeTaken(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                      steady_clock::now() - start)
-                                      .count() /
-                                  1000.0);
-            }
-
-            // return info：control the head transfer by TCP，then payload RDMA
-            result->Dump(client_comm);
-
-            // stop this round, and clean all context
-            if (hybrid) {
+                execute_and_respond(DeserializedRequest{routine, input_buffer});
                 hybrid->end_call();
             }
+        }
 
-            LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "]: Routine '" << routine
-                                                << "' returned " << result->GetExitCode() << ".");
+        if (pool) {
+            pool->Stop();
         }
 
         LOG4CPLUS_INFO(logger, "Client disconnected");

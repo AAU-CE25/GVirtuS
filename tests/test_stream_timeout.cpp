@@ -268,8 +268,8 @@ TEST_F(StreamTimeoutFixture, SendCompletesWithoutTimeout) {
 
     const char* msg = "hello from A";
     auto start = std::chrono::steady_clock::now();
-        EXPECT_NO_THROW(sender.Send(ep_client_, ::MsgType::REQUEST, 1, msg,
-                                    static_cast<uint32_t>(std::strlen(msg))));
+    EXPECT_NO_THROW((void)sender.SendAsync(ep_client_, ::MsgType::REQUEST, msg,
+                                           static_cast<uint32_t>(std::strlen(msg))));
     const auto elapsed = std::chrono::steady_clock::now() - start;
     EXPECT_LT(elapsed, std::chrono::milliseconds(500));
 }
@@ -299,8 +299,8 @@ TEST_F(StreamTimeoutFixture, RecvCompletesWithinTimeout) {
     const char* msg = "hello";
     std::thread tx([&] {
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            sender.Send(ep_client_, ::MsgType::REQUEST, 4, msg,
-                        static_cast<uint32_t>(std::strlen(msg)));
+        (void)sender.SendAsync(ep_client_, ::MsgType::REQUEST, msg,
+                               static_cast<uint32_t>(std::strlen(msg)));
     });
 
     ::FrameHeader hdr{};
@@ -309,7 +309,7 @@ TEST_F(StreamTimeoutFixture, RecvCompletesWithinTimeout) {
     tx.join();
 
     EXPECT_EQ(hdr.msg_type, static_cast<uint8_t>(::MsgType::REQUEST));
-    EXPECT_EQ(hdr.request_id, 4u);
+    EXPECT_EQ(hdr.request_id, 1u);
 }
 
 TEST_F(StreamTimeoutFixture, NoIndefiniteHangOnMissingPeer) {

@@ -7,6 +7,11 @@
 #include <cuda_runtime.h>
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <chrono>
+#include <thread>
+#include <vector>
+
 #define CUDA_CHECK(err) ASSERT_EQ((err), cudaSuccess)
 
 __device__ int intDeviceVariable = 0;
@@ -47,6 +52,45 @@ TEST(cudaRT, MallocFree) {
     void* devPtr = nullptr;
     CUDA_CHECK(cudaMalloc(&devPtr, 1024));
     CUDA_CHECK(cudaFree(devPtr));
+}
+
+TEST(cudaRT, MultiThreadedMallocFreeStress) {
+    constexpr int kThreads = 4;
+    constexpr auto kDuration = std::chrono::seconds(10);
+
+    std::atomic<int> failures{0};
+    std::atomic<int> operations{0};
+    std::vector<std::thread> workers;
+    workers.reserve(kThreads);
+
+    const auto deadline = std::chrono::steady_clock::now() + kDuration;
+    for (int i = 0; i < kThreads; ++i) {
+        workers.emplace_back([&]() {
+            while (std::chrono::steady_clock::now() < deadline) {
+                void* dev = nullptr;
+                cudaError_t e = cudaMalloc(&dev, 1024);
+                if (e != cudaSuccess) {
+                    failures.fetch_add(1, std::memory_order_relaxed);
+                    return;
+                }
+
+                e = cudaFree(dev);
+                if (e != cudaSuccess) {
+                    failures.fetch_add(1, std::memory_order_relaxed);
+                    return;
+                }
+
+                operations.fetch_add(1, std::memory_order_relaxed);
+            }
+        });
+    }
+
+    for (auto& t : workers) {
+        t.join();
+    }
+
+    EXPECT_EQ(failures.load(std::memory_order_relaxed), 0);
+    EXPECT_GT(operations.load(std::memory_order_relaxed), 0);
 }
 
 TEST(cudaRT, MallocAsyncFree) {
