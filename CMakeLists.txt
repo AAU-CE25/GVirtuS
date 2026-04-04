@@ -3,6 +3,8 @@ cmake_policy(SET CMP0104 NEW)
 
 project(GVirtuS LANGUAGES CXX)
 
+find_package(ZLIB REQUIRED)
+
 # ===== LZ4 check & link =====
 find_package(LZ4 QUIET)
 if(LZ4_FOUND)
@@ -130,6 +132,7 @@ if(UCX_INCLUDE_DIR AND UCX_UCP_LIB AND UCX_UCS_LIB AND UCX_UCT_LIB)
             ${UCX_UCP_LIB}
             ${UCX_UCS_LIB}
             ${UCX_UCT_LIB}
+            ZLIB::ZLIB
     )
     gvirtus_install_target(gvirtus-communicators-ucx)
 else()

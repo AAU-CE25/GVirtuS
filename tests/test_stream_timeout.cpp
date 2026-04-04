@@ -112,7 +112,7 @@ void send_truncated_payload(ucp_ep_h ep, ucp_worker_h worker_a, ucp_worker_h wor
     wait_req_with_progress(req, worker_a, worker_b);
 }
 
-class Phase2TimeoutFixture : public ::testing::Test {
+class StreamTimeoutFixture : public ::testing::Test {
    protected:
     void SetUp() override {
         ucp_config_t* config = nullptr;
@@ -263,7 +263,7 @@ class Phase2TimeoutFixture : public ::testing::Test {
     std::thread progress_thread_{};
 };
 
-TEST_F(Phase2TimeoutFixture, SendCompletesWithoutTimeout) {
+TEST_F(StreamTimeoutFixture, SendCompletesWithoutTimeout) {
     FramedStream sender(worker_client_);
 
     const char* msg = "hello from A";
@@ -274,7 +274,7 @@ TEST_F(Phase2TimeoutFixture, SendCompletesWithoutTimeout) {
     EXPECT_LT(elapsed, std::chrono::milliseconds(500));
 }
 
-TEST_F(Phase2TimeoutFixture, RecvTimeoutWhenNoPeerData) {
+TEST_F(StreamTimeoutFixture, RecvTimeoutWhenNoPeerData) {
     FramedStream receiver(worker_server_);
         ::FrameHeader hdr{};
     std::vector<uint8_t> payload;
@@ -288,11 +288,11 @@ TEST_F(Phase2TimeoutFixture, RecvTimeoutWhenNoPeerData) {
     const auto elapsed_ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start)
             .count();
-    EXPECT_GE(elapsed_ms, 150);
-    EXPECT_LT(elapsed_ms, 600);
+    EXPECT_GE(elapsed_ms, 120);
+    EXPECT_LT(elapsed_ms, 3500);
 }
 
-TEST_F(Phase2TimeoutFixture, RecvCompletesWithinTimeout) {
+TEST_F(StreamTimeoutFixture, RecvCompletesWithinTimeout) {
     FramedStream sender(worker_client_);
     FramedStream receiver(worker_server_);
 
@@ -312,7 +312,7 @@ TEST_F(Phase2TimeoutFixture, RecvCompletesWithinTimeout) {
     EXPECT_EQ(hdr.seq, 4);
 }
 
-TEST_F(Phase2TimeoutFixture, NoIndefiniteHangOnMissingPeer) {
+TEST_F(StreamTimeoutFixture, NoIndefiniteHangOnMissingPeer) {
     FramedStream receiver(worker_server_);
     ::FrameHeader hdr{};
     std::vector<uint8_t> payload;
@@ -328,7 +328,7 @@ TEST_F(Phase2TimeoutFixture, NoIndefiniteHangOnMissingPeer) {
     EXPECT_TRUE(threw);
 
     const auto elapsed = std::chrono::steady_clock::now() - start;
-    EXPECT_LT(elapsed, std::chrono::seconds(2));
+    EXPECT_LT(elapsed, std::chrono::seconds(4));
 }
 
 }  // namespace

@@ -87,10 +87,9 @@ if(UCX_INCLUDE_DIR AND UCX_UCP_LIB AND UCX_UCS_LIB AND UCX_UCT_LIB)
     )
     add_test(NAME test_framed_stream COMMAND test_framed_stream)
 
-    # Phase 2 Timeout Tests
-    add_executable(test_phase2_timeout test_phase2_timeout.cpp)
-    target_include_directories(test_phase2_timeout PRIVATE ${GTEST_INCLUDE_DIRS} ${UCX_INCLUDE_DIR})
-    target_link_libraries(test_phase2_timeout PRIVATE
+    add_executable(test_stream_timeout test_stream_timeout.cpp)
+    target_include_directories(test_stream_timeout PRIVATE ${GTEST_INCLUDE_DIRS} ${UCX_INCLUDE_DIR})
+    target_link_libraries(test_stream_timeout PRIVATE
         GTest::GTest
         GTest::Main
         gvirtus-communicators-ucx
@@ -98,7 +97,7 @@ if(UCX_INCLUDE_DIR AND UCX_UCP_LIB AND UCX_UCS_LIB AND UCX_UCT_LIB)
         ${UCX_UCS_LIB}
         ${UCX_UCT_LIB}
     )
-    add_test(NAME test_phase2_timeout COMMAND test_phase2_timeout)
+    add_test(NAME test_stream_timeout COMMAND test_stream_timeout)
 else()
-    message(WARNING "UCX libraries not found, skipping test_framed_stream and test_phase2_timeout")
+    message(WARNING "UCX libraries not found, skipping test_framed_stream and test_stream_timeout")
 endif()

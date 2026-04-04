@@ -3,18 +3,20 @@
 #include <cstring>
 #include <stdexcept>
 #include <ucp/api/ucp.h>
+#include <zlib.h>
 
 namespace {
 
-void ucx_send_completion_cb(void* request, ucs_status_t status) {
-    (void)request;
-    (void)status;
-}
-
-void ucx_recv_completion_cb(void* request, ucs_status_t status, size_t length) {
-    (void)request;
-    (void)status;
-    (void)length;
+void validate_header(const FrameHeader& h, uint32_t (*header_crc32_fn)(const FrameHeader&)) {
+    if (h.magic != GV_MAGIC) {
+        throw std::runtime_error("bad magic");
+    }
+    if (h.header_crc != header_crc32_fn(h)) {
+        throw std::runtime_error("header CRC mismatch");
+    }
+    if (h.payload_len > 64u * 1024u * 1024u) {
+        throw std::runtime_error("payload_len implausibly large");
+    }
 }
 
 }  // namespace
@@ -27,7 +29,11 @@ FramedStream::FramedStream(ucp_worker_h worker) : worker_(worker) {
 
 FramedStream::~FramedStream() {
     stop_.store(true, std::memory_order_release);
-    progress_thread_.join();
+    // Wake the worker so ucp_worker_wait returns and the progress loop can exit promptly.
+    (void)ucp_worker_signal(worker_);
+    if (progress_thread_.joinable()) {
+        progress_thread_.join();
+    }
 }
 
 void FramedStream::ProgressLoop() {
@@ -51,36 +57,133 @@ void FramedStream::ProgressLoop() {
     }
 }
 
-void FramedStream::ucx_completion_cb(void* request, ucs_status_t status, void* user_data) {
-    auto* ctx = static_cast<RequestContext*>(user_data);
-    {
-        std::lock_guard<std::mutex> lk(ctx->mtx);
-        ctx->status = status;
-        ctx->complete = true;
+void FramedStream::wait_request(ucs_status_ptr_t req, std::chrono::milliseconds timeout,
+                                const char* op_name) {
+    if (req == nullptr) {
+        return;
     }
-    ctx->cv.notify_one();
-    ucp_request_free(request);
+    if (UCS_PTR_IS_ERR(req)) {
+        throw std::runtime_error(std::string(op_name) + " failed");
+    }
+    if (!UCS_PTR_IS_PTR(req)) {
+        const ucs_status_t immediate = UCS_PTR_STATUS(req);
+        if (immediate != UCS_OK) {
+            throw std::runtime_error(std::string(op_name) + " immediate status error");
+        }
+        return;
+    }
+
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline) {
+        const ucs_status_t status = ucp_request_check_status(req);
+        if (status == UCS_OK) {
+            ucp_request_free(req);
+            return;
+        }
+        if (status != UCS_INPROGRESS) {
+            ucp_request_free(req);
+            throw std::runtime_error(std::string(op_name) + " UCX error");
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    // Bounded timeout: cancel then wait briefly for terminal state.
+    ucp_request_cancel(worker_, req);
+    const auto cancel_deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2000);
+    while (std::chrono::steady_clock::now() < cancel_deadline) {
+        const ucs_status_t status = ucp_request_check_status(req);
+        if (status == UCS_OK || status == UCS_ERR_CANCELED) {
+            ucp_request_free(req);
+            throw std::runtime_error(std::string(op_name) + " timeout");
+        }
+        if (status != UCS_INPROGRESS) {
+            ucp_request_free(req);
+            throw std::runtime_error(std::string(op_name) + " UCX error after cancel");
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    // Last resort: do not free in unknown state; fail fast to avoid use-after-free.
+    throw std::runtime_error(std::string(op_name) + " timeout (cancel did not complete)");
 }
 
-bool FramedStream::wait_ctx(RequestContext& ctx, std::chrono::milliseconds timeout) {
-    std::unique_lock<std::mutex> lk(ctx.mtx);
-    return ctx.cv.wait_for(lk, timeout, [&ctx] { return ctx.complete; });
+void FramedStream::RecvExact(ucp_ep_h ep, void* dst, size_t len, std::chrono::milliseconds timeout) {
+    auto* out = static_cast<uint8_t*>(dst);
+    size_t total = 0;
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+
+    while (total < len) {
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= deadline) {
+            throw std::runtime_error("FramedStream::RecvExact timeout");
+        }
+
+        auto remaining =
+            std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
+        if (remaining.count() <= 0) {
+            remaining = std::chrono::milliseconds(1);
+        }
+
+        size_t got = len - total;
+
+        ucp_request_param_t p{};
+        p.op_attr_mask = 0;
+
+        ucs_status_ptr_t req = ucp_stream_recv_nbx(ep, out + total, len - total, &got, &p);
+        wait_request(req, remaining, "FramedStream::RecvExact");
+
+        if (got == 0) {
+            throw std::runtime_error("FramedStream::RecvExact got 0 bytes");
+        }
+
+        total += got;
+    }
+}
+
+bool FramedStream::DrainUntilMagic(ucp_ep_h ep, std::chrono::milliseconds timeout) {
+    constexpr size_t MAGIC_LEN = sizeof(uint32_t);
+    uint8_t window[MAGIC_LEN] = {};
+    size_t filled = 0;
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+
+    while (std::chrono::steady_clock::now() < deadline) {
+        const auto now = std::chrono::steady_clock::now();
+        auto remaining =
+            std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
+        if (remaining.count() <= 0) {
+            remaining = std::chrono::milliseconds(1);
+        }
+
+        uint8_t byte = 0;
+        try {
+            RecvExact(ep, &byte, 1, remaining);
+        } catch (const std::runtime_error&) {
+            return false;
+        }
+
+        if (filled < MAGIC_LEN) {
+            window[filled++] = byte;
+        } else {
+            std::memmove(window, window + 1, MAGIC_LEN - 1);
+            window[MAGIC_LEN - 1] = byte;
+        }
+
+        if (filled == MAGIC_LEN) {
+            uint32_t candidate = 0;
+            std::memcpy(&candidate, window, MAGIC_LEN);
+            if (candidate == GV_MAGIC) {
+                return true;
+            }
+        }
+    }
+
+    return false;
 }
 
 uint32_t FramedStream::header_crc32(const FrameHeader& hdr) {
-    // CRC32/IEEE over header bytes before header_crc.
-    const auto* data = reinterpret_cast<const uint8_t*>(&hdr);
-    constexpr std::size_t crc_input_len = offsetof(FrameHeader, header_crc);
-
-    uint32_t crc = 0xFFFFFFFFu;
-    for (std::size_t i = 0; i < crc_input_len; ++i) {
-        crc ^= static_cast<uint32_t>(data[i]);
-        for (int bit = 0; bit < 8; ++bit) {
-            const uint32_t mask = static_cast<uint32_t>(-(static_cast<int32_t>(crc & 1u)));
-            crc = (crc >> 1) ^ (0xEDB88320u & mask);
-        }
-    }
-    return ~crc;
+    // CRC over all header fields except header_crc itself.
+    return static_cast<uint32_t>(
+        crc32(0, reinterpret_cast<const Bytef*>(&hdr), sizeof(FrameHeader) - sizeof(uint32_t)));
 }
 
 
@@ -99,76 +202,115 @@ void FramedStream::Send(ucp_ep_h ep, MsgType type, uint16_t seq, const void* pay
         std::memcpy(frame.data() + sizeof(FrameHeader), payload, len);
     }
 
-    RequestContext ctx;
     ucp_request_param_t param{};
-    param.op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK | UCP_OP_ATTR_FIELD_USER_DATA;
-    param.cb.send = ucx_completion_cb;
-    param.user_data = &ctx;
+    param.op_attr_mask = 0;
 
-    ucs_status_ptr_t req = ucp_stream_send_nbx(ep, frame.data(), frame.size(),
-                                               ucp_dt_make_contig(1), &param);
-    if (UCS_PTR_IS_ERR(req)) {
-        throw std::runtime_error("FramedStream::Send failed");
+    ucs_status_ptr_t req = ucp_stream_send_nbx(ep, frame.data(), frame.size(), &param);
+    wait_request(req, std::chrono::milliseconds(5000), "FramedStream::Send");
+}
+
+void FramedStream::SendError(ucp_ep_h ep, uint16_t request_seq, uint32_t cuda_error) {
+    ErrorPayload payload{};
+    payload.cuda_error = cuda_error;
+    payload.request_seq = request_seq;
+    Send(ep, MsgType::ERROR, request_seq, &payload, static_cast<uint32_t>(sizeof(ErrorPayload)));
+}
+
+void FramedStream::SendResponse(ucp_ep_h ep, uint16_t frame_seq, uint16_t request_seq,
+                                const void* result_data, uint32_t result_len) {
+    ResponseHeader resp_hdr{};
+    resp_hdr.request_seq = request_seq;
+    resp_hdr.result_len = result_len;
+
+    std::vector<uint8_t> payload(sizeof(ResponseHeader) + result_len);
+    std::memcpy(payload.data(), &resp_hdr, sizeof(ResponseHeader));
+    if (result_len > 0 && result_data != nullptr) {
+        std::memcpy(payload.data() + sizeof(ResponseHeader), result_data, result_len);
     }
 
-    // Check for inline completion — if nullptr, callback will handle it
-    if (req == nullptr) {
-        return;  // Completed inline, do NOT wait
-    }
+    Send(ep, MsgType::RESPONSE, frame_seq, payload.data(), static_cast<uint32_t>(payload.size()));
+}
 
-    // Wait for the callback to signal completion with timeout
-    if (!wait_ctx(ctx, std::chrono::milliseconds(5000))) {
-        throw std::runtime_error("FramedStream::Send timeout");
-    }
-
-    if (ctx.status != UCS_OK) {
-        throw std::runtime_error("FramedStream::Send UCX error");
-    }
+void FramedStream::SendResync(ucp_ep_h ep) {
+    Send(ep, MsgType::RESYNC, 0, nullptr, 0);
 }
 
 bool FramedStream::Recv(ucp_ep_h ep, FrameHeader& hdr_out, std::vector<uint8_t>& payload_out,
                         std::chrono::milliseconds timeout) {
-    // Step 1: Read header exactly
-    RequestContext hdr_ctx;
-    size_t hdr_len = sizeof(FrameHeader);
-    ucp_request_param_t p{};
-    p.op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK | UCP_OP_ATTR_FIELD_USER_DATA;
-    p.cb.recv_stream = ucx_completion_cb;
-    p.user_data = &hdr_ctx;
+    return RecvInternal(ep, hdr_out, payload_out, timeout, true);
+}
 
-    ucs_status_ptr_t req = ucp_stream_recv_nbx(ep, &hdr_out, sizeof(FrameHeader), &hdr_len, &p);
-    if (!UCS_PTR_IS_ERR(req) && req != nullptr) {
-        if (!wait_ctx(hdr_ctx, timeout)) {
-            throw std::runtime_error("FramedStream::Recv header timeout");
+ResponseHeader FramedStream::ParseAndValidateResponseHeader(const std::vector<uint8_t>& payload,
+                                                            uint16_t expected_seq) {
+    if (payload.size() < sizeof(ResponseHeader)) {
+        throw std::runtime_error("response payload too short");
+    }
+
+    ResponseHeader resp{};
+    std::memcpy(&resp, payload.data(), sizeof(ResponseHeader));
+
+    if (resp.request_seq != expected_seq) {
+        throw std::runtime_error("seq mismatch -- stale or wrong response");
+    }
+
+    const size_t expected_size = sizeof(ResponseHeader) + static_cast<size_t>(resp.result_len);
+    if (payload.size() != expected_size) {
+        throw std::runtime_error("response payload length mismatch");
+    }
+
+    return resp;
+}
+
+void FramedStream::ThrowIfErrorFrame(const FrameHeader& hdr, const std::vector<uint8_t>& payload) {
+    if (hdr.msg_type != static_cast<uint8_t>(MsgType::ERROR)) {
+        return;
+    }
+
+    if (payload.size() < sizeof(ErrorPayload)) {
+        throw std::runtime_error("error payload too short");
+    }
+
+    ErrorPayload err{};
+    std::memcpy(&err, payload.data(), sizeof(ErrorPayload));
+    throw CudaRemoteError(err.cuda_error, err.request_seq);
+}
+
+bool FramedStream::RecvInternal(ucp_ep_h ep, FrameHeader& hdr_out, std::vector<uint8_t>& payload_out,
+                                std::chrono::milliseconds timeout, bool allow_resync_retry) {
+    RecvExact(ep, &hdr_out, sizeof(FrameHeader), timeout);
+
+    try {
+        validate_header(hdr_out, &FramedStream::header_crc32);
+    } catch (const std::runtime_error&) {
+        // Ask the peer to resynchronize and try to recover locally.
+        SendResync(ep);
+
+        if (!DrainUntilMagic(ep, timeout)) {
+            throw std::runtime_error("stream unrecoverable -- close connection");
         }
+
+        hdr_out.magic = GV_MAGIC;
+        RecvExact(ep, reinterpret_cast<uint8_t*>(&hdr_out) + sizeof(uint32_t),
+                  sizeof(FrameHeader) - sizeof(uint32_t), timeout);
+        validate_header(hdr_out, &FramedStream::header_crc32);
     }
 
-    if (hdr_out.magic != GV_MAGIC) {
-        throw std::runtime_error("magic mismatch -- stream desynced");
-    }
-    if (hdr_out.header_crc != header_crc32(hdr_out)) {
-        throw std::runtime_error("header CRC mismatch");
-    }
-    if (hdr_out.payload_len > 64u * 1024u * 1024u) {
-        throw std::runtime_error("payload_len implausibly large");
+    if (hdr_out.msg_type == static_cast<uint8_t>(MsgType::RESYNC)) {
+        if (!allow_resync_retry) {
+            throw std::runtime_error("FramedStream::Recv repeated RESYNC");
+        }
+        if (!DrainUntilMagic(ep, timeout)) {
+            throw std::runtime_error("stream unrecoverable -- close connection");
+        }
+        return RecvInternal(ep, hdr_out, payload_out, timeout, false);
     }
 
-    // Step 2: Read payload (if any)
     payload_out.resize(hdr_out.payload_len);
     if (hdr_out.payload_len == 0) {
         return true;
     }
 
-    RequestContext pay_ctx;
-    size_t pay_len = hdr_out.payload_len;
-    p.user_data = &pay_ctx;
-
-    req = ucp_stream_recv_nbx(ep, payload_out.data(), hdr_out.payload_len, &pay_len, &p);
-    if (!UCS_PTR_IS_ERR(req) && req != nullptr) {
-        if (!wait_ctx(pay_ctx, timeout)) {
-            throw std::runtime_error("FramedStream::Recv payload timeout");
-        }
-    }
+    RecvExact(ep, payload_out.data(), hdr_out.payload_len, timeout);
 
     return true;
 }
