@@ -47,6 +47,7 @@
 #include <iostream>
 #include <mutex>
 
+#include "communicators/ucx/UcxCommunicator.h"
 #include "communicators/hybrid/HybridCommunicator.h"
 #include "log4cplus/configurator.h"
 #include "log4cplus/logger.h"
@@ -64,6 +65,7 @@ using gvirtus::communicators::Communicator;
 using gvirtus::communicators::CommunicatorFactory;
 using gvirtus::communicators::EndpointFactory;
 using gvirtus::frontend::Frontend;
+using gvirtus::frontend::ExecMode;
 
 static Frontend msFrontend;
 std::mutex gFrontendMutex;
@@ -219,7 +221,53 @@ Frontend *Frontend::GetFrontend(Communicator *c) {
     return f;
 }
 
-void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
+void Frontend::Execute(const char *routine, const Buffer *input_buffer, ExecMode mode) {
+
+    // If the mode is BARRIER, flush all pending async calls and then switch to SYNC mode
+    if (mode == ExecMode::BARRIER) {
+        FlushAsync();
+        mode= ExecMode::SYNC;
+    }
+
+    // ASYNC: serialize and enqueue via FramedStream, return immediately
+    if (mode == ExecMode::ASYNC) {
+        if (input_buffer == nullptr) input_buffer = mpInputBuffer.get();
+
+        pid_t tid = syscall(SYS_gettid);
+        Frontend *frontend = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(gFrontendMutex);
+            auto it = mpFrontends->find(tid);
+            if (it == mpFrontends->end()) return;
+            frontend = it->second;
+        }
+
+        auto *ucx = dynamic_cast<gvirtus::communicators::UcxCommunicator *>(
+            frontend->_communicator->obj_ptr().get());
+
+        if (ucx == nullptr) {
+            // Non-UCX communicator (e.g. TCP): degrade gracefully to SYNC
+            Execute(routine, input_buffer, ExecMode::SYNC);
+            return;
+        }
+
+        auto pending = ucx->SendAsync(routine, input_buffer);
+
+        {
+            std::lock_guard<std::mutex> lock(mPendingMutex);
+            mPendingRequests.push_back(pending);
+        }
+
+        pending->OnError([this](uint32_t cuda_err) {
+            int expected = 0;
+            mDeferredError.compare_exchange_strong(expected, static_cast<int>(cuda_err));
+        });
+
+        frontend->mExitCode = 0;  // async stubs always return cudaSuccess immediately
+        return;
+    }
+
+    // If no input buffer is provided, use the internal one
     if (input_buffer == nullptr) input_buffer = mpInputBuffer.get();
 
     pid_t tid = syscall(SYS_gettid);
@@ -323,6 +371,27 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
             hybrid->end_call();
         }
     }
+}
+
+void Frontend::FlushAsync() {
+    std::vector<std::shared_ptr<gvirtus::communicators::FramedStream::PendingRequest>> snapshot;
+    {
+        std::lock_guard<std::mutex> lock(mPendingMutex);
+        snapshot = std::move(mPendingRequests);
+        mPendingRequests.clear();
+    }
+    for (auto &p : snapshot) {
+        try {
+            p->Wait(std::chrono::milliseconds(5000));
+        } catch (const std::exception &) {
+            int expected = 0;
+            mDeferredError.compare_exchange_strong(expected, 1);
+        }
+    }
+}
+
+int Frontend::ConsumeDeferredError() {
+    return mDeferredError.exchange(0);
 }
 
 void Frontend::Prepare() {

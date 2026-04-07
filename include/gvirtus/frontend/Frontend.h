@@ -62,6 +62,12 @@ namespace gvirtus::frontend {
  * parameter must be retrieved otherwise the Frontend will be left in a dirty
  * status.
  */
+ enum class ExecMode : uint8_t {
+    SYNC    = 0,  // block for response — current behavior for all result-returning calls
+    ASYNC   = 1,  // enqueue, return immediately, defer error to next sync point
+    BARRIER = 2,  // ForceFlush all pending async calls, then SYNC
+};
+
 class Frontend {
    public:
     virtual ~Frontend();
@@ -83,9 +89,24 @@ class Frontend {
      *
      * @param routine the name of the routine to execute.
      * @param input_buffer the buffer containing the parameters of the routine.
+     * @param mode the execution mode: SYNC blocks for response (default), 
+     *                                 ASYNC enqueues and returns immediately deferring errors,
+     *                                 BARRIER flushes all pending async calls then blocks.
      */
-    void Execute(const char *routine, const communicators::Buffer *input_buffer = NULL);
+    void Execute(const char *routine, const communicators::Buffer *input_buffer = NULL, ExecMode mode = ExecMode::SYNC);
 
+      // Drain all pending async requests and wait for their completion
+    void FlushAsync();
+
+     // Return and clear the deferred error for this thread
+    int ConsumeDeferredError();
+
+   private:
+    // Stores the first non-zero error received from an ASYNC call
+    std::atomic<int> mDeferredError{0};
+    std::mutex mPendingMutex;
+    
+    std::vector<std::shared_ptr<gvirtus::communicators::FramedStream::PendingRequest>> mPendingRequests;
     /**
      * Prepares the Frontend for the execution. This method _must_ be called
      * before any requests of execution or any method for adding parameters for
