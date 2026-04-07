@@ -129,13 +129,16 @@ extern "C" __host__ cudaError_t CUDARTAPI   cudaStreamIsCapturing(cudaStream_t s
     return CudaRtFrontend::GetExitCode();
 }
 // cudaStreamGetId
-extern "C" __host__ cudaError_t CUDARTAPI cudaStreamGetCaptureInfo(cudaStream_t stream, 
-                                                                cudaStreamCaptureStatus* captureStatus_out, 
-                                                                unsigned long long* id_out, 
-                                                                cudaGraph_t* graph_out, 
-                                                                const cudaGraphNode_t **dependencies_out, 
-                                                                // const cudaGraphEdgeData **edgeData_out,
-                                                                size_t *numDependencies_out) {
+#ifdef cudaStreamGetCaptureInfo
+#undef cudaStreamGetCaptureInfo
+#endif
+extern "C" __host__ cudaError_t CUDARTAPI cudaStreamGetCaptureInfo(cudaStream_t stream,
+                                                                cudaStreamCaptureStatus* captureStatus_out,
+                                                                unsigned long long* id_out,
+                                                                cudaGraph_t* graph_out,
+                                                                const cudaGraphNode_t** dependencies_out,
+                                                                const cudaGraphEdgeData** edgeData_out,
+                                                                size_t* numDependencies_out) {
     CudaRtFrontend::Prepare();
     CudaRtFrontend::AddDevicePointerForArguments(stream);
     // cout << "Frontend" << *captureStatus_out << endl;
@@ -180,6 +183,7 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaStreamGetCaptureInfo(cudaStream_t 
         
         
     return CudaRtFrontend::GetExitCode();
+
 }
 
 

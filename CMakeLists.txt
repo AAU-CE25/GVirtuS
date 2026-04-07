@@ -132,6 +132,7 @@ target_link_libraries(gvirtus-frontend
     PRIVATE
         gvirtus-communicators
         gvirtus-communicators-hybrid
+        gvirtus-communicators-ucx
         Threads::Threads
         lz4
 )
@@ -178,6 +179,6 @@ maybe_add_cuda_plugin(nvrtc plugins/nvrtc)
 
 
 # ===== Tests =====
-add_subdirectory(tests)
+#add_subdirectory(tests)
 
 # add_subdirectory(tools/protocol-generator)

@@ -22,7 +22,7 @@ gvirtus_add_backend(cudart ${CUDA_VERSION}
     backend/CudaRtHandler_internal.cpp
     backend/CudaRtHandler_memory.cpp
     backend/CudaRtHandler_occupancy.cpp
-    backend/CudaRtHandler_opengl.cpp
+    #backend/CudaRtHandler_opengl.cpp
     backend/CudaRtHandler_profiler.cpp
     backend/CudaRtHandler_stream_memory.cpp
     backend/CudaRtHandler_stream.cpp
@@ -48,7 +48,7 @@ gvirtus_add_frontend(cudart ${CUDA_VERSION}
         frontend/CudaRt_internal.cpp
         frontend/CudaRt_memory.cpp
         frontend/CudaRt_occupancy.cpp
-        frontend/CudaRt_opengl.cpp
+        #frontend/CudaRt_opengl.cpp
         frontend/CudaRt_profiler.cpp
         frontend/CudaRt_stream_memory.cpp
         frontend/CudaRt_stream.cpp

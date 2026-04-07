@@ -37,6 +37,7 @@
 
 #include <gvirtus/common/LD_Lib.h>
 #include <gvirtus/communicators/Buffer.h>
+#include <gvirtus/communicators/FramedStream.h>
 #include <gvirtus/communicators/Communicator.h>
 
 #include <map>
@@ -101,7 +102,7 @@ class Frontend {
      // Return and clear the deferred error for this thread
     int ConsumeDeferredError();
 
-   private:
+   public:
     // Stores the first non-zero error received from an ASYNC call
     std::atomic<int> mDeferredError{0};
     std::mutex mPendingMutex;
