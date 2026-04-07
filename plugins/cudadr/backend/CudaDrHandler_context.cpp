@@ -25,6 +25,7 @@
 
 #include "CudaDrHandler.h"
 
+
 using namespace std;
 
 using gvirtus::communicators::Buffer;
@@ -35,7 +36,10 @@ CUDA_DRIVER_HANDLER(CtxCreate) {
     CUcontext pctx;
     unsigned int flags = input_buffer->Get<unsigned int>();
     CUdevice dev = input_buffer->Get<CUdevice>();
-    CUresult exit_code = cuCtxCreate(&pctx, flags, dev);
+    CUctxCreateParams params = {};
+    params.execAffinityParams = nullptr;
+    params.numExecAffinityParams = 0;
+    CUresult exit_code = cuCtxCreate_v4(&pctx, &params, flags, dev);
     std::shared_ptr<Buffer> out = std::make_shared<Buffer>();
     out->AddMarshal(pctx);
     return std::make_shared<Result>((cudaError_t)exit_code, out);

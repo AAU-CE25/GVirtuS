@@ -29,9 +29,9 @@
 #include "CudaRtHandler.h"
 
 // deprecated
-CUDA_ROUTINE_HANDLER(ThreadExit) { return std::make_shared<Result>(cudaThreadExit()); }
+CUDA_ROUTINE_HANDLER(ThreadExit) { return std::make_shared<Result>(cudaDeviceReset()); }
 
 // deprecated
 CUDA_ROUTINE_HANDLER(ThreadSynchronize) {
-    return std::make_shared<Result>(cudaThreadSynchronize());
+    return std::make_shared<Result>(cudaDeviceSynchronize());
 }

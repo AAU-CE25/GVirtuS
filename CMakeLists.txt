@@ -142,6 +142,7 @@ add_executable(gvirtus-backend
     src/backend/Backend.cpp
     src/backend/main.cpp
     src/backend/Process.cpp
+    src/backend/UcxProcess.cpp
     src/backend/Property.cpp
 )
 target_include_directories(gvirtus-backend
@@ -152,6 +153,10 @@ target_link_libraries(gvirtus-backend
     PRIVATE
         gvirtus-communicators
         gvirtus-communicators-hybrid
+        gvirtus-communicators-ucx
+        ${UCX_UCP_LIB}
+        ${UCX_UCS_LIB}
+        ${UCX_UCT_LIB}
         Threads::Threads
         rdmacm
         ibverbs

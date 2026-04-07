@@ -198,16 +198,87 @@ void UcxCommunicator::Close() {
     }
 }
 
+// Called by UCX when a new connection request arrives on the listener
+void UcxCommunicator::OnConnectionRequest(ucp_conn_request_h conn_req, void *arg) {
+    auto *self = static_cast<UcxCommunicator *>(arg);
+
+    // Accept the connection request into a new endpoint
+    ucp_ep_params_t ep_params{};
+    ep_params.field_mask   = UCP_EP_PARAM_FIELD_CONN_REQUEST;
+    ep_params.conn_request = conn_req;
+
+    ucp_ep_h new_ep = nullptr;
+    ucs_status_t status = ucp_ep_create(self->ucp_worker_, &ep_params, &new_ep);
+    if (status != UCS_OK) {
+        std::fprintf(stderr, "UcxCommunicator: ucp_ep_create from conn_request failed: %s\n",
+                     ucs_status_string(status));
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(self->accept_mutex_);
+        self->pending_eps_.push(new_ep);
+    }
+    self->accept_cv_.notify_one();
+}
+
 void UcxCommunicator::Serve() {
-    std::printf("UCX Serve: not implemented (frontend-only communicator)\n");
+    InitUcpContext();
+    CreateWorker();
+
+    struct sockaddr_in listen_addr{};
+    listen_addr.sin_family = AF_INET;
+    listen_addr.sin_port   = htons(port_);
+    inet_pton(AF_INET, hostname_.c_str(), &listen_addr.sin_addr);
+
+    ucp_listener_params_t params{};
+    params.field_mask        = UCP_LISTENER_PARAM_FIELD_SOCK_ADDR |
+                               UCP_LISTENER_PARAM_FIELD_CONN_HANDLER;
+    params.sockaddr.addr     = reinterpret_cast<const sockaddr *>(&listen_addr);
+    params.sockaddr.addrlen  = sizeof(listen_addr);
+    params.conn_handler.cb   = &UcxCommunicator::OnConnectionRequest;
+    params.conn_handler.arg  = this;
+
+    ucs_status_t status = ucp_listener_create(ucp_worker_, &params, &ucp_listener_);
+    if (status != UCS_OK)
+        throw std::runtime_error("ucp_listener_create failed: " +
+                                 std::string(ucs_status_string(status)));
+
+    std::printf("[UcxCommunicator] Listening on %s:%u\n", hostname_.c_str(), port_);
 }
 
 const gvirtus::communicators::Communicator *const UcxCommunicator::Accept() const {
-    return nullptr;
+    // Drive the UCX progress engine until a connection arrives
+    {
+        std::unique_lock<std::mutex> lock(accept_mutex_);
+        while (pending_eps_.empty()) {
+            lock.unlock();
+            ucp_worker_progress(ucp_worker_);
+            lock.lock();
+        }
+    }
+
+    ucp_ep_h new_ep;
+    {
+        std::lock_guard<std::mutex> lock(accept_mutex_);
+        new_ep = pending_eps_.front();
+        pending_eps_.pop();
+    }
+
+    // Build a connected UcxCommunicator that wraps the accepted endpoint
+    auto *peer = new UcxCommunicator();
+    peer->ucp_context_ = ucp_context_;   // share context (not owned)
+    peer->ucp_worker_  = ucp_worker_;    // share worker  (not owned)
+    peer->ucp_ep_      = new_ep;
+    peer->framed_stream_ = std::make_unique<FramedStream>(ucp_worker_);
+    peer->framed_stream_->EnsureDispatchLoop(new_ep);
+    return peer;
 }
 
 void UcxCommunicator::run() {
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    // Progress loop — keep UCX moving when idle
+    while (ucp_worker_ != nullptr)
+        ucp_worker_progress(ucp_worker_);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

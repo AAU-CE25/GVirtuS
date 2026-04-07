@@ -226,9 +226,9 @@ CUDA_ROUTINE_HANDLER(StreamGetCaptureInfo) {
         // const cudaGraphEdgeData* edgeData_out;
         size_t* numDependencies_out = input_buffer->Assign<size_t>();
         cout << " Graph: "<< graph_out << std::endl;
-        cudaError_t exit_code = cudaStreamGetCaptureInfo(stream, &captureStatus_out, 
-                                                        &id_out, graph_out, dependencies_out, 
-                                                        numDependencies_out);
+        cudaError_t exit_code = cudaStreamGetCaptureInfo(stream, &captureStatus_out,
+                                                        &id_out, graph_out, dependencies_out,
+                                                        nullptr, numDependencies_out);
 
         
         

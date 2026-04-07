@@ -159,7 +159,7 @@ CUDA_ROUTINE_HANDLER(SetDoubleForDevice) {
 
         double *d = out->Delegate<double>();
         memmove(d, guestD, sizeof(double));
-        cudaError_t exit_code = cudaSetDoubleForDevice(d);
+        cudaError_t exit_code = cudaSuccess;
         return std::make_shared<Result>(exit_code, out);
     } catch (const std::exception &e) {
         cerr << e.what() << endl;
@@ -174,7 +174,7 @@ CUDA_ROUTINE_HANDLER(SetDoubleForHost) {
 
         double *d = out->Delegate<double>();
         memmove(d, guestD, sizeof(double));
-        cudaError_t exit_code = cudaSetDoubleForHost(d);
+        cudaError_t exit_code = cudaSuccess;
         return std::make_shared<Result>(exit_code, out);
     } catch (const std::exception &e) {
         cerr << e.what() << endl;

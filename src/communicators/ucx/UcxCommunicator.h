@@ -9,6 +9,9 @@
 #include "gvirtus/communicators/Buffer.h"
 #include "gvirtus/communicators/Communicator.h"
 #include "gvirtus/communicators/FramedStream.h"
+#include <mutex>
+#include <queue>
+#include <condition_variable>
 
 namespace gvirtus::communicators {
 
@@ -55,10 +58,17 @@ class UcxCommunicator : public Communicator {
 
     mutable std::chrono::steady_clock::time_point last_accept_log_{};
 
+    // Listener state — used by Serve() / Accept()
+    ucp_listener_h ucp_listener_{nullptr};
+    mutable std::mutex                      accept_mutex_;
+    mutable std::condition_variable         accept_cv_;
+    mutable std::queue<ucp_ep_h>            pending_eps_;
+
     // Internal helpers
     void InitUcpContext();
     void CreateWorker();
     void CreateEndpoint();
+    static void OnConnectionRequest(ucp_conn_request_h req, void *arg);
 };
 
 }  // namespace gvirtus::communicators
