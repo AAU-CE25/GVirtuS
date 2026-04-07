@@ -3,8 +3,6 @@ cmake_policy(SET CMP0104 NEW)
 
 project(GVirtuS LANGUAGES CXX)
 
-find_package(ZLIB REQUIRED)
-
 # ===== LZ4 check & link =====
 find_package(LZ4 QUIET)
 if(LZ4_FOUND)
@@ -115,29 +113,12 @@ target_link_libraries(gvirtus-communicators-hybrid
 gvirtus_install_target(gvirtus-communicators-hybrid)
 
 ## UCX COMMUNICATOR
-find_path(UCX_INCLUDE_DIR ucp/api/ucp.h)
-find_library(UCX_UCP_LIB ucp)
-find_library(UCX_UCS_LIB ucs)
-find_library(UCX_UCT_LIB uct)
-
-if(UCX_INCLUDE_DIR AND UCX_UCP_LIB AND UCX_UCS_LIB AND UCX_UCT_LIB)
-    add_library(gvirtus-communicators-ucx SHARED
-        src/communicators/FramedStream.cpp
-        src/communicators/ucx/UcxCommunicator.cpp
-    )
-    target_include_directories(gvirtus-communicators-ucx PRIVATE ${UCX_INCLUDE_DIR})
-    target_link_libraries(gvirtus-communicators-ucx 
-        PRIVATE
-            gvirtus-communicators
-            ${UCX_UCP_LIB}
-            ${UCX_UCS_LIB}
-            ${UCX_UCT_LIB}
-            ZLIB::ZLIB
-    )
-    gvirtus_install_target(gvirtus-communicators-ucx)
-else()
-    message(WARNING "UCX libraries not found, skipping gvirtus-communicators-ucx")
-endif()
+add_library(gvirtus-communicators-ucx SHARED
+    src/communicators/ucx/UcxCommunicator.cpp
+    src/communicators/FramedStream.cpp
+)
+target_link_libraries(gvirtus-communicators-ucx gvirtus-communicators ucp ucs z)
+gvirtus_install_target(gvirtus-communicators-ucx)
 
 # ===== FRONTEND =====
 add_library(gvirtus-frontend SHARED

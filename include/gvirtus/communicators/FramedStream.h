@@ -78,6 +78,7 @@ class FramedStream {
     explicit FramedStream(ucp_worker_h worker);
     ~FramedStream();
     uint32_t NextRequestId();
+    void EnsureDispatchLoop(ucp_ep_h ep);
 
     // Posts a REQUEST frame and returns immediately with a handle to wait on response later.
     std::shared_ptr<PendingRequest> SendAsync(ucp_ep_h ep, MsgType type, const void* payload,
@@ -106,7 +107,6 @@ class FramedStream {
     // Progress loop — only thread allowed to call ucp_worker_progress
     void ProgressLoop();
     void DispatchLoop(ucp_ep_h ep);
-    void EnsureDispatchLoop(ucp_ep_h ep);
     std::shared_ptr<PendingRequest> RegisterRequest(uint32_t id);
     void CompleteRequest(uint32_t id, std::vector<uint8_t> payload);
     void CompleteRequestWithError(uint32_t id, uint32_t cuda_error);

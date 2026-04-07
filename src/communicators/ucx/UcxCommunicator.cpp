@@ -1,62 +1,223 @@
 #include "UcxCommunicator.h"
 
-#include <algorithm>
+#include <arpa/inet.h>
 #include <chrono>
-#include <cstdio>
+#include <cstring>
 #include <stdexcept>
 #include <thread>
 
 #include "gvirtus/communicators/Endpoint_Ucx.h"
 
 using gvirtus::communicators::UcxCommunicator;
+using gvirtus::communicators::FramedStream;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Constructor / Destructor
+// ─────────────────────────────────────────────────────────────────────────────
 
 UcxCommunicator::UcxCommunicator(const std::string &hostname, std::uint16_t port)
     : hostname_(hostname), port_(port) {}
 
-void UcxCommunicator::Serve() { std::printf("UCX stub called: Serve (%s:%u)\n", hostname_.c_str(), port_); }
+UcxCommunicator::~UcxCommunicator() {
+    Close();
+}
 
-const gvirtus::communicators::Communicator *const UcxCommunicator::Accept() const {
-    const auto now = std::chrono::steady_clock::now();
-    if (last_accept_log_.time_since_epoch().count() == 0 ||
-        now - last_accept_log_ >= std::chrono::seconds(10)) {
-        std::printf("UCX stub called: Accept (no connection, stub mode)\n");
-        last_accept_log_ = now;
-    }
-    return nullptr;
+// ─────────────────────────────────────────────────────────────────────────────
+// Connect — initializes UCX and establishes endpoint
+// ─────────────────────────────────────────────────────────────────────────────
+
+void UcxCommunicator::InitUcpContext() {
+    ucp_params_t params{};
+    params.field_mask = UCP_PARAM_FIELD_FEATURES;
+    params.features   = UCP_FEATURE_STREAM;  // stream transport for sync path
+                                              // + WAKEUP for ProgressLoop arm/wait
+
+    ucp_config_t *config = nullptr;
+    ucp_config_read(nullptr, nullptr, &config);
+
+    ucs_status_t status = ucp_init(&params, config, &ucp_context_);
+    ucp_config_release(config);
+
+    if (status != UCS_OK)
+        throw std::runtime_error("ucp_init failed: " +
+                                 std::string(ucs_status_string(status)));
+}
+
+void UcxCommunicator::CreateWorker() {
+    ucp_worker_params_t params{};
+    params.field_mask  = UCP_WORKER_PARAM_FIELD_THREAD_MODE;
+    params.thread_mode = UCS_THREAD_MODE_SERIALIZED;
+
+    ucs_status_t status = ucp_worker_create(ucp_context_, &params, &ucp_worker_);
+    if (status != UCS_OK)
+        throw std::runtime_error("ucp_worker_create failed: " +
+                                 std::string(ucs_status_string(status)));
+}
+
+void UcxCommunicator::CreateEndpoint() {
+    // Get local worker address to send to the peer
+    ucp_address_t *local_addr = nullptr;
+    size_t         local_addr_len = 0;
+    ucp_worker_get_address(ucp_worker_, &local_addr, &local_addr_len);
+
+    // Build sockaddr for the remote backend
+    struct sockaddr_in server_addr{};
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port   = htons(port_);
+    inet_pton(AF_INET, hostname_.c_str(), &server_addr.sin_addr);
+
+    ucp_ep_params_t ep_params{};
+    ep_params.field_mask       = UCP_EP_PARAM_FIELD_FLAGS |
+                                 UCP_EP_PARAM_FIELD_SOCK_ADDR;
+    ep_params.flags            = UCP_EP_PARAMS_FLAGS_CLIENT_SERVER;
+    ep_params.sockaddr.addr    = reinterpret_cast<const sockaddr *>(&server_addr);
+    ep_params.sockaddr.addrlen = sizeof(server_addr);
+
+    ucs_status_t status = ucp_ep_create(ucp_worker_, &ep_params, &ucp_ep_);
+    ucp_worker_release_address(ucp_worker_, local_addr);
+
+    if (status != UCS_OK)
+        throw std::runtime_error("ucp_ep_create failed: " +
+                                 std::string(ucs_status_string(status)));
 }
 
 void UcxCommunicator::Connect() {
-    std::printf("UCX stub called: Connect (%s:%u)\n", hostname_.c_str(), port_);
+    InitUcpContext();
+    CreateWorker();
+    CreateEndpoint();
+
+    // FramedStream owns the async progress loop and in_flight map
+    framed_stream_ = std::make_unique<FramedStream>(ucp_worker_);
+    framed_stream_->EnsureDispatchLoop(ucp_ep_);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SendAsync — the new async path used by Frontend::Execute(ASYNC)
+// Serializes [routine_name \0][buffer bytes] into one payload,
+// hands it to FramedStream::SendAsync, returns the PendingRequest handle.
+// ─────────────────────────────────────────────────────────────────────────────
+
+std::shared_ptr<FramedStream::PendingRequest>
+UcxCommunicator::SendAsync(const char *routine, const Buffer *input_buffer) {
+    if (!framed_stream_ || ucp_ep_ == nullptr)
+        throw std::runtime_error("UcxCommunicator::SendAsync called before Connect()");
+
+    size_t name_len = std::strlen(routine) + 1;
+    size_t buf_size = input_buffer ? input_buffer->GetBufferSize() : 0;
+    size_t total    = name_len + buf_size;
+
+    std::vector<uint8_t> payload(total);
+    std::memcpy(payload.data(), routine, name_len);
+
+    if (buf_size > 0)
+        std::memcpy(payload.data() + name_len,
+                    input_buffer->GetBuffer(),   // ← correct method
+                    buf_size);
+
+    return framed_stream_->SendAsync(ucp_ep_, MsgType::REQUEST,
+                                     payload.data(),
+                                     static_cast<uint32_t>(total));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Synchronous path — Write/Sync/Read
+// Keeps the existing TCP-style call flow working over UCX stream.
+// Write() accumulates into write_buffer_, Sync() sends the whole
+// batch as one framed message, Read() receives and drains.
+// ─────────────────────────────────────────────────────────────────────────────
+
+size_t UcxCommunicator::Write(const char *buffer, size_t size) {
+    if (!framed_stream_ || ucp_ep_ == nullptr) {
+        std::printf("UCX Write called before Connect()\n");
+        return size;
+    }
+    // Accumulate into staging buffer — flushed on Sync()
+    const auto *b = reinterpret_cast<const uint8_t *>(buffer);
+    write_buffer_.insert(write_buffer_.end(), b, b + size);
+    return size;
+}
+
+void UcxCommunicator::Sync() {
+    if (!framed_stream_ || ucp_ep_ == nullptr || write_buffer_.empty())
+        return;
+
+    // Send accumulated write_buffer_ as one framed REQUEST
+    // and block until the backend sends a RESPONSE
+    auto pending = framed_stream_->SendAsync(
+        ucp_ep_, MsgType::REQUEST,
+        write_buffer_.data(),
+        static_cast<uint32_t>(write_buffer_.size()));
+
+    write_buffer_.clear();
+
+    // Block for the response — this is the synchronous path
+    auto response = pending->Wait(std::chrono::milliseconds(5000));
+
+    // Store response payload for subsequent Read() calls
+    read_buffer_ = std::move(response);
+    read_offset_ = 0;
 }
 
 size_t UcxCommunicator::Read(char *buffer, size_t size) {
-    std::printf("UCX stub called: Read (%zu bytes)\n", size);
-    if (buffer != nullptr && size > 0) {
-        std::fill(buffer, buffer + size, 0);
+    if (read_offset_ + size > read_buffer_.size())
+        throw std::runtime_error("UcxCommunicator::Read: not enough data in response buffer");
+
+    std::memcpy(buffer, read_buffer_.data() + read_offset_, size);
+    read_offset_ += size;
+    return size;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Close / Serve / Accept / run — lifecycle
+// ─────────────────────────────────────────────────────────────────────────────
+
+void UcxCommunicator::Close() {
+    framed_stream_.reset();  // stops progress + dispatch threads first
+
+    if (ucp_ep_ != nullptr) {
+        ucp_request_param_t param{};
+        param.op_attr_mask = UCP_OP_ATTR_FIELD_FLAGS;
+        param.flags        = UCP_EP_CLOSE_FLAG_FORCE;
+        auto *req = ucp_ep_close_nbx(ucp_ep_, &param);
+        if (UCS_PTR_IS_PTR(req)) {
+            while (ucp_request_check_status(req) == UCS_INPROGRESS)
+                ucp_worker_progress(ucp_worker_);
+            ucp_request_free(req);
+        }
+        ucp_ep_ = nullptr;
     }
-    return size;
+
+    if (ucp_worker_ != nullptr) {
+        ucp_worker_destroy(ucp_worker_);
+        ucp_worker_ = nullptr;
+    }
+
+    if (ucp_context_ != nullptr) {
+        ucp_cleanup(ucp_context_);
+        ucp_context_ = nullptr;
+    }
 }
 
-size_t UcxCommunicator::Write(const char *buffer, size_t size) {
-    (void)buffer;
-    std::printf("UCX stub called: Write (%zu bytes)\n", size);
-    return size;
+void UcxCommunicator::Serve() {
+    std::printf("UCX Serve: not implemented (frontend-only communicator)\n");
 }
 
-void UcxCommunicator::Sync() { std::printf("UCX stub called: Sync\n"); }
-
-void UcxCommunicator::Close() { std::printf("UCX stub called: Close\n"); }
+const gvirtus::communicators::Communicator *const UcxCommunicator::Accept() const {
+    return nullptr;
+}
 
 void UcxCommunicator::run() {
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Factory — called by LD_Lib when loading the .so
+// ─────────────────────────────────────────────────────────────────────────────
+
 extern "C" std::shared_ptr<UcxCommunicator> create_communicator(
     std::shared_ptr<gvirtus::communicators::Endpoint> end) {
-    auto ucx_endpoint = std::dynamic_pointer_cast<gvirtus::communicators::Endpoint_Ucx>(end);
-    if (!ucx_endpoint) {
+    auto ucx_ep = std::dynamic_pointer_cast<gvirtus::communicators::Endpoint_Ucx>(end);
+    if (!ucx_ep)
         throw std::runtime_error("UcxCommunicator: endpoint type mismatch");
-    }
-
-    return std::make_shared<UcxCommunicator>(ucx_endpoint->address(), ucx_endpoint->port());
+    return std::make_shared<UcxCommunicator>(ucx_ep->address(), ucx_ep->port());
 }
