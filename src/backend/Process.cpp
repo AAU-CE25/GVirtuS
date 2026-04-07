@@ -130,6 +130,16 @@ bool getstring(Communicator *c, string &s) {
             s += ch;
         }
         return false;
+    } else if (c->to_string() == "ucxcommunicator") {
+        s.clear();
+        char ch = 0;
+        while (c->Read(&ch, 1) == 1) {
+            if (ch == 0) {
+                return true;
+            }
+            s += ch;
+        }
+        return false;
     }
 
     throw runtime_error("Communicator getstring read error... Unknown communicator type...");
