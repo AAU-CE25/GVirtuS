@@ -12,6 +12,7 @@
 #include <unordered_map>
 #include <ucp/api/ucp.h>
 #include <vector>
+#include <functional>
 
 static constexpr uint32_t GV_MAGIC = 0xCA7ACAFEu;  // 'CUDA CAFE'
 
@@ -65,6 +66,11 @@ class FramedStream {
         std::vector<uint8_t> Wait(
             std::chrono::milliseconds timeout = std::chrono::milliseconds(5000));
 
+        void OnError(std::function<void(uint32_t)> cb) {
+            std::lock_guard<std::mutex> lk(mtx);
+            on_error_cb_ = std::move(cb);
+        }
+
        private:
         friend class FramedStream;
         std::mutex mtx;
@@ -73,6 +79,7 @@ class FramedStream {
         ucs_status_t status = UCS_INPROGRESS;
         uint32_t cuda_error = 0;
         std::vector<uint8_t> response_payload;
+        std::function<void(uint32_t)> on_error_cb_;
     };
 
     explicit FramedStream(ucp_worker_h worker);

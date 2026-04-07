@@ -181,6 +181,7 @@ void FramedStream::CompleteRequestWithError(uint32_t id, uint32_t cuda_error) {
         pr->status = UCS_ERR_IO_ERROR;
         pr->cuda_error = cuda_error;
         pr->complete = true;
+        if (pr->on_error_cb_) pr->on_error_cb_(cuda_error);
     }
     pr->cv.notify_one();
 }
