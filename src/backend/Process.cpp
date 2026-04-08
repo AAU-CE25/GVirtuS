@@ -178,6 +178,7 @@ void Process::Start() {
 
         while (getstring(client_comm, routine)) {
             LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "] Received routine: " << routine);
+            LOG4CPLUS_INFO(logger, "CUDA call: " << routine);
 
             // === before reading buffer, chose the protocol of this round by rountine ===
             gvirtus::communicators::HybridCommunicator *hybrid = nullptr;
