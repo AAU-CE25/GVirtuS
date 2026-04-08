@@ -18,6 +18,13 @@ NATIVE_DIR="/tmp/rapids-native"
 if [[ -f "$RAPIDS_JAR" ]] && [[ ! -d "$NATIVE_DIR" ]]; then
     mkdir -p "$NATIVE_DIR"
     unzip -q -j "$RAPIDS_JAR" "amd64/Linux/*.so" -d "$NATIVE_DIR" 2>/dev/null || true
+    
+    # Create versioned symlinks that libcudf.so expects
+    if [[ -f "$NATIVE_DIR/libnvcomp.so" ]]; then
+        ln -sf libnvcomp.so "$NATIVE_DIR/libnvcomp.so.5"
+        ln -sf libnvcomp.so "$NATIVE_DIR/libnvcomp.so.4"
+    fi
+    
     if [[ -f "$NATIVE_DIR/libcudf.so" ]]; then
         echo "Extracted RAPIDS native libs to $NATIVE_DIR" >&2
     fi

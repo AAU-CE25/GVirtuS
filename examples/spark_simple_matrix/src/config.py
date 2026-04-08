@@ -61,6 +61,32 @@ SPARK_RAPIDS_GVIRTUS_CONFIG = [
     ("spark.executorEnv.LD_PRELOAD", f"{GVIRTUS_HOME_PATH}/lib/frontend/libcudart.so:{GVIRTUS_HOME_PATH}/lib/frontend/libcuda.so"),
 ]
 
+# ── Single-threaded GVirtuS config (for debugging thread issues) ──
+SPARK_RAPIDS_GVIRTUS_SINGLE_THREAD_CONFIG = [
+    ("spark.local.dir", "/data/wg38up/spark-temp"),
+    ("spark.executor.memory", "8g"),
+    ("spark.driver.memory", "4g"),
+    ("spark.jars", RAPIDS_JAR_PATH),
+    ("spark.plugins", "com.nvidia.spark.SQLPlugin"),
+    ("spark.rapids.sql.enabled", "true"),
+    ("spark.rapids.sql.explain", "ALL"),
+    # SINGLE THREAD SETTINGS
+    ("spark.master", "local[1]"),
+    ("spark.executor.cores", "1"),
+    ("spark.task.cpus", "1"),
+    ("spark.default.parallelism", "1"),
+    ("spark.sql.shuffle.partitions", "1"),
+    ("spark.rapids.sql.concurrentGpuTasks", "1"),
+    ("spark.rapids.memory.gpu.pool", "NONE"),
+    ("spark.sql.session.timeZone", "UTC"),
+    # GVirtuS settings
+    ("spark.executor.extraLibraryPath", f"{GVIRTUS_LIB_PATH}:{RAPIDS_NATIVE_PATH}"),
+    ("spark.driver.extraLibraryPath", f"{GVIRTUS_LIB_PATH}:{RAPIDS_NATIVE_PATH}"),
+    ("spark.executorEnv.GVIRTUS_HOME", GVIRTUS_HOME_PATH),
+    ("spark.executorEnv.LD_LIBRARY_PATH", f"{GVIRTUS_LIB_PATH}:{RAPIDS_NATIVE_PATH}"),
+    ("spark.executorEnv.LD_PRELOAD", f"{GVIRTUS_HOME_PATH}/lib/frontend/libcudart.so:{GVIRTUS_HOME_PATH}/lib/frontend/libcuda.so"),
+]
+
 # ── GVirtuS ──
 GVIRTUS_BACKEND_HOST = "24.24.24.1"
 GVIRTUS_BACKEND_PORT = "2222"

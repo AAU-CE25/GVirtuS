@@ -27,13 +27,22 @@
  */
 
 #include "CudaDr.h"
+#include <iostream>
 
 using namespace std;
 
 /* Initialize the CUDA driver API */
 extern "C" CUresult cuInit(unsigned int flags) {
+    std::cerr << "[GVIRTUS DEBUG] cuInit(" << flags << ") - Starting" << std::endl;
+    std::cerr << "[GVIRTUS DEBUG] cuInit - Calling Prepare()..." << std::endl;
     CudaDrFrontend::Prepare();
+    std::cerr << "[GVIRTUS DEBUG] cuInit - Prepare() done" << std::endl;
+    std::cerr << "[GVIRTUS DEBUG] cuInit - Adding flags argument..." << std::endl;
     CudaDrFrontend::AddVariableForArguments(flags);
+    std::cerr << "[GVIRTUS DEBUG] cuInit - Calling Execute()..." << std::endl;
     CudaDrFrontend::Execute("cuInit");
-    return CudaDrFrontend::GetExitCode();
+    std::cerr << "[GVIRTUS DEBUG] cuInit - Execute() done" << std::endl;
+    CUresult result = CudaDrFrontend::GetExitCode();
+    std::cerr << "[GVIRTUS DEBUG] cuInit - Returning " << result << std::endl;
+    return result;
 }

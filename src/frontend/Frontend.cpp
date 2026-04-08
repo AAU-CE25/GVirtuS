@@ -247,6 +247,7 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
         frontend = it->second;
     }
 
+    LOG4CPLUS_INFO(logger, "CUDA call: " << routine);
     LOG4CPLUS_DEBUG(logger, "DEBUG - Received routine " << routine << " [pid=" << pid
                                                         << ", tid=" << tid << "]");
 
@@ -311,6 +312,9 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
     frontend->mReceivingTime += recv_sec;
 
     // ===== print log =====
+    if (exit_code == -1) {
+        LOG4CPLUS_ERROR(logger, "Unsupported CUDA call: " << routine);
+    }
     LOG4CPLUS_DEBUG(logger, "Routine '" << routine << "' returned " << exit_code
                                         << " | server_exec=" << server_exec_sec << "s"
                                         << " | send=" << send_sec << "s"
