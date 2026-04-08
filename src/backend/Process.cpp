@@ -129,6 +129,11 @@ bool getstring(Communicator *c, string &s) {
             }
             s += ch;
         }
+        if (s.empty()) {
+            LOG4CPLUS_DEBUG(gs_logger, "[getstring] TCP: no data received, client likely disconnected");
+        } else {
+            LOG4CPLUS_WARN(gs_logger, "[getstring] TCP: incomplete read, partial routine='" << s << "'");
+        }
         return false;
     }
 
@@ -172,7 +177,7 @@ void Process::Start() {
         std::shared_ptr<Buffer> input_buffer = std::make_shared<Buffer>();
 
         while (getstring(client_comm, routine)) {
-            LOG4CPLUS_TRACE(logger, "Received routine " << routine);
+            LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "] Received routine: " << routine);
 
             // === before reading buffer, chose the protocol of this round by rountine ===
             gvirtus::communicators::HybridCommunicator *hybrid = nullptr;
@@ -233,7 +238,11 @@ void Process::Start() {
                                                 << "' returned " << result->GetExitCode() << ".");
         }
 
-        LOG4CPLUS_INFO(logger, "Client disconnected");
+        if (routine.empty()) {
+            LOG4CPLUS_INFO(logger, "Client disconnected (no routine sent - probe connection)");
+        } else {
+            LOG4CPLUS_WARN(logger, "Client disconnected mid-routine: '" << routine << "'");
+        }
         Notify("process-ended");
     };
 

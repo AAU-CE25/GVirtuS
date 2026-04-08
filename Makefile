@@ -2,7 +2,7 @@
 USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
 DOCKER_HUB_USERNAME ?= aauce25
 
-GVIRTUS_LOG_LEVEL ?= 20000
+GVIRTUS_LOG_LEVEL ?= 0
 
 DOCKER_REPO_DEV := $(DOCKER_HUB_USERNAME)/gvirtus-dev
 DOCKER_REPO_TEST := $(DOCKER_HUB_USERNAME)/gvirtus-test
