@@ -80,49 +80,21 @@ def create_spark_session(use_rapids=False, env="local"):
 def multiply_matrices_df(spark, n):
     """
     Multiply two NxN matrices using Spark DataFrames.
-
-    Uses DataFrame join + groupBy + sum so the RAPIDS SQL plugin can
-    accelerate the computation on GPU.  (RDD operations are invisible
-    to the plugin — only Catalyst/SQL plans get GPU-offloaded.)
-
     C[i][j] = sum_k  A[i][k] * B[k][j]
     """
-    import random
     from pyspark.sql import functions as F
-    from pyspark.sql.types import StructType, StructField, IntegerType, DoubleType
 
-    random.seed(42)
+    # Generate matrices directly in Spark (no Python lists)
+    coords = spark.range(n).crossJoin(spark.range(n).withColumnRenamed("id", "id2"))
+    A = coords.select(F.col("id").alias("row"), F.col("id2").alias("col"), F.rand(42).alias("val"))
+    B = coords.select(F.col("id").alias("row"), F.col("id2").alias("col"), F.rand(43).alias("val"))
 
-    schema = StructType([
-        StructField("row", IntegerType(), False),
-        StructField("col", IntegerType(), False),
-        StructField("val", DoubleType(), False),
-    ])
-
-    # Generate flat list of (row, col, value) entries for A and B
-    a_entries = [(i, k, random.random()) for i in range(n) for k in range(n)]
-    b_entries = [(k, j, random.random()) for k in range(n) for j in range(n)]
-
-    # Create DataFrames (column names: row, col, val)
-    df_a = spark.createDataFrame(a_entries, schema=schema)
-    df_b = spark.createDataFrame(b_entries, schema=schema)
-
-    # Rename to avoid ambiguity after join
-    a = df_a.alias("a")
-    b = df_b.alias("b")
-
-    # Join on A.col == B.row  (the shared "k" dimension)
-    # Then compute products and sum per (i, j)
     t0 = time.time()
     result = (
-        a.join(b, F.col("a.col") == F.col("b.row"))
-         .select(
-             F.col("a.row").alias("i"),
-             F.col("b.col").alias("j"),
-             (F.col("a.val") * F.col("b.val")).alias("product"),
-         )
-         .groupBy("i", "j")
-         .agg(F.sum("product").alias("value"))
+        A.alias("a")
+         .join(B.alias("b"), F.col("a.col") == F.col("b.row"))
+         .groupBy(F.col("a.row").alias("i"), F.col("b.col").alias("j"))
+         .agg(F.sum(F.col("a.val") * F.col("b.val")).alias("value"))
     )
     elapsed = time.time() - t0
 
