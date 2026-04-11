@@ -116,7 +116,7 @@ gvirtus_install_target(gvirtus-communicators-hybrid)
 add_library(gvirtus-communicators-ucx SHARED
     src/communicators/ucx/UcxCommunicator.cpp
 )
-target_link_libraries(gvirtus-communicators-ucx gvirtus-communicators)
+target_link_libraries(gvirtus-communicators-ucx gvirtus-communicators ucp ucs)
 gvirtus_install_target(gvirtus-communicators-ucx)
 
 # ===== FRONTEND =====
