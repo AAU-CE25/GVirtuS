@@ -1,8 +1,9 @@
 .PHONY: docker-build-push-dev local-docker-build-backend docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test local-docker-build-simple-matrix
 USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
-DOCKER_HUB_USERNAME ?= aauce25 # change username for local dev!
+DOCKER_HUB_USERNAME ?= entr# change username for local dev!
 
-GVIRTUS_LOG_LEVEL ?= 20000
+GVIRTUS_LOG_LEVEL ?= 10000
+GVIRTUS_UCX_DATAPATH ?= tag-framed
 
 DOCKER_REPO_DEV := $(DOCKER_HUB_USERNAME)/gvirtus-dev
 DOCKER_REPO_TEST := $(DOCKER_HUB_USERNAME)/gvirtus-test
@@ -74,6 +75,7 @@ run-gvirtus-backend-dev:
 		--runtime=nvidia \
 		--shm-size=8G \
 		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
+		-e GVIRTUS_UCX_DATAPATH=$(GVIRTUS_UCX_DATAPATH) \
 		$(DOCKER_REPO_DEV):cuda12.6.3-cudnn-ubuntu22.04
 
 attach-gvirtus-bash:
@@ -162,10 +164,23 @@ run-simple-matrix-test:
 		--name simple_matrix_test_container-$(USER) \
 		--gpus all \
 		--network host \
+		-e GVIRTUS_CONFIG=/opt/GVirtuS/etc/properties_ucx.json \
+		-e GVIRTUS_UCX_DATAPATH=$(GVIRTUS_UCX_DATAPATH) \
 		-v ./examples/simple_matrix:/opt/GVirtuS/examples \
 		-v ./etc/properties_ucx.json:/opt/GVirtuS/etc/properties_ucx.json \
 		$(DOCKER_REPO_DEV)/simple_matrix_gvirtus:cuda12.6 \
 		bash /opt/GVirtuS/examples/frontend.sh
+
+run-simple-matrix-reconnect-test:
+	@set -e; \
+	loops="$${LOOPS:-$(UCX_RECONNECT_LOOPS)}"; \
+	i=1; \
+	while [ "$$i" -le "$$loops" ]; do \
+		echo "[UCX reconnect] iteration $$i/$$loops"; \
+		$(MAKE) run-simple-matrix-test; \
+		i=$$((i + 1)); \
+	done; \
+	echo "[UCX reconnect] completed $$loops iterations"
 
 stop-simple-matrix-test:
 	docker stop simple_matrix_test_container-$(USER) || true
