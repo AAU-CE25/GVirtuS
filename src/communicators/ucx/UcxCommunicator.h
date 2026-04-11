@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "gvirtus/communicators/Communicator.h"
+#include "gvirtus/communicators/UcxAmProtocol.h"
 
 #include <ucp/api/ucp.h>
 
@@ -18,6 +19,10 @@ namespace gvirtus::communicators {
 
 class UcxCommunicator : public Communicator {
    public:
+    enum class UcxDataPath : std::uint8_t { TagFramed = 0, ActiveMessage = 1 };
+    using UcxAmMessageType = ucxam::MessageType;
+    using UcxAmEnvelopeHeader = ucxam::EnvelopeHeader;
+
     UcxCommunicator() = default;
     UcxCommunicator(const std::string &hostname, std::uint16_t port);
     ~UcxCommunicator() override;
@@ -45,6 +50,21 @@ class UcxCommunicator : public Communicator {
     void recv_message_exact(void *buffer, size_t size, const char *op_name);
     void send_message_exact(const void *buffer, size_t size, const char *op_name);
     static sockaddr_storage make_sockaddr(const std::string &host, std::uint16_t port);
+    void configure_data_path_from_env();
+    const char *data_path_name() const;
+    UcxAmEnvelopeHeader make_am_header(UcxAmMessageType type, std::uint64_t request_id,
+                                       std::uint64_t routine_size,
+                                       std::uint64_t payload_size,
+                                       std::uint32_t status_code) const;
+    std::vector<unsigned char> encode_am_envelope(const UcxAmEnvelopeHeader &header,
+                                                  const char *routine_data,
+                                                  std::uint64_t routine_size,
+                                                  const char *payload_data,
+                                                  std::uint64_t payload_size) const;
+    bool decode_am_envelope(const unsigned char *data, std::size_t size,
+                            UcxAmEnvelopeHeader &header, std::string &routine,
+                            std::vector<unsigned char> &payload,
+                            std::string &error) const;
 
     std::string hostname_;
     std::uint16_t port_{};
@@ -65,6 +85,9 @@ class UcxCommunicator : public Communicator {
     std::vector<unsigned char> pending_read_bytes_;
     size_t pending_read_offset_{0};
     std::atomic<bool> endpoint_failed_{false};
+
+    UcxDataPath data_path_{UcxDataPath::TagFramed};
+    std::atomic<std::uint64_t> next_request_id_{1};
 };
 
 }  // namespace gvirtus::communicators
