@@ -7,12 +7,16 @@ Result::Result(int exit_code) {
     mpOutputBuffer = NULL;
 }
 
-Result::Result(int exit_code, const std::shared_ptr<Buffer> output_buffer) {
+Result::Result(int exit_code, const std::shared_ptr<gvirtus::communicators::Buffer> output_buffer) {
     mExitCode = exit_code;
     mpOutputBuffer = (output_buffer);
 }
 
 int Result::GetExitCode() { return mExitCode; }
+
+std::shared_ptr<gvirtus::communicators::Buffer> Result::GetOutputBuffer() const {
+    return mpOutputBuffer;
+}
 
 void Result::Dump(Communicator *c) {
     c->Write((char *)&mExitCode, sizeof(int));
