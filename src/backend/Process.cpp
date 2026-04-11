@@ -181,8 +181,9 @@ void Process::Start() {
         string routine;
         std::shared_ptr<Buffer> input_buffer = std::make_shared<Buffer>();
 
-        while (getstring(client_comm, routine)) {
-            LOG4CPLUS_TRACE(logger, "Received routine " << routine);
+        try {
+            while (getstring(client_comm, routine)) {
+                LOG4CPLUS_TRACE(logger, "Received routine " << routine);
 
             // === before reading buffer, chose the protocol of this round by rountine ===
             gvirtus::communicators::HybridCommunicator *hybrid = nullptr;
@@ -239,8 +240,12 @@ void Process::Start() {
                 hybrid->end_call();
             }
 
-            LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "]: Routine '" << routine
-                                                << "' returned " << result->GetExitCode() << ".");
+                LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "]: Routine '" << routine
+                                                    << "' returned " << result->GetExitCode()
+                                                    << ".");
+            }
+        } catch (const std::exception &e) {
+            LOG4CPLUS_WARN(logger, "Client stream closed with exception: " << e.what());
         }
 
         LOG4CPLUS_INFO(logger, "Client disconnected");

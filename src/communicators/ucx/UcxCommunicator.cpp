@@ -198,10 +198,19 @@ void UcxCommunicator::wait_request_completion(void *request, const char *op_name
                                  ucs_status_string(UCS_PTR_STATUS(request)));
     }
 
+    bool cancel_issued = false;
     while (ucp_request_check_status(request) == UCS_INPROGRESS) {
         if (worker_ != nullptr) {
             ucp_worker_progress(worker_);
         }
+
+        // If the endpoint has failed (for example, remote peer reset), cancel
+        // the in-flight request so callers can unwind instead of hanging.
+        if (!cancel_issued && endpoint_failed_.load() && worker_ != nullptr) {
+            ucp_request_cancel(worker_, request);
+            cancel_issued = true;
+        }
+
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
@@ -357,7 +366,20 @@ size_t UcxCommunicator::Read(char *buffer, size_t size) {
 
         if (available == 0) {
             uint64_t frame_len = 0;
-            recv_message_exact(&frame_len, kFrameHeaderSize, "tag_recv_header");
+
+            try {
+                recv_message_exact(&frame_len, kFrameHeaderSize, "tag_recv_header");
+            } catch (const std::exception &e) {
+                // Treat remote disconnect as EOF when no bytes have been copied yet.
+                // This keeps getstring() and reconnect loops from blocking forever.
+                if (endpoint_failed_.load() && copied == 0) {
+                    pending_read_bytes_.clear();
+                    pending_read_offset_ = 0;
+                    ucx_debug_log("Read EOF after endpoint failure: %s", e.what());
+                    return 0;
+                }
+                throw;
+            }
 
             pending_read_bytes_.clear();
             pending_read_offset_ = 0;
