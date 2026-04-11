@@ -85,8 +85,6 @@ sockaddr_storage UcxCommunicator::make_sockaddr(const std::string &host, std::ui
 void UcxCommunicator::init_ucx() {
     if (initialized_) return;
 
-    configure_data_path_from_env();
-
     ucp_params_t ucp_params{};
     ucp_params.field_mask = UCP_PARAM_FIELD_FEATURES;
     ucp_params.features = UCP_FEATURE_TAG;
@@ -111,117 +109,7 @@ void UcxCommunicator::init_ucx() {
     }
 
     initialized_ = true;
-    ucx_debug_log("datapath selected=%s", data_path_name());
     ucx_debug_log("init_ucx completed host=%s port=%u", hostname_.c_str(), port_);
-}
-
-void UcxCommunicator::configure_data_path_from_env() {
-    const char *mode = std::getenv("GVIRTUS_UCX_DATAPATH");
-    data_path_ = UcxDataPath::TagFramed;
-
-    if (mode == nullptr || *mode == '\0') {
-        return;
-    }
-
-    if (std::strcmp(mode, "tag") == 0 || std::strcmp(mode, "tag-framed") == 0) {
-        data_path_ = UcxDataPath::TagFramed;
-        return;
-    }
-
-    if (std::strcmp(mode, "am") == 0 || std::strcmp(mode, "active-message") == 0 ||
-        std::strcmp(mode, "active-messages") == 0) {
-        std::fprintf(stderr,
-                     "UCX datapath 'am' requested. AM envelope scaffold is active; "
-                     "transport still uses tag-framed fallback in this phase.\n");
-        data_path_ = UcxDataPath::ActiveMessage;
-        return;
-    }
-
-    ucx_debug_log("unknown GVIRTUS_UCX_DATAPATH=%s, defaulting to tag-framed", mode);
-}
-
-const char *UcxCommunicator::data_path_name() const {
-    return data_path_ == UcxDataPath::ActiveMessage ? "active-message" : "tag-framed";
-}
-
-UcxCommunicator::UcxAmEnvelopeHeader UcxCommunicator::make_am_header(
-    UcxAmMessageType type, std::uint64_t request_id, std::uint64_t routine_size,
-    std::uint64_t payload_size, std::uint32_t status_code) const {
-    UcxAmEnvelopeHeader header{};
-    header.magic = ucxam::kEnvelopeMagic;
-    header.version = ucxam::kEnvelopeVersion;
-    header.message_type = static_cast<std::uint16_t>(type);
-    header.header_size = static_cast<std::uint16_t>(sizeof(UcxAmEnvelopeHeader));
-    header.reserved0 = 0;
-    header.status_code = status_code;
-    header.request_id = request_id;
-    header.routine_size = routine_size;
-    header.payload_size = payload_size;
-    return header;
-}
-
-std::vector<unsigned char> UcxCommunicator::encode_am_envelope(const UcxAmEnvelopeHeader &header,
-                                                                const char *routine_data,
-                                                                std::uint64_t routine_size,
-                                                                const char *payload_data,
-                                                                std::uint64_t payload_size) const {
-    const std::size_t total = sizeof(UcxAmEnvelopeHeader) +
-                              static_cast<std::size_t>(routine_size) +
-                              static_cast<std::size_t>(payload_size);
-    std::vector<unsigned char> frame(total);
-
-    std::memcpy(frame.data(), &header, sizeof(UcxAmEnvelopeHeader));
-
-    std::size_t offset = sizeof(UcxAmEnvelopeHeader);
-    if (routine_size > 0 && routine_data != nullptr) {
-        std::memcpy(frame.data() + offset, routine_data, static_cast<std::size_t>(routine_size));
-        offset += static_cast<std::size_t>(routine_size);
-    }
-    if (payload_size > 0 && payload_data != nullptr) {
-        std::memcpy(frame.data() + offset, payload_data, static_cast<std::size_t>(payload_size));
-    }
-
-    return frame;
-}
-
-bool UcxCommunicator::decode_am_envelope(const unsigned char *data, std::size_t size,
-                                         UcxAmEnvelopeHeader &header, std::string &routine,
-                                         std::vector<unsigned char> &payload,
-                                         std::string &error) const {
-    if (size < sizeof(UcxAmEnvelopeHeader)) {
-        error = "frame too small for AM header";
-        return false;
-    }
-
-    std::memcpy(&header, data, sizeof(UcxAmEnvelopeHeader));
-    if (header.magic != ucxam::kEnvelopeMagic) {
-        error = "invalid AM header magic";
-        return false;
-    }
-    if (header.version != ucxam::kEnvelopeVersion) {
-        error = "unsupported AM header version";
-        return false;
-    }
-    if (header.header_size != sizeof(UcxAmEnvelopeHeader)) {
-        error = "unsupported AM header size";
-        return false;
-    }
-
-    const std::size_t routine_size = static_cast<std::size_t>(header.routine_size);
-    const std::size_t payload_size = static_cast<std::size_t>(header.payload_size);
-    const std::size_t expected = sizeof(UcxAmEnvelopeHeader) + routine_size + payload_size;
-    if (expected != size) {
-        error = "AM frame size mismatch";
-        return false;
-    }
-
-    std::size_t offset = sizeof(UcxAmEnvelopeHeader);
-    routine.assign(reinterpret_cast<const char *>(data + offset), routine_size);
-    offset += routine_size;
-
-    payload.assign(data + offset, data + offset + payload_size);
-    error.clear();
-    return true;
 }
 
 void UcxCommunicator::destroy_ucx() {
@@ -528,24 +416,6 @@ size_t UcxCommunicator::Write(const char *buffer, size_t size) {
 
     ucx_debug_log("Write begin bytes=%zu tag=0x%llx", size,
                   static_cast<unsigned long long>(kGvirtusTag));
-
-    if (data_path_ == UcxDataPath::ActiveMessage) {
-        const std::uint64_t request_id = next_request_id_.fetch_add(1);
-        UcxAmEnvelopeHeader am_header =
-            make_am_header(UcxAmMessageType::Request, request_id, 0, size, 0);
-        std::vector<unsigned char> am_frame =
-            encode_am_envelope(am_header, nullptr, 0, buffer, static_cast<std::uint64_t>(size));
-
-        UcxAmEnvelopeHeader decoded{};
-        std::string decoded_routine;
-        std::vector<unsigned char> decoded_payload;
-        std::string decode_error;
-        if (!decode_am_envelope(am_frame.data(), am_frame.size(), decoded, decoded_routine, decoded_payload, decode_error)) {
-            throw std::runtime_error("UcxCommunicator: AM scaffold decode failed: " + decode_error);
-        }
-
-        ucx_debug_log("AM scaffold frame request_id=%llu payload_bytes=%zu", static_cast<unsigned long long>(decoded.request_id), decoded_payload.size());
-    }
 
     const uint64_t frame_len = static_cast<uint64_t>(size);
     send_message_exact(&frame_len, kFrameHeaderSize, "tag_send_header");
