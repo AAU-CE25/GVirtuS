@@ -150,8 +150,8 @@ extern "C" {
     CUresult cuOccupancyMaxActiveBlocksPerMultiprocessor(int*, CUfunction, int, size_t);
     CUresult cuOccupancyMaxActiveBlocksPerMultiprocessorWithFlags(int*, CUfunction, int, size_t, unsigned int);
     CUresult cuOccupancyMaxActiveClusters(int*, CUfunction, const CUlaunchConfig*);
-    CUresult cuOccupancyMaxPotentialBlockSize(int*, int*, CUfunction, void*, size_t, int);
-    CUresult cuOccupancyMaxPotentialBlockSizeWithFlags(int*, int*, CUfunction, void*, size_t, int, unsigned int);
+    CUresult cuOccupancyMaxPotentialBlockSize(int*, int*, CUfunction, CUoccupancyB2DSize, size_t, int);
+    CUresult cuOccupancyMaxPotentialBlockSizeWithFlags(int*, int*, CUfunction, CUoccupancyB2DSize, size_t, int, unsigned int);
     CUresult cuOccupancyMaxPotentialClusterSize(int*, CUfunction, const CUlaunchConfig*);
     
     // Stream management
@@ -463,10 +463,7 @@ extern "C" CUresult cuGetProcAddress(const char* symbol, void** pfn, int cudaVer
     return CUDA_SUCCESS;  // Return success but with null pointer and NOT_FOUND status
 }
 
-// Also implement cuGetProcAddress_v2 which is used by newer CUDA versions
-extern "C" CUresult cuGetProcAddress_v2(const char* symbol, void** pfn, int cudaVersion,
-                                        cuuint64_t flags, CUdriverProcAddressQueryResult* symbolStatus) {
-    return cuGetProcAddress(symbol, pfn, cudaVersion, flags, symbolStatus);
-}
+// Note: cuGetProcAddress_v2 is handled by CUDA's macro: #define cuGetProcAddress cuGetProcAddress_v2
+// So our cuGetProcAddress function above is actually compiled as cuGetProcAddress_v2
 
 
