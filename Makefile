@@ -4,6 +4,11 @@ DOCKER_HUB_USERNAME ?= entr# change username for local dev!
 
 GVIRTUS_LOG_LEVEL ?= 10000
 GVIRTUS_UCX_DATAPATH ?= tag-framed
+UCX_TLS ?= tcp,self
+UCX_NET_DEVICES ?= ens1f1np1
+UCX_LOG_LEVEL ?= info
+UCX_SOCKADDR_TLS_PRIORITY ?= tcp
+SIMPLE_MATRIX_GPU_FLAGS ?=
 
 DOCKER_REPO_DEV := $(DOCKER_HUB_USERNAME)/gvirtus-dev
 DOCKER_REPO_TEST := $(DOCKER_HUB_USERNAME)/gvirtus-test
@@ -76,6 +81,10 @@ run-gvirtus-backend-dev:
 		--shm-size=8G \
 		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
 		-e GVIRTUS_UCX_DATAPATH=$(GVIRTUS_UCX_DATAPATH) \
+		-e UCX_TLS=$(UCX_TLS) \
+		-e UCX_NET_DEVICES=$(UCX_NET_DEVICES) \
+		-e UCX_LOG_LEVEL=$(UCX_LOG_LEVEL) \
+		-e UCX_SOCKADDR_TLS_PRIORITY=$(UCX_SOCKADDR_TLS_PRIORITY) \
 		$(DOCKER_REPO_DEV):cuda12.6.3-cudnn-ubuntu22.04
 
 attach-gvirtus-bash:
@@ -162,10 +171,14 @@ local-docker-build-simple-matrix:
 run-simple-matrix-test: 
 	docker run --rm \
 		--name simple_matrix_test_container-$(USER) \
-		--gpus all \
+		$(SIMPLE_MATRIX_GPU_FLAGS) \
 		--network host \
 		-e GVIRTUS_CONFIG=/opt/GVirtuS/etc/properties_ucx.json \
 		-e GVIRTUS_UCX_DATAPATH=$(GVIRTUS_UCX_DATAPATH) \
+		-e UCX_TLS=$(UCX_TLS) \
+		-e UCX_NET_DEVICES=$(UCX_NET_DEVICES) \
+		-e UCX_LOG_LEVEL=$(UCX_LOG_LEVEL) \
+		-e UCX_SOCKADDR_TLS_PRIORITY=$(UCX_SOCKADDR_TLS_PRIORITY) \
 		-v ./examples/simple_matrix:/opt/GVirtuS/examples \
 		-v ./etc/properties_ucx.json:/opt/GVirtuS/etc/properties_ucx.json \
 		$(DOCKER_REPO_DEV)/simple_matrix_gvirtus:cuda12.6 \
