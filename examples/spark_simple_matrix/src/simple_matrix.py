@@ -9,10 +9,19 @@ Usage:
     python simple_matrix.py gvirtus            # Run using GVirtuS
 
     python simple_matrix.py local --mode rapids           # RAPIDS GPU acceleration
+    python simple_matrix.py local --mode rapids --minimal # Run minimal GPU test first
     python simple_matrix.py local --overwrite no          # Merge results into existing file
 
 The RAPIDS JAR is placed on the JVM classpath automatically via
 PYSPARK_SUBMIT_ARGS (set in config.py), so no spark-submit is needed.
+
+Minimal Test (--minimal):
+    Runs a 3-row DataFrame test before the full matrix multiply.
+    Useful for debugging GVirtuS integration - tests:
+    - GPU device detection (cudaGetDeviceCount)
+    - RMM memory pool allocation (cudaMalloc)
+    - Row-to-columnar conversion (GpuRowToColumnar)
+    - Basic aggregation (GpuHashAggregate)
 """
 
 import argparse
@@ -31,7 +40,7 @@ from config import (
     SPARK_MASTER, 
     SPARK_CONFIG,
     SPARK_RAPIDS_CONFIG,
-    SPARK_RAPIDS_GVIRTUS_SINGLE_THREAD_CONFIG 
+    SPARK_RAPIDS_GVIRTUS_CONFIG
 )
 
 from pyspark.sql import SparkSession
@@ -40,7 +49,13 @@ from pyspark.sql import SparkSession
 LOG_FORMAT = "%(asctime)s [%(levelname)-5s] [%(name)s] (%(filename)s:%(lineno)d) - %(message)s"
 LOG_DATE_FORMAT = "%Y/%m/%d %H:%M:%S"
 
-logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
+logging.basicConfig(
+    level=LOG_LEVEL,
+    format=LOG_FORMAT,
+    datefmt=LOG_DATE_FORMAT,
+    filename="../logs/simple_matrix.log",  # Add this line
+    filemode="w"                   # "w" = overwrite, "a" = append
+)
 log = logging.getLogger("SimpleMatrix")
 
 # Suppress noisy third-party loggers
@@ -50,9 +65,9 @@ logging.getLogger("py4j").setLevel(logging.WARNING)
 N = 100 * SCALE_FACTOR  # NxN matrices
 
 
-def create_spark_session(use_rapids=False):
-    config = SPARK_RAPIDS_GVIRTUS_SINGLE_THREAD_CONFIG if use_rapids else SPARK_CONFIG
-    app_name = "SimpleMatrixMultiply-RAPIDS" if use_rapids else "SimpleMatrixMultiply-CPU"
+def create_spark_session(custom_config, session_name="SimpleMatrix"):
+    config = custom_config
+    app_name = session_name
     builder = (
         SparkSession.builder
         .appName(app_name)
@@ -68,6 +83,56 @@ def create_spark_session(use_rapids=False):
     # Suppress Spark's verbose Java logs (keep only WARN+)
     spark.sparkContext.setLogLevel(SPARK_LOG_LEVEL)
     return spark
+
+
+def minimal_gpu_test(spark):
+    """
+    Minimal GPU test case for GVirtuS integration.
+    
+    Creates a tiny DataFrame and triggers a GPU transfer via count().
+    This is the simplest possible test to verify:
+    - cudaGetDeviceCount / cudaGetDeviceProperties work
+    - RMM pool allocation succeeds
+    - Row-to-columnar conversion (GpuRowToColumnar) works
+    - Basic GPU aggregation (count) works
+    - Columnar-to-row conversion (GpuColumnarToRow) works
+    
+    If this fails, the full matrix multiply will definitely fail.
+    """
+    from pyspark.sql.types import StructType, StructField, IntegerType, DoubleType
+    
+    log.info("Running minimal GPU test case...")
+    
+    schema = StructType([
+        StructField("row", IntegerType(), False),
+        StructField("col", IntegerType(), False),
+        StructField("val", DoubleType(), False),
+    ])
+    
+    # Minimal data: 3 rows to verify GPU operations
+    data = [(0, 0, 1.0), (0, 1, 2.0), (1, 0, 3.0)]
+    df = spark.createDataFrame(data, schema=schema)
+    
+    t0 = time.time()
+    
+    # count() triggers: GpuRowToColumnar → GpuHashAggregate → GpuColumnarToRow
+    count = df.count()
+    
+    # sum() triggers additional GPU compute
+    total = df.agg({"val": "sum"}).collect()[0][0]
+    
+    elapsed = time.time() - t0
+    
+    log.info(f"Minimal test: count={count}, sum={total}, elapsed={elapsed:.4f}s")
+    
+    return {
+        "count": count,
+        "sum": total,
+        "elapsed": elapsed,
+        "expected_count": 3,
+        "expected_sum": 6.0,
+        "passed": count == 3 and abs(total - 6.0) < 0.001
+    }
 
 
 def multiply_matrices_df(spark, n):
@@ -147,13 +212,24 @@ def save_summary(filepath, summary, overwrite=True):
     log.info(f"Results saved to {filepath} (overwrite={overwrite})")
 
 
-def main(env, compute_mode, results_overwrite):
+def main(env, compute_mode, results_overwrite, run_minimal=False):
 
     use_rapids = compute_mode == "rapids"
     log.info(f"Env: {env} | Mode: {compute_mode} | Matrix size: {N}x{N}  (scale factor {SCALE_FACTOR})")
 
-    spark = create_spark_session(use_rapids=use_rapids)
-    config = SPARK_RAPIDS_GVIRTUS_SINGLE_THREAD_CONFIG if use_rapids else SPARK_CONFIG
+    config = SPARK_RAPIDS_CONFIG if use_rapids else SPARK_CONFIG
+    app_name = f"SimpleMatrixMultiply-{compute_mode.upper()}-{env.upper()}"
+    spark = create_spark_session(custom_config=config, session_name=app_name)
+
+    # Run minimal test first if requested
+    if run_minimal:
+        minimal_result = minimal_gpu_test(spark)
+        if not minimal_result["passed"]:
+            log.error("Minimal GPU test FAILED - aborting full test")
+            spark.stop()
+            return
+        log.info("Minimal GPU test PASSED - proceeding with full test")
+    
 
     t0 = time.time()
     result_df, mul_time_elapsed = multiply_matrices_df(spark, N)
@@ -201,8 +277,13 @@ if __name__ == "__main__":
         default="yes",
         help="Overwrite existing results file (default: yes). If no, merge new results into existing file.",
     )
+    parser.add_argument(
+        "--minimal",
+        action="store_true",
+        help="Run minimal GPU test first (3 rows) before full matrix multiply. Useful for GVirtuS debugging.",
+    )
   
     args = parser.parse_args()
     overwrite = args.overwrite == "yes"
-    main(args.env, args.mode, results_overwrite=overwrite)
+    main(args.env, args.mode, results_overwrite=overwrite, run_minimal=args.minimal)
    

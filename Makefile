@@ -173,7 +173,8 @@ run-spark-local-cpu:
 run-spark-local-rapids: 
 	cd $(SPARK_MATRIX_DIR)/src && python3 simple_matrix.py local \
 		--mode rapids \
-		--overwrite yes
+		--overwrite yes \
+		--minimal
 
 
 # ── 2. DOCKER LOCAL GPU  ──
