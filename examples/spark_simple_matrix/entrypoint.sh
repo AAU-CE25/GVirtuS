@@ -43,16 +43,75 @@ fi
 # Detect if first arg is "gvirtus" (it's the env arg to simple_matrix.py)
 for arg in "$@"; do
     if [[ "$arg" == "gvirtus" ]]; then
-        # Don't set LD_PRELOAD globally (breaks spark-class scripts)
-        # Instead export vars that config.py uses for Spark JVM config
-        export GVIRTUS_LD_PRELOAD="${GVIRTUS_HOME}/lib/frontend/libcudart.so:${GVIRTUS_HOME}/lib/frontend/libcuda.so"
-        export LD_LIBRARY_PATH="${GVIRTUS_HOME}/lib/frontend:${GVIRTUS_HOME}/lib:${LD_LIBRARY_PATH:-}"
+        # ── Hide real CUDA libs so the linker can only find GVirtuS stubs ──
+        # cuDF JNI's native libs (libcudf.so, libcudf_jni.so) are linked against
+        # versioned sonames like libcudart.so.12 and libcuda.so.1. Without this,
+        # the dynamic linker finds the REAL cuda libs from the base image instead
+        # of GVirtuS stubs, and since there's no GPU driver mounted, CUDA fails
+        # with cudaErrorInsufficientDriver.
+        GVIRTUS_FRONTEND="${GVIRTUS_HOME}/lib/frontend"
+
+        echo "GVirtuS mode: hiding real CUDA libs and creating stub symlinks..." >&2
+
+        # 1. Move real CUDA runtime libs out of the way
+        if [[ -d /usr/local/cuda/lib64 ]]; then
+            mkdir -p /usr/local/cuda/lib64/real-backup
+            for lib in libcudart.so* libcuda.so* libcublas.so* libcufft.so* \
+                       libcurand.so* libcusolver.so* libcusparse.so* libcudnn.so* \
+                       libnvrtc.so* libnvidia-ml.so*; do
+                if ls /usr/local/cuda/lib64/$lib 1>/dev/null 2>&1; then
+                    mv /usr/local/cuda/lib64/$lib /usr/local/cuda/lib64/real-backup/ 2>/dev/null || true
+                fi
+            done
+            # Also check targets/x86_64-linux/lib (some CUDA images put libs here)
+            if [[ -d /usr/local/cuda/targets/x86_64-linux/lib ]]; then
+                mkdir -p /usr/local/cuda/targets/x86_64-linux/lib/real-backup
+                for lib in libcudart.so* libcuda.so* libcublas.so* libcufft.so* \
+                           libcurand.so* libcusolver.so* libcusparse.so* libcudnn.so* \
+                           libnvrtc.so* libnvidia-ml.so*; do
+                    if ls /usr/local/cuda/targets/x86_64-linux/lib/$lib 1>/dev/null 2>&1; then
+                        mv /usr/local/cuda/targets/x86_64-linux/lib/$lib \
+                           /usr/local/cuda/targets/x86_64-linux/lib/real-backup/ 2>/dev/null || true
+                    fi
+                done
+            fi
+        fi
+
+        # 2. Create unversioned symlinks in GVirtuS frontend dir
+        #    (some loaders look for libcudart.so without version)
+        cd "$GVIRTUS_FRONTEND"
+        for lib in libcudart libcublas libcufft libcurand libcusolver libcusparse libcudnn; do
+            # Find the highest-versioned .so file for this lib
+            latest=$(ls ${lib}.so.* 2>/dev/null | grep -v '\.so\.[0-9]*\.' | head -1)
+            if [[ -n "$latest" ]] && [[ ! -e "${lib}.so" ]]; then
+                ln -sf "$(basename "$latest")" "${lib}.so"
+            fi
+        done
+        # libcuda.so → libcuda.so.1 (driver API stub)
+        if [[ -e "libcuda.so.1" ]] && [[ ! -e "libcuda.so" ]]; then
+            ln -sf libcuda.so.1 libcuda.so
+        fi
+        cd /app/src
+
+        # 3. Rebuild ldconfig cache so it finds GVirtuS stubs first
+        echo "${GVIRTUS_FRONTEND}" > /etc/ld.so.conf.d/gvirtus.conf
+        ldconfig 2>/dev/null || true
+
+        # 4. Set library paths — NO LD_PRELOAD needed!
+        #    With real CUDA libs hidden, LD_LIBRARY_PATH + ldconfig is sufficient.
+        #    LD_PRELOAD causes GVirtuS frontend constructor to fire in EVERY
+        #    process (JVM threads, shell scripts, etc.), creating spurious TCP
+        #    connections and interfering with JVM startup.
+        unset LD_PRELOAD 2>/dev/null || true
+        unset GVIRTUS_LD_PRELOAD 2>/dev/null || true
+        export LD_LIBRARY_PATH="${GVIRTUS_FRONTEND}:${GVIRTUS_HOME}/lib:${LD_LIBRARY_PATH:-}"
         
         if [[ -d "$NATIVE_DIR" ]]; then
             export LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${NATIVE_DIR}"
         fi
         
-        echo "GVirtuS mode: stubs at ${GVIRTUS_HOME}/lib/frontend" >&2
+        echo "GVirtuS mode: stubs at ${GVIRTUS_FRONTEND}" >&2
+        echo "GVirtuS mode: real CUDA libs moved to backup dirs" >&2
         break
     fi
 done

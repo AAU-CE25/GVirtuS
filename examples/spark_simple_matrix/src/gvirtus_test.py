@@ -465,6 +465,7 @@ def run_jni_diagnostics():
     jar_candidates = [
         "/app/jars/rapids-4-spark_2.12-26.02.1.jar",
         "../jars/rapids-4-spark_2.12-26.02.1.jar",
+        "/tmp/rapids-native"
     ]
     jar_path = None
     for jp in jar_candidates:

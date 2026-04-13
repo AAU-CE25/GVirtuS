@@ -38,9 +38,7 @@ from config import (
     SCALE_FACTOR,
     RESULTS_DIR,
     SPARK_MASTER, 
-    SPARK_CONFIG,
-    SPARK_RAPIDS_CONFIG,
-    SPARK_RAPIDS_CONFIG_WITH_LD_PRELOAD
+    get_spark_config
 )
 
 from pyspark.sql import SparkSession
@@ -222,17 +220,11 @@ def save_summary(filepath, summary, overwrite=True):
 
 
 def main(env, compute_mode, results_overwrite, run_minimal=False):
-
-    use_rapids = compute_mode == "rapids"
-    use_gvirtus = env == "gvirtus"
     log.info(f"Env: {env} | Mode: {compute_mode} | Matrix size: {N}x{N}  (scale factor {SCALE_FACTOR})")
 
-    if use_rapids and use_gvirtus:
-        config = SPARK_RAPIDS_CONFIG_WITH_LD_PRELOAD
-    elif use_rapids:
-        config = SPARK_RAPIDS_CONFIG
-    else:
-        config = SPARK_CONFIG
+    config = get_spark_config(env, compute_mode)
+    log.debug(f"Spark config for {env} environment, {compute_mode} mode: {dict(config)}")
+    
     app_name = f"SimpleMatrixMultiply-{compute_mode.upper()}-{env.upper()}"
     spark = create_spark_session(custom_config=config, session_name=app_name)
 

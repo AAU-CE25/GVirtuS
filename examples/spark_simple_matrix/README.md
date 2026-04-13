@@ -52,8 +52,8 @@ Edit `src/config.py`:
 
 ```bash
 cd ~/GVirtuS/examples/spark_simple_matrix
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv spark-venv
+source spark-venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 ```

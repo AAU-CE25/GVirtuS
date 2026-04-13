@@ -2,7 +2,7 @@
 USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
 DOCKER_HUB_USERNAME ?= aauce25
 
-GVIRTUS_LOG_LEVEL ?= 0
+GVIRTUS_LOG_LEVEL ?= 10000
 
 DOCKER_REPO_DEV := $(DOCKER_HUB_USERNAME)/gvirtus-dev
 DOCKER_REPO_TEST := $(DOCKER_HUB_USERNAME)/gvirtus-test
@@ -167,7 +167,7 @@ stop-simple-matrix-test:
 
 SPARK_MATRIX_DIR := examples/spark_simple_matrix
 DOCKER_SPARK := $(DOCKER_HUB_USERNAME)/spark_simple_matrix:latest
-
+RAPIDS_JARS := ../jars
 # ── Build the unified image ──
 docker-build-spark:
 	docker buildx build \
@@ -201,7 +201,7 @@ run-spark-docker-cpu:
 		--network host \
 		-v ./$(SPARK_MATRIX_DIR)/src:/app/src \
 		-v ./$(SPARK_MATRIX_DIR)/results:/app/results \
-		-v ./$(SPARK_MATRIX_DIR)/jars:/app/jars \
+		-v ../jars:/app/jars \
 		-v ./$(SPARK_MATRIX_DIR)/logs:/app/logs \
 		-e PYSPARK_PYTHON=python3 \
 		-e PYSPARK_DRIVER_PYTHON=python3 \
@@ -209,14 +209,15 @@ run-spark-docker-cpu:
 		$(DOCKER_SPARK) docker --mode cpu --overwrite yes
 
 run-spark-docker-rapids:
+	mkdir -p $(SPARK_MATRIX_DIR)/logs/docker
 	docker run --rm \
 		-it \
 		--network host \
 		--privileged \
 		-v ./$(SPARK_MATRIX_DIR)/src:/app/src \
 		-v ./$(SPARK_MATRIX_DIR)/results:/app/results \
-		-v ./$(SPARK_MATRIX_DIR)/jars:/app/jars \
-		-v ./$(SPARK_MATRIX_DIR)/logs:/app/logs \
+		-v ../jars:/app/jars \
+		-v ./$(SPARK_MATRIX_DIR)/logs/docker:/app/logs \
 		-e PYSPARK_PYTHON=python3 \
 		-e PYSPARK_DRIVER_PYTHON=python3 \
 		--name spark-simple-matrix-$(USER) \
@@ -235,8 +236,9 @@ run-spark-gvirtus:
 		--network host \
 		-v ./$(SPARK_MATRIX_DIR)/src:/app/src \
 		-v ./$(SPARK_MATRIX_DIR)/results:/app/results \
-		-v ./$(SPARK_MATRIX_DIR)/jars:/app/jars \
+		-v ../jars:/app/jars \
 		-v ./$(SPARK_MATRIX_DIR)/logs/gvirtus:/app/logs \
+		-v ./$(SPARK_MATRIX_DIR)/entrypoint.sh:/entrypoint.sh \
 		-v ./etc/properties.json:/opt/GVirtuS/etc/properties.json \
 		-e PYSPARK_PYTHON=python3 \
 		-e PYSPARK_DRIVER_PYTHON=python3 \
@@ -250,7 +252,8 @@ test-spark-gvirtus:
 		--name spark-gvirtus-test-$(USER) \
 		--network host \
 		-v ./$(SPARK_MATRIX_DIR)/src:/app/src \
-		-v ./$(SPARK_MATRIX_DIR)/jars:/app/jars \
+		-v ../jars:/app/jars \
+		-v ./$(SPARK_MATRIX_DIR)/entrypoint.sh:/entrypoint.sh \
 		-v ./etc/properties.json:/opt/GVirtuS/etc/properties.json \
 		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
 		$(DOCKER_SPARK) --test

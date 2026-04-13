@@ -4,12 +4,14 @@
   "scale_factor": 1,
   "matrix_size": 100,
   "result_elements": 10000,
-  "elapsed_seconds": 2.5729,
-  "matrix_multiplication_time": 0.0513,
+  "elapsed_seconds": 4.0215,
+  "matrix_multiplication_time": 0.1017,
   "spark_config": {
     "spark.local.dir": "/data/wg38up/spark-temp",
     "spark.executor.memory": "8g",
     "spark.driver.memory": "4g",
-    "spark.jars": "../jars/rapids-4-spark_2.12-26.02.1.jar"
+    "spark.jars": "/app/jars/rapids-4-spark_2.12-26.02.1.jar",
+    "spark.driver.extraJavaOptions": "-Dlog4j.configurationFile=file:/app/src/log4j2.properties",
+    "spark.executor.extraJavaOptions": "-Dlog4j.configurationFile=file:/app/src/log4j2.properties"
   }
 }
