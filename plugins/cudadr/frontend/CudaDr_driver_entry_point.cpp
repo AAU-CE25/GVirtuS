@@ -472,9 +472,6 @@ static unordered_map<string, void*>* getFunctionMap() {
         // resolves to the address of our cuGetProcAddress_v2 function above.
         {"cuGetProcAddress", (void*)cuGetProcAddress},
         {"cuGetProcAddress_v2", (void*)cuGetProcAddress},
-        
-        // Export table
-        {"cuGetExportTable", (void*)cuGetExportTable},
     };
     return &funcMap;
 }
@@ -490,7 +487,9 @@ extern "C" CUresult cuGetExportTable(const void** ppExportTable, const CUuuid* p
     if (ppExportTable != nullptr) {
         *ppExportTable = nullptr;
     }
-    return CUDA_ERROR_NOT_FOUND;
+    // Return SUCCESS with NULL table — NOT CUDA_ERROR_NOT_FOUND (= 500),
+    // because the runtime maps that to cudaErrorSymbolNotFound and aborts.
+    return CUDA_SUCCESS;
 }
 
 /*
@@ -533,6 +532,17 @@ extern "C" CUresult cuGetProcAddress(const char* symbol, void** pfn, int cudaVer
         *pfn = (void*)gvirtus_not_implemented_stub;
         if (symbolStatus != nullptr) {
             *symbolStatus = CU_GET_PROC_ADDRESS_SUCCESS;
+        }
+        return CUDA_SUCCESS;
+    }
+    
+    // cuGetExportTable returns internal driver function tables that GVirtuS
+    // cannot virtualize. Return NULL so the runtime skips export-table init
+    // instead of calling our stub which would return error 500.
+    if (strcmp(symbol, "cuGetExportTable") == 0) {
+        *pfn = nullptr;
+        if (symbolStatus != nullptr) {
+            *symbolStatus = CU_GET_PROC_ADDRESS_SYMBOL_NOT_FOUND;
         }
         return CUDA_SUCCESS;
     }
