@@ -224,9 +224,15 @@ def save_summary(filepath, summary, overwrite=True):
 def main(env, compute_mode, results_overwrite, run_minimal=False):
 
     use_rapids = compute_mode == "rapids"
+    use_gvirtus = env == "gvirtus"
     log.info(f"Env: {env} | Mode: {compute_mode} | Matrix size: {N}x{N}  (scale factor {SCALE_FACTOR})")
 
-    config = SPARK_RAPIDS_CONFIG_WITH_LD_PRELOAD if use_rapids else SPARK_CONFIG
+    if use_rapids and use_gvirtus:
+        config = SPARK_RAPIDS_CONFIG_WITH_LD_PRELOAD
+    elif use_rapids:
+        config = SPARK_RAPIDS_CONFIG
+    else:
+        config = SPARK_CONFIG
     app_name = f"SimpleMatrixMultiply-{compute_mode.upper()}-{env.upper()}"
     spark = create_spark_session(custom_config=config, session_name=app_name)
 

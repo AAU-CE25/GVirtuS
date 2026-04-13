@@ -2736,3 +2736,2741 @@ jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark
 26/04/12 23:18:04 INFO GpuOverrides: GPU plan transition optimization took 0.31 ms
 26/04/12 23:18:04 DEBUG SparkResourceAdaptor: startDedicatedTaskThread: threadId: 140057184912960, task id: 21
 26/04/12 23:18:05 INFO AwsStorageExecutorPlugin: Shutting down S3 Plugin ... 
+26/04/13 10:54:25 DEBUG ShimLoader: ShimLoader object instance: com.nvidia.spark.rapids.ShimLoader$@62997f3a loaded by org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:25 INFO ShimLoader: Loading shim for Spark version: 3.5.2
+26/04/13 10:54:25 INFO ShimLoader: Complete Spark build info: 3.5.2, https://github.com/apache/spark, HEAD, bb7846dd487f259994fdc69e18e03382e3f64f42, 2024-08-06T11:36:15Z
+26/04/13 10:54:25 INFO ShimLoader: Scala version: version 2.12.18
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark330.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@3cdaed52
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: urls jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark330/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark331.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@7366bac3
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: urls jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark331/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark332.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@2e124b82
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: urls jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark332/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark332db.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@533d3d81
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: urls jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark332db/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/04/13 10:54:25 DEBUG DatabricksShimServiceProvider: Databricks detection failed: java.lang.NoClassDefFoundError: org/apache/spark/BuildInfo$
+java.lang.NoClassDefFoundError: org/apache/spark/BuildInfo$
+	at com.nvidia.spark.rapids.DatabricksShimServiceProvider$.matchesVersion(DatabricksShimServiceProvider.scala:34) ~[?:?]
+	at com.nvidia.spark.rapids.shims.spark332db.SparkShimServiceProvider.matchesVersion(SparkShimServiceProvider.scala:35) ~[?:?]
+	at com.nvidia.spark.rapids.ShimLoader$.$anonfun$detectShimProvider$11(ShimLoader.scala:270) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.$anonfun$detectShimProvider$11$adapted(ShimLoader.scala:269) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at scala.collection.immutable.Stream.$anonfun$partition$1(Stream.scala:589) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.immutable.Stream.$anonfun$partition$1$adapted(Stream.scala:589) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.immutable.Stream.filterImpl(Stream.scala:506) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.immutable.Stream.filterImpl(Stream.scala:204) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.TraversableLike.filter(TraversableLike.scala:395) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.TraversableLike.filter$(TraversableLike.scala:395) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.AbstractTraversable.filter(Traversable.scala:108) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.immutable.Stream.partition(Stream.scala:589) ~[scala-library-2.12.18.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.detectShimProvider(ShimLoader.scala:269) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.findShimProvider(ShimLoader.scala:299) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.initShimProviderIfNeeded(ShimLoader.scala:92) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.getShimClassLoader(ShimLoader.scala:184) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimReflectionUtils$.loadClass(ShimReflectionUtils.scala:28) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimReflectionUtils$.newInstanceOf(ShimReflectionUtils.scala:34) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.newDriverPlugin(ShimLoader.scala:335) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.SQLPlugin.driverPlugin(SQLPlugin.scala:28) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at org.apache.spark.internal.plugin.DriverPluginContainer.$anonfun$driverPlugins$1(PluginContainer.scala:47) ~[spark-core_2.12-3.5.2.jar:3.5.2]
+	at scala.collection.TraversableLike.$anonfun$flatMap$1(TraversableLike.scala:293) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.mutable.ResizableArray.foreach(ResizableArray.scala:62) [scala-library-2.12.18.jar:?]
+	at scala.collection.mutable.ResizableArray.foreach$(ResizableArray.scala:55) [scala-library-2.12.18.jar:?]
+	at scala.collection.mutable.ArrayBuffer.foreach(ArrayBuffer.scala:49) [scala-library-2.12.18.jar:?]
+	at scala.collection.TraversableLike.flatMap(TraversableLike.scala:293) [scala-library-2.12.18.jar:?]
+	at scala.collection.TraversableLike.flatMap$(TraversableLike.scala:290) [scala-library-2.12.18.jar:?]
+	at scala.collection.AbstractTraversable.flatMap(Traversable.scala:108) [scala-library-2.12.18.jar:?]
+	at org.apache.spark.internal.plugin.DriverPluginContainer.<init>(PluginContainer.scala:46) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.internal.plugin.PluginContainer$.apply(PluginContainer.scala:210) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.internal.plugin.PluginContainer$.apply(PluginContainer.scala:193) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.SparkContext.<init>(SparkContext.scala:574) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.api.java.JavaSparkContext.<init>(JavaSparkContext.scala:58) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at jdk.internal.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method) ~[?:?]
+	at jdk.internal.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:77) [?:?]
+	at jdk.internal.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45) [?:?]
+	at java.lang.reflect.Constructor.newInstanceWithCaller(Constructor.java:499) [?:?]
+	at java.lang.reflect.Constructor.newInstance(Constructor.java:480) [?:?]
+	at py4j.reflection.MethodInvoker.invoke(MethodInvoker.java:247) [py4j-0.10.9.7.jar:?]
+	at py4j.reflection.ReflectionEngine.invoke(ReflectionEngine.java:374) [py4j-0.10.9.7.jar:?]
+	at py4j.Gateway.invoke(Gateway.java:238) [py4j-0.10.9.7.jar:?]
+	at py4j.commands.ConstructorCommand.invokeConstructor(ConstructorCommand.java:80) [py4j-0.10.9.7.jar:?]
+	at py4j.commands.ConstructorCommand.execute(ConstructorCommand.java:69) [py4j-0.10.9.7.jar:?]
+	at py4j.ClientServerConnection.waitForCommands(ClientServerConnection.java:182) [py4j-0.10.9.7.jar:?]
+	at py4j.ClientServerConnection.run(ClientServerConnection.java:106) [py4j-0.10.9.7.jar:?]
+	at java.lang.Thread.run(Thread.java:833) [?:?]
+Caused by: java.lang.ClassNotFoundException: org.apache.spark.BuildInfo$
+	at java.net.URLClassLoader.findClass(URLClassLoader.java:445) ~[?:?]
+	at java.lang.ClassLoader.loadClass(ClassLoader.java:587) ~[?:?]
+	at java.lang.ClassLoader.loadClass(ClassLoader.java:520) ~[?:?]
+	... 46 more
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark333.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@3d706301
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: urls jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark333/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark334.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@18f04a56
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: urls jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark334/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark340.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@4a0ee2cd
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: urls jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark340/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark341.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@384aa56b
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: urls jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark341/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark341db.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@27ad592e
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: urls jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark341db/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/04/13 10:54:25 DEBUG DatabricksShimServiceProvider: Databricks detection failed: java.lang.NoClassDefFoundError: org/apache/spark/BuildInfo$
+java.lang.NoClassDefFoundError: org/apache/spark/BuildInfo$
+	at com.nvidia.spark.rapids.DatabricksShimServiceProvider$.matchesVersion(DatabricksShimServiceProvider.scala:34) ~[?:?]
+	at com.nvidia.spark.rapids.shims.spark341db.SparkShimServiceProvider.matchesVersion(SparkShimServiceProvider.scala:35) ~[?:?]
+	at com.nvidia.spark.rapids.ShimLoader$.$anonfun$detectShimProvider$11(ShimLoader.scala:270) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.$anonfun$detectShimProvider$11$adapted(ShimLoader.scala:269) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at scala.collection.immutable.Stream.$anonfun$partition$1(Stream.scala:589) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.immutable.Stream.$anonfun$partition$1$adapted(Stream.scala:589) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.immutable.Stream.filterImpl(Stream.scala:506) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.immutable.Stream.filterImpl(Stream.scala:204) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.TraversableLike.filter(TraversableLike.scala:395) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.TraversableLike.filter$(TraversableLike.scala:395) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.AbstractTraversable.filter(Traversable.scala:108) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.immutable.Stream.partition(Stream.scala:589) ~[scala-library-2.12.18.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.detectShimProvider(ShimLoader.scala:269) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.findShimProvider(ShimLoader.scala:299) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.initShimProviderIfNeeded(ShimLoader.scala:92) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.getShimClassLoader(ShimLoader.scala:184) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimReflectionUtils$.loadClass(ShimReflectionUtils.scala:28) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimReflectionUtils$.newInstanceOf(ShimReflectionUtils.scala:34) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.newDriverPlugin(ShimLoader.scala:335) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.SQLPlugin.driverPlugin(SQLPlugin.scala:28) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at org.apache.spark.internal.plugin.DriverPluginContainer.$anonfun$driverPlugins$1(PluginContainer.scala:47) ~[spark-core_2.12-3.5.2.jar:3.5.2]
+	at scala.collection.TraversableLike.$anonfun$flatMap$1(TraversableLike.scala:293) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.mutable.ResizableArray.foreach(ResizableArray.scala:62) [scala-library-2.12.18.jar:?]
+	at scala.collection.mutable.ResizableArray.foreach$(ResizableArray.scala:55) [scala-library-2.12.18.jar:?]
+	at scala.collection.mutable.ArrayBuffer.foreach(ArrayBuffer.scala:49) [scala-library-2.12.18.jar:?]
+	at scala.collection.TraversableLike.flatMap(TraversableLike.scala:293) [scala-library-2.12.18.jar:?]
+	at scala.collection.TraversableLike.flatMap$(TraversableLike.scala:290) [scala-library-2.12.18.jar:?]
+	at scala.collection.AbstractTraversable.flatMap(Traversable.scala:108) [scala-library-2.12.18.jar:?]
+	at org.apache.spark.internal.plugin.DriverPluginContainer.<init>(PluginContainer.scala:46) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.internal.plugin.PluginContainer$.apply(PluginContainer.scala:210) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.internal.plugin.PluginContainer$.apply(PluginContainer.scala:193) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.SparkContext.<init>(SparkContext.scala:574) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.api.java.JavaSparkContext.<init>(JavaSparkContext.scala:58) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at jdk.internal.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method) ~[?:?]
+	at jdk.internal.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:77) [?:?]
+	at jdk.internal.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45) [?:?]
+	at java.lang.reflect.Constructor.newInstanceWithCaller(Constructor.java:499) [?:?]
+	at java.lang.reflect.Constructor.newInstance(Constructor.java:480) [?:?]
+	at py4j.reflection.MethodInvoker.invoke(MethodInvoker.java:247) [py4j-0.10.9.7.jar:?]
+	at py4j.reflection.ReflectionEngine.invoke(ReflectionEngine.java:374) [py4j-0.10.9.7.jar:?]
+	at py4j.Gateway.invoke(Gateway.java:238) [py4j-0.10.9.7.jar:?]
+	at py4j.commands.ConstructorCommand.invokeConstructor(ConstructorCommand.java:80) [py4j-0.10.9.7.jar:?]
+	at py4j.commands.ConstructorCommand.execute(ConstructorCommand.java:69) [py4j-0.10.9.7.jar:?]
+	at py4j.ClientServerConnection.waitForCommands(ClientServerConnection.java:182) [py4j-0.10.9.7.jar:?]
+	at py4j.ClientServerConnection.run(ClientServerConnection.java:106) [py4j-0.10.9.7.jar:?]
+	at java.lang.Thread.run(Thread.java:833) [?:?]
+Caused by: java.lang.ClassNotFoundException: org.apache.spark.BuildInfo$
+	at java.net.URLClassLoader.findClass(URLClassLoader.java:445) ~[?:?]
+	at java.lang.ClassLoader.loadClass(ClassLoader.java:587) ~[?:?]
+	at java.lang.ClassLoader.loadClass(ClassLoader.java:520) ~[?:?]
+	... 46 more
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark342.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@4fe57b18
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: urls jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark342/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark343.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@37d22276
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: urls jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark343/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark344.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@15c79a89
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: urls jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark344/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark350.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@529715bc
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: urls jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark350/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark350db143.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@248db305
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: urls jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark350db143/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/04/13 10:54:25 DEBUG DatabricksShimServiceProvider: Databricks detection failed: java.lang.NoClassDefFoundError: org/apache/spark/BuildInfo$
+java.lang.NoClassDefFoundError: org/apache/spark/BuildInfo$
+	at com.nvidia.spark.rapids.DatabricksShimServiceProvider$.matchesVersion(DatabricksShimServiceProvider.scala:34) ~[?:?]
+	at com.nvidia.spark.rapids.shims.spark350db143.SparkShimServiceProvider.matchesVersion(SparkShimServiceProvider.scala:46) ~[?:?]
+	at com.nvidia.spark.rapids.ShimLoader$.$anonfun$detectShimProvider$11(ShimLoader.scala:270) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.$anonfun$detectShimProvider$11$adapted(ShimLoader.scala:269) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at scala.collection.immutable.Stream.$anonfun$partition$1(Stream.scala:589) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.immutable.Stream.$anonfun$partition$1$adapted(Stream.scala:589) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.immutable.Stream.filterImpl(Stream.scala:506) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.immutable.Stream.filterImpl(Stream.scala:204) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.TraversableLike.filter(TraversableLike.scala:395) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.TraversableLike.filter$(TraversableLike.scala:395) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.AbstractTraversable.filter(Traversable.scala:108) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.immutable.Stream.partition(Stream.scala:589) ~[scala-library-2.12.18.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.detectShimProvider(ShimLoader.scala:269) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.findShimProvider(ShimLoader.scala:299) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.initShimProviderIfNeeded(ShimLoader.scala:92) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.getShimClassLoader(ShimLoader.scala:184) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimReflectionUtils$.loadClass(ShimReflectionUtils.scala:28) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimReflectionUtils$.newInstanceOf(ShimReflectionUtils.scala:34) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.newDriverPlugin(ShimLoader.scala:335) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.SQLPlugin.driverPlugin(SQLPlugin.scala:28) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at org.apache.spark.internal.plugin.DriverPluginContainer.$anonfun$driverPlugins$1(PluginContainer.scala:47) ~[spark-core_2.12-3.5.2.jar:3.5.2]
+	at scala.collection.TraversableLike.$anonfun$flatMap$1(TraversableLike.scala:293) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.mutable.ResizableArray.foreach(ResizableArray.scala:62) [scala-library-2.12.18.jar:?]
+	at scala.collection.mutable.ResizableArray.foreach$(ResizableArray.scala:55) [scala-library-2.12.18.jar:?]
+	at scala.collection.mutable.ArrayBuffer.foreach(ArrayBuffer.scala:49) [scala-library-2.12.18.jar:?]
+	at scala.collection.TraversableLike.flatMap(TraversableLike.scala:293) [scala-library-2.12.18.jar:?]
+	at scala.collection.TraversableLike.flatMap$(TraversableLike.scala:290) [scala-library-2.12.18.jar:?]
+	at scala.collection.AbstractTraversable.flatMap(Traversable.scala:108) [scala-library-2.12.18.jar:?]
+	at org.apache.spark.internal.plugin.DriverPluginContainer.<init>(PluginContainer.scala:46) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.internal.plugin.PluginContainer$.apply(PluginContainer.scala:210) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.internal.plugin.PluginContainer$.apply(PluginContainer.scala:193) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.SparkContext.<init>(SparkContext.scala:574) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.api.java.JavaSparkContext.<init>(JavaSparkContext.scala:58) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at jdk.internal.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method) ~[?:?]
+	at jdk.internal.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:77) [?:?]
+	at jdk.internal.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45) [?:?]
+	at java.lang.reflect.Constructor.newInstanceWithCaller(Constructor.java:499) [?:?]
+	at java.lang.reflect.Constructor.newInstance(Constructor.java:480) [?:?]
+	at py4j.reflection.MethodInvoker.invoke(MethodInvoker.java:247) [py4j-0.10.9.7.jar:?]
+	at py4j.reflection.ReflectionEngine.invoke(ReflectionEngine.java:374) [py4j-0.10.9.7.jar:?]
+	at py4j.Gateway.invoke(Gateway.java:238) [py4j-0.10.9.7.jar:?]
+	at py4j.commands.ConstructorCommand.invokeConstructor(ConstructorCommand.java:80) [py4j-0.10.9.7.jar:?]
+	at py4j.commands.ConstructorCommand.execute(ConstructorCommand.java:69) [py4j-0.10.9.7.jar:?]
+	at py4j.ClientServerConnection.waitForCommands(ClientServerConnection.java:182) [py4j-0.10.9.7.jar:?]
+	at py4j.ClientServerConnection.run(ClientServerConnection.java:106) [py4j-0.10.9.7.jar:?]
+	at java.lang.Thread.run(Thread.java:833) [?:?]
+Caused by: java.lang.ClassNotFoundException: org.apache.spark.BuildInfo$
+	at java.net.URLClassLoader.findClass(URLClassLoader.java:445) ~[?:?]
+	at java.lang.ClassLoader.loadClass(ClassLoader.java:587) ~[?:?]
+	at java.lang.ClassLoader.loadClass(ClassLoader.java:520) ~[?:?]
+	... 46 more
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark351.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@3f56d53
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: urls jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark351/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark352.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@70e45e12
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: urls jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/04/13 10:54:25 INFO ShimLoader: findURLClassLoader found a URLClassLoader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:25 INFO ShimLoader: Updating spark classloader org.apache.spark.util.MutableURLClassLoader@27aae97b with the URLs: jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/, jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:25 INFO ShimLoader: Spark classLoader org.apache.spark.util.MutableURLClassLoader@27aae97b updated successfully
+26/04/13 10:54:25 INFO ShimLoader: Updating spark classloader org.apache.spark.util.MutableURLClassLoader@27aae97b with the URLs: jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/, jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:25 INFO ShimLoader: Spark classLoader org.apache.spark.util.MutableURLClassLoader@27aae97b updated successfully
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: Loading com.nvidia.spark.rapids.RapidsDriverPlugin using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.RapidsDriverPlugin using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:25 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:25 INFO RapidsPluginUtils: RAPIDS Accelerator build: Map(url -> https://github.com/NVIDIA/spark-rapids.git, branch -> HEAD, revision -> 5e6b7f7ff87fbd1a64f200771e39a3590ee1102f, version -> 26.02.1, date -> 2026-03-10T03:31:31Z, cudf_version -> 26.02.0, user -> root)
+26/04/13 10:54:25 INFO RapidsPluginUtils: RAPIDS Accelerator JNI build: Map(url -> https://github.com/NVIDIA/spark-rapids-jni.git, branch -> HEAD, gpu_architectures -> 100;120;70;75;80;86;90, revision -> 14a182dca4a349519bfe4e5ddf8eebd9a8af95e5, version -> 26.02.0, date -> 2026-02-05T05:04:44Z, user -> root)
+26/04/13 10:54:25 INFO RapidsPluginUtils: cudf build: Map(url -> https://github.com/rapidsai/cudf.git, branch -> HEAD, gpu_architectures -> 100;120;70;75;80;86;90, revision -> 9782a269e689140d2b00b5172a93056bdf19e8c2, version -> 26.02.0, date -> 2026-02-05T05:04:41Z, user -> root)
+26/04/13 10:54:25 INFO RapidsPluginUtils: RAPIDS Accelerator Private Map(url -> https://gitlab-master.nvidia.com/nvspark/spark-rapids-private.git, branch -> HEAD, revision -> 7fc1f44974bc64fec937f5b72d0f3dbffa9ecf0b, version -> 26.02.0, date -> 2026-02-06T03:18:39Z, user -> root)
+26/04/13 10:54:25 WARN RapidsPluginUtils: RAPIDS Accelerator 26.02.1 using cudf 26.02.0, private revision 7fc1f44974bc64fec937f5b72d0f3dbffa9ecf0b
+26/04/13 10:54:25 WARN RapidsPluginUtils: RAPIDS Accelerator is enabled, to disable GPU support set `spark.rapids.sql.enabled` to false.
+26/04/13 10:54:25 WARN RapidsPluginUtils: spark.rapids.sql.explain is set to `ALL`. Set it to 'NONE' to suppress the diagnostics logging about the query placement on the GPU.
+26/04/13 10:54:25 DEBUG AwsStoragePlugin: com.nvidia.spark.rapids.AwsStoragePlugin@5ba1e31e does not implement driverPlugin
+26/04/13 10:54:25 DEBUG RapidsDriverPlugin: Loading extra driver plugins: com.nvidia.spark.rapids.optimizer.OptimizerDriverPlugin
+26/04/13 10:54:25 DEBUG OptimizerDriverPlugin: Spark RAPIDS Optimizer Plugin Enabled.
+26/04/13 10:54:27 DEBUG ShimReflectionUtils: Loading com.nvidia.spark.rapids.RapidsExecutorPlugin using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:27 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.RapidsExecutorPlugin using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:27 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:27 INFO RapidsPluginUtils: Estimated number of cores is 4
+26/04/13 10:54:27 INFO RapidsExecutorPlugin: Initializing memory from Executor Plugin
+26/04/13 10:54:27 ERROR GpuTimeZoneDB: cache timezone info cache failed
+java.lang.IllegalStateException: load timezone DB cache failed!
+	at com.nvidia.spark.rapids.jni.GpuTimeZoneDB.loadData(GpuTimeZoneDB.java:414) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.jni.GpuTimeZoneDB.cacheDatabaseImpl(GpuTimeZoneDB.java:184) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.jni.GpuTimeZoneDB.lambda$cacheDatabaseAsync$0(GpuTimeZoneDB.java:105) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at java.lang.Thread.run(Thread.java:833) [?:?]
+Caused by: java.lang.IllegalStateException: Unsupported midnight end of day for DST rules.
+	at com.nvidia.spark.rapids.jni.GpuTimeZoneDB.lambda$loadData$3(GpuTimeZoneDB.java:377) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at java.lang.Iterable.forEach(Iterable.java:75) ~[?:?]
+	at com.nvidia.spark.rapids.jni.GpuTimeZoneDB.loadData(GpuTimeZoneDB.java:373) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	... 3 more
+26/04/13 10:54:34 DEBUG GpuDeviceManager: Initializing GPU device ID to 0
+26/04/13 10:54:34 DEBUG GpuDeviceManager: Initialized pool resource for spill operations of None Bytes
+26/04/13 10:54:34 INFO GpuDeviceManager: availableGpuTotal: 45457.5625 MiB
+26/04/13 10:54:34 INFO GpuDeviceManager: availableGpuFree: 45009.3125 MiB
+26/04/13 10:54:34 INFO GpuDeviceManager: Initializing RMM  pool size = 44369.3125 MB on gpuId 0
+26/04/13 10:54:34 INFO GpuDeviceManager: Using per-thread default stream
+26/04/13 10:54:34 INFO SpillFramework: Initialized SpillFramework. Host spill store max size is: 1073741824 B.
+26/04/13 10:54:34 DEBUG AwsStoragePlugin: com.nvidia.spark.rapids.AwsStoragePlugin@5ba1e31e{} implements executorPlugin
+26/04/13 10:54:34 DEBUG RapidsExecutorPlugin: Loading extra executor plugins: com.nvidia.spark.rapids.AwsStorageExecutorPlugin,com.nvidia.spark.rapids.optimizer.OptimizerExecutorPlugin
+26/04/13 10:54:34 INFO AwsStorageExecutorPlugin: Initializing S3 Plugin on the Executor driver
+26/04/13 10:54:34 DEBUG ShimReflectionUtils: Loading com.nvidia.spark.rapids.StrategyRules using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:34 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.StrategyRules using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:34 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:34 DEBUG ShimReflectionUtils: Loading com.nvidia.spark.DFUDFPluginImpl using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:34 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.DFUDFPluginImpl using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:34 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Loading com.nvidia.spark.rapids.ColumnarOverrideRules using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.ColumnarOverrideRules using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Loading com.nvidia.spark.rapids.GpuQueryStagePrepOverrides using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.GpuQueryStagePrepOverrides using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Loading com.nvidia.spark.rapids.execution.adaptive.OptimizeSkewedBHJJoinRule using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.execution.adaptive.OptimizeSkewedBHJJoinRule using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Loading com.nvidia.spark.udf.LogicalPlanRules using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.udf.LogicalPlanRules using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Loading com.nvidia.spark.rapids.GpuPostHocResolutionOverrides using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Loading com.nvidia.spark.rapids.optimizer.JoinReorderRule using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.optimizer.JoinReorderRule using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Loading com.nvidia.spark.rapids.optimizer.AggPushdownRule using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.optimizer.AggPushdownRule using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Loading com.nvidia.spark.rapids.optimizer.DecomposeStddevPop using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.optimizer.DecomposeStddevPop using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Loading com.nvidia.spark.rapids.optimizer.PushExpressionThroughGenerate using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.optimizer.PushExpressionThroughGenerate using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Loading com.nvidia.spark.rapids.optimizer.OptimizeSubquerySharedScanRule using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.optimizer.OptimizeSubquerySharedScanRule using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:35 DEBUG JoinReorderRule: JoinReorderRule took 0 millis
+26/04/13 10:54:35 DEBUG JoinReorderRule: JoinReorderRule took 0 millis
+26/04/13 10:54:35 DEBUG JoinReorderRule: JoinReorderRule took 0 millis
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Loading com.nvidia.spark.rapids.delta.DeltaProbeImpl using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.delta.DeltaProbeImpl using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.hive.HiveSessionStateBuilder using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Loading org.apache.hadoop.hive.conf.HiveConf using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.hive.rapids.HiveProviderImpl using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.hive.rapids.HiveProviderImpl using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.delta.expressions.InterleaveBits using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:35 DEBUG ShimReflectionUtils: Loading com.databricks.sql.expressions.HilbertLongIndex using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:36 WARN GpuOverrides: 
+*Exec <HashAggregateExec> will run on GPU
+  *Expression <AggregateExpression> count(1) will run on GPU
+    *Expression <Count> count(1) will run on GPU
+  *Expression <Alias> count(1)#9L AS count#10L will run on GPU
+  *Exec <ShuffleExchangeExec> will run on GPU
+    *Partitioning <SinglePartition$> will run on GPU
+    *Exec <HashAggregateExec> will run on GPU
+      *Expression <AggregateExpression> partial_count(1) will run on GPU
+        *Expression <Count> count(1) will run on GPU
+      *Exec <ProjectExec> will run on GPU
+        ! <RDDScanExec> cannot run on GPU because GPU does not currently support the operator class org.apache.spark.sql.execution.RDDScanExec
+          @Expression <AttributeReference> row#0 could run on GPU
+          @Expression <AttributeReference> col#1 could run on GPU
+          @Expression <AttributeReference> val#2 could run on GPU
+
+26/04/13 10:54:36 INFO GpuOverrides: Plan conversion to the GPU took 95.66 ms
+26/04/13 10:54:36 DEBUG OptimizeSkewedBHJJoinRule: Skewed BHJ join not enabled
+26/04/13 10:54:36 WARN GpuOverrides: 
+*Exec <HashAggregateExec> will run on GPU
+  *Expression <AggregateExpression> count(1) will run on GPU
+    *Expression <Count> count(1) will run on GPU
+  *Expression <Alias> count(1)#9L AS count#10L will run on GPU
+  *Exec <ShuffleExchangeExec> will run on GPU
+    *Partitioning <SinglePartition$> will run on GPU
+    *Exec <HashAggregateExec> will run on GPU
+      *Expression <AggregateExpression> partial_count(1) will run on GPU
+        *Expression <Count> count(1) will run on GPU
+      *Exec <ProjectExec> will run on GPU
+        ! <RDDScanExec> cannot run on GPU because GPU does not currently support the operator class org.apache.spark.sql.execution.RDDScanExec
+          @Expression <AttributeReference> row#0 could run on GPU
+          @Expression <AttributeReference> col#1 could run on GPU
+          @Expression <AttributeReference> val#2 could run on GPU
+
+26/04/13 10:54:36 INFO GpuOverrides: Plan conversion to the GPU took 3.66 ms
+26/04/13 10:54:36 DEBUG OptimizeSkewedBHJJoinRule: Skewed BHJ join not enabled
+26/04/13 10:54:36 INFO GpuOverrides: Plan conversion to the GPU took 0.27 ms
+26/04/13 10:54:36 WARN GpuOverrides: 
+*Exec <HashAggregateExec> will run on GPU
+  *Expression <AggregateExpression> count(1) will run on GPU
+    *Expression <Count> count(1) will run on GPU
+  *Expression <Alias> count(1)#9L AS count#10L will run on GPU
+  *Exec <ShuffleExchangeExec> will run on GPU
+    *Partitioning <SinglePartition$> will run on GPU
+    *Exec <HashAggregateExec> will run on GPU
+      *Expression <AggregateExpression> partial_count(1) will run on GPU
+        *Expression <Count> count(1) will run on GPU
+      *Exec <ProjectExec> will run on GPU
+        ! <RDDScanExec> cannot run on GPU because GPU does not currently support the operator class org.apache.spark.sql.execution.RDDScanExec
+          @Expression <AttributeReference> row#0 could run on GPU
+          @Expression <AttributeReference> col#1 could run on GPU
+          @Expression <AttributeReference> val#2 could run on GPU
+
+26/04/13 10:54:36 INFO GpuOverrides: Plan conversion to the GPU took 2.41 ms
+26/04/13 10:54:36 DEBUG OptimizeSkewedBHJJoinRule: Skewed BHJ join not enabled
+26/04/13 10:54:36 INFO GpuOverrides: GPU plan transition optimization took 6.42 ms
+26/04/13 10:54:36 WARN GpuOverrides: 
+*Exec <ShuffleExchangeExec> will run on GPU
+  *Partitioning <SinglePartition$> will run on GPU
+  *Exec <HashAggregateExec> will run on GPU
+    *Expression <AggregateExpression> partial_count(1) will run on GPU
+      *Expression <Count> count(1) will run on GPU
+    *Exec <ProjectExec> will run on GPU
+      ! <RDDScanExec> cannot run on GPU because GPU does not currently support the operator class org.apache.spark.sql.execution.RDDScanExec
+        @Expression <AttributeReference> row#0 could run on GPU
+        @Expression <AttributeReference> col#1 could run on GPU
+        @Expression <AttributeReference> val#2 could run on GPU
+
+26/04/13 10:54:36 INFO GpuOverrides: Plan conversion to the GPU took 1.78 ms
+26/04/13 10:54:36 INFO GpuOverrides: GPU plan transition optimization took 6.30 ms
+26/04/13 10:54:36 DEBUG SparkResourceAdaptor: startDedicatedTaskThread: threadId: 140621754914368, task id: 1
+26/04/13 10:54:36 DEBUG SparkResourceAdaptor: startDedicatedTaskThread: threadId: 140628699641408, task id: 2
+26/04/13 10:54:36 DEBUG SparkResourceAdaptor: startDedicatedTaskThread: threadId: 140621727659584, task id: 3
+26/04/13 10:54:36 DEBUG SparkResourceAdaptor: startDedicatedTaskThread: threadId: 140621757011520, task id: 0
+26/04/13 10:54:36 DEBUG GeneratedInternalRowToCudfRowIterator: code for row#0,col#1,val#2:
+/* 001 */ public java.lang.Object generate(Object[] references) {
+/* 002 */   return new SpecificInternalRowToColumnarBatchIterator(references);
+/* 003 */ }
+/* 004 */
+/* 005 */ final class SpecificInternalRowToColumnarBatchIterator extends com.nvidia.spark.rapids.InternalRowToColumnarBatchIterator {
+/* 006 */   private final org.apache.spark.sql.catalyst.expressions.UnsafeProjection unsafeProj;
+/* 007 */
+/* 008 */   private org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[] mutableStateArray_0 = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[1];
+/* 009 */
+/* 010 */   public SpecificInternalRowToColumnarBatchIterator(Object[] references) {
+/* 011 */     super(
+/* 012 */       ((scala.collection.Iterator) references[0] /* iter */),
+/* 013 */       ((org.apache.spark.sql.catalyst.expressions.Attribute[]) references[1] /* schema */),
+/* 014 */       ((com.nvidia.spark.rapids.CoalesceSizeGoal) references[2] /* goal */),
+/* 015 */       ((com.nvidia.spark.rapids.GpuMetric) references[3] /* streamTime */),
+/* 016 */       ((com.nvidia.spark.rapids.GpuMetric) references[4] /* opTime */),
+/* 017 */       ((com.nvidia.spark.rapids.GpuMetric) references[5] /* numInputRows */),
+/* 018 */       ((com.nvidia.spark.rapids.GpuMetric) references[6] /* numOutputRows */),
+/* 019 */       ((com.nvidia.spark.rapids.GpuMetric) references[7] /* numOutputBatches */));
+/* 020 */
+/* 021 */     mutableStateArray_0[0] = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(3, 0);
+/* 022 */
+/* 023 */   }
+/* 024 */
+/* 025 */   // Avoid virtual function calls by copying the data in a batch at a time instead
+/* 026 */   // of a row at a time.
+/* 027 */   @Override
+/* 028 */   public int[] fillBatch(ai.rapids.cudf.HostMemoryBuffer dataBuffer,
+/* 029 */     ai.rapids.cudf.HostMemoryBuffer offsetsBuffer,
+/* 030 */     long dataLength, int numRows) {
+/* 031 */     final long dataBaseAddress = dataBuffer.getAddress();
+/* 032 */     final long endDataAddress = dataBaseAddress + dataLength;
+/* 033 */
+/* 034 */     int dataOffset = 0;
+/* 035 */     int currentRow = 0;
+/* 036 */     int offsetIndex = 0;
+/* 037 */
+/* 038 */     // If we are here we have at least one row to process, so don't bother checking yet
+/* 039 */     boolean done = false;
+/* 040 */     while (!done) {
+/* 041 */       UnsafeRow row;
+/* 042 */       if (pending != null) {
+/* 043 */         row = pending;
+/* 044 */         pending = null;
+/* 045 */       } else {
+/* 046 */         InternalRow internalRow_0 = (InternalRow) input.next();
+/* 047 */         if (internalRow_0 instanceof UnsafeRow) {
+/* 048 */           row = (UnsafeRow) internalRow_0;
+/* 049 */         } else {
+/* 050 */           mutableStateArray_0[0].reset();
+/* 051 */
+/* 052 */
+/* 053 */
+/* 054 */
+/* 055 */           int value_0 = internalRow_0.getInt(0);
+/* 056 */           mutableStateArray_0[0].write(0, value_0);
+/* 057 */
+/* 058 */           int value_1 = internalRow_0.getInt(1);
+/* 059 */           mutableStateArray_0[0].write(1, value_1);
+/* 060 */
+/* 061 */           double value_2 = internalRow_0.getDouble(2);
+/* 062 */           mutableStateArray_0[0].write(2, value_2);
+/* 063 */           row = (mutableStateArray_0[0].getRow());
+/* 064 */         }
+/* 065 */       }
+/* 066 */       int numBytesUsedByRow = copyInto(row, dataBaseAddress + dataOffset, endDataAddress);
+/* 067 */       offsetsBuffer.setInt(offsetIndex, dataOffset);
+/* 068 */       offsetIndex += 4;
+/* 069 */       if (numBytesUsedByRow < 0) {
+/* 070 */         pending = row;
+/* 071 */         done = true;
+/* 072 */       } else {
+/* 073 */         currentRow += 1;
+/* 074 */         dataOffset += numBytesUsedByRow;
+/* 075 */         done = !(currentRow < numRows &&
+/* 076 */           dataOffset < dataLength &&
+/* 077 */           input.hasNext());
+/* 078 */       }
+/* 079 */     }
+/* 080 */     return new int[] {dataOffset, currentRow};
+/* 081 */   }
+/* 082 */
+/* 083 */   private int copyInto(UnsafeRow input, long startAddress, long endAddress) {
+/* 084 */     Object rowBaseObj_0 = input.getBaseObject();
+/* 085 */     long rowBaseOffset_0 = input.getBaseOffset();
+/* 086 */     Platform.putInt(null, startAddress + 0, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 8));
+/* 087 */     Platform.putInt(null, startAddress + 4, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 16));
+/* 088 */     Platform.putLong(null, startAddress + 8, Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 24));
+/* 089 */
+/* 090 */     // validity
+/* 091 */     long unsafeRowTmp_0;
+/* 092 */     unsafeRowTmp_0 = Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 0);
+/* 093 */     Platform.putByte(null, startAddress + 16, (byte)(0xFF & ~(unsafeRowTmp_0 >> 0)));
+/* 094 */
+/* 095 */     return 24;
+/* 096 */   }
+/* 097 */
+/* 098 */
+/* 099 */ }
+
+26/04/13 10:54:36 DEBUG GeneratedInternalRowToCudfRowIterator: code for row#0,col#1,val#2:
+/* 001 */ public java.lang.Object generate(Object[] references) {
+/* 002 */   return new SpecificInternalRowToColumnarBatchIterator(references);
+/* 003 */ }
+/* 004 */
+/* 005 */ final class SpecificInternalRowToColumnarBatchIterator extends com.nvidia.spark.rapids.InternalRowToColumnarBatchIterator {
+/* 006 */   private final org.apache.spark.sql.catalyst.expressions.UnsafeProjection unsafeProj;
+/* 007 */
+/* 008 */   private org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[] mutableStateArray_0 = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[1];
+/* 009 */
+/* 010 */   public SpecificInternalRowToColumnarBatchIterator(Object[] references) {
+/* 011 */     super(
+/* 012 */       ((scala.collection.Iterator) references[0] /* iter */),
+/* 013 */       ((org.apache.spark.sql.catalyst.expressions.Attribute[]) references[1] /* schema */),
+/* 014 */       ((com.nvidia.spark.rapids.CoalesceSizeGoal) references[2] /* goal */),
+/* 015 */       ((com.nvidia.spark.rapids.GpuMetric) references[3] /* streamTime */),
+/* 016 */       ((com.nvidia.spark.rapids.GpuMetric) references[4] /* opTime */),
+/* 017 */       ((com.nvidia.spark.rapids.GpuMetric) references[5] /* numInputRows */),
+/* 018 */       ((com.nvidia.spark.rapids.GpuMetric) references[6] /* numOutputRows */),
+/* 019 */       ((com.nvidia.spark.rapids.GpuMetric) references[7] /* numOutputBatches */));
+/* 020 */
+/* 021 */     mutableStateArray_0[0] = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(3, 0);
+/* 022 */
+/* 023 */   }
+/* 024 */
+/* 025 */   // Avoid virtual function calls by copying the data in a batch at a time instead
+/* 026 */   // of a row at a time.
+/* 027 */   @Override
+/* 028 */   public int[] fillBatch(ai.rapids.cudf.HostMemoryBuffer dataBuffer,
+/* 029 */     ai.rapids.cudf.HostMemoryBuffer offsetsBuffer,
+/* 030 */     long dataLength, int numRows) {
+/* 031 */     final long dataBaseAddress = dataBuffer.getAddress();
+/* 032 */     final long endDataAddress = dataBaseAddress + dataLength;
+/* 033 */
+/* 034 */     int dataOffset = 0;
+/* 035 */     int currentRow = 0;
+/* 036 */     int offsetIndex = 0;
+/* 037 */
+/* 038 */     // If we are here we have at least one row to process, so don't bother checking yet
+/* 039 */     boolean done = false;
+/* 040 */     while (!done) {
+/* 041 */       UnsafeRow row;
+/* 042 */       if (pending != null) {
+/* 043 */         row = pending;
+/* 044 */         pending = null;
+/* 045 */       } else {
+/* 046 */         InternalRow internalRow_0 = (InternalRow) input.next();
+/* 047 */         if (internalRow_0 instanceof UnsafeRow) {
+/* 048 */           row = (UnsafeRow) internalRow_0;
+/* 049 */         } else {
+/* 050 */           mutableStateArray_0[0].reset();
+/* 051 */
+/* 052 */
+/* 053 */
+/* 054 */
+/* 055 */           int value_0 = internalRow_0.getInt(0);
+/* 056 */           mutableStateArray_0[0].write(0, value_0);
+/* 057 */
+/* 058 */           int value_1 = internalRow_0.getInt(1);
+/* 059 */           mutableStateArray_0[0].write(1, value_1);
+/* 060 */
+/* 061 */           double value_2 = internalRow_0.getDouble(2);
+/* 062 */           mutableStateArray_0[0].write(2, value_2);
+/* 063 */           row = (mutableStateArray_0[0].getRow());
+/* 064 */         }
+/* 065 */       }
+/* 066 */       int numBytesUsedByRow = copyInto(row, dataBaseAddress + dataOffset, endDataAddress);
+/* 067 */       offsetsBuffer.setInt(offsetIndex, dataOffset);
+/* 068 */       offsetIndex += 4;
+/* 069 */       if (numBytesUsedByRow < 0) {
+/* 070 */         pending = row;
+/* 071 */         done = true;
+/* 072 */       } else {
+/* 073 */         currentRow += 1;
+/* 074 */         dataOffset += numBytesUsedByRow;
+/* 075 */         done = !(currentRow < numRows &&
+/* 076 */           dataOffset < dataLength &&
+/* 077 */           input.hasNext());
+/* 078 */       }
+/* 079 */     }
+/* 080 */     return new int[] {dataOffset, currentRow};
+/* 081 */   }
+/* 082 */
+/* 083 */   private int copyInto(UnsafeRow input, long startAddress, long endAddress) {
+/* 084 */     Object rowBaseObj_0 = input.getBaseObject();
+/* 085 */     long rowBaseOffset_0 = input.getBaseOffset();
+/* 086 */     Platform.putInt(null, startAddress + 0, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 8));
+/* 087 */     Platform.putInt(null, startAddress + 4, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 16));
+/* 088 */     Platform.putLong(null, startAddress + 8, Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 24));
+/* 089 */
+/* 090 */     // validity
+/* 091 */     long unsafeRowTmp_0;
+/* 092 */     unsafeRowTmp_0 = Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 0);
+/* 093 */     Platform.putByte(null, startAddress + 16, (byte)(0xFF & ~(unsafeRowTmp_0 >> 0)));
+/* 094 */
+/* 095 */     return 24;
+/* 096 */   }
+/* 097 */
+/* 098 */
+/* 099 */ }
+
+26/04/13 10:54:36 DEBUG GeneratedInternalRowToCudfRowIterator: code for row#0,col#1,val#2:
+/* 001 */ public java.lang.Object generate(Object[] references) {
+/* 002 */   return new SpecificInternalRowToColumnarBatchIterator(references);
+/* 003 */ }
+/* 004 */
+/* 005 */ final class SpecificInternalRowToColumnarBatchIterator extends com.nvidia.spark.rapids.InternalRowToColumnarBatchIterator {
+/* 006 */   private final org.apache.spark.sql.catalyst.expressions.UnsafeProjection unsafeProj;
+/* 007 */
+/* 008 */   private org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[] mutableStateArray_0 = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[1];
+/* 009 */
+/* 010 */   public SpecificInternalRowToColumnarBatchIterator(Object[] references) {
+/* 011 */     super(
+/* 012 */       ((scala.collection.Iterator) references[0] /* iter */),
+/* 013 */       ((org.apache.spark.sql.catalyst.expressions.Attribute[]) references[1] /* schema */),
+/* 014 */       ((com.nvidia.spark.rapids.CoalesceSizeGoal) references[2] /* goal */),
+/* 015 */       ((com.nvidia.spark.rapids.GpuMetric) references[3] /* streamTime */),
+/* 016 */       ((com.nvidia.spark.rapids.GpuMetric) references[4] /* opTime */),
+/* 017 */       ((com.nvidia.spark.rapids.GpuMetric) references[5] /* numInputRows */),
+/* 018 */       ((com.nvidia.spark.rapids.GpuMetric) references[6] /* numOutputRows */),
+/* 019 */       ((com.nvidia.spark.rapids.GpuMetric) references[7] /* numOutputBatches */));
+/* 020 */
+/* 021 */     mutableStateArray_0[0] = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(3, 0);
+/* 022 */
+/* 023 */   }
+/* 024 */
+/* 025 */   // Avoid virtual function calls by copying the data in a batch at a time instead
+/* 026 */   // of a row at a time.
+/* 027 */   @Override
+/* 028 */   public int[] fillBatch(ai.rapids.cudf.HostMemoryBuffer dataBuffer,
+/* 029 */     ai.rapids.cudf.HostMemoryBuffer offsetsBuffer,
+/* 030 */     long dataLength, int numRows) {
+/* 031 */     final long dataBaseAddress = dataBuffer.getAddress();
+/* 032 */     final long endDataAddress = dataBaseAddress + dataLength;
+/* 033 */
+/* 034 */     int dataOffset = 0;
+/* 035 */     int currentRow = 0;
+/* 036 */     int offsetIndex = 0;
+/* 037 */
+/* 038 */     // If we are here we have at least one row to process, so don't bother checking yet
+/* 039 */     boolean done = false;
+/* 040 */     while (!done) {
+/* 041 */       UnsafeRow row;
+/* 042 */       if (pending != null) {
+/* 043 */         row = pending;
+/* 044 */         pending = null;
+/* 045 */       } else {
+/* 046 */         InternalRow internalRow_0 = (InternalRow) input.next();
+/* 047 */         if (internalRow_0 instanceof UnsafeRow) {
+/* 048 */           row = (UnsafeRow) internalRow_0;
+/* 049 */         } else {
+/* 050 */           mutableStateArray_0[0].reset();
+/* 051 */
+/* 052 */
+/* 053 */
+/* 054 */
+/* 055 */           int value_0 = internalRow_0.getInt(0);
+/* 056 */           mutableStateArray_0[0].write(0, value_0);
+/* 057 */
+/* 058 */           int value_1 = internalRow_0.getInt(1);
+/* 059 */           mutableStateArray_0[0].write(1, value_1);
+/* 060 */
+/* 061 */           double value_2 = internalRow_0.getDouble(2);
+/* 062 */           mutableStateArray_0[0].write(2, value_2);
+/* 063 */           row = (mutableStateArray_0[0].getRow());
+/* 064 */         }
+/* 065 */       }
+/* 066 */       int numBytesUsedByRow = copyInto(row, dataBaseAddress + dataOffset, endDataAddress);
+/* 067 */       offsetsBuffer.setInt(offsetIndex, dataOffset);
+/* 068 */       offsetIndex += 4;
+/* 069 */       if (numBytesUsedByRow < 0) {
+/* 070 */         pending = row;
+/* 071 */         done = true;
+/* 072 */       } else {
+/* 073 */         currentRow += 1;
+/* 074 */         dataOffset += numBytesUsedByRow;
+/* 075 */         done = !(currentRow < numRows &&
+/* 076 */           dataOffset < dataLength &&
+/* 077 */           input.hasNext());
+/* 078 */       }
+/* 079 */     }
+/* 080 */     return new int[] {dataOffset, currentRow};
+/* 081 */   }
+/* 082 */
+/* 083 */   private int copyInto(UnsafeRow input, long startAddress, long endAddress) {
+/* 084 */     Object rowBaseObj_0 = input.getBaseObject();
+/* 085 */     long rowBaseOffset_0 = input.getBaseOffset();
+/* 086 */     Platform.putInt(null, startAddress + 0, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 8));
+/* 087 */     Platform.putInt(null, startAddress + 4, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 16));
+/* 088 */     Platform.putLong(null, startAddress + 8, Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 24));
+/* 089 */
+/* 090 */     // validity
+/* 091 */     long unsafeRowTmp_0;
+/* 092 */     unsafeRowTmp_0 = Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 0);
+/* 093 */     Platform.putByte(null, startAddress + 16, (byte)(0xFF & ~(unsafeRowTmp_0 >> 0)));
+/* 094 */
+/* 095 */     return 24;
+/* 096 */   }
+/* 097 */
+/* 098 */
+/* 099 */ }
+
+26/04/13 10:54:36 DEBUG GeneratedInternalRowToCudfRowIterator: code for row#0,col#1,val#2:
+/* 001 */ public java.lang.Object generate(Object[] references) {
+/* 002 */   return new SpecificInternalRowToColumnarBatchIterator(references);
+/* 003 */ }
+/* 004 */
+/* 005 */ final class SpecificInternalRowToColumnarBatchIterator extends com.nvidia.spark.rapids.InternalRowToColumnarBatchIterator {
+/* 006 */   private final org.apache.spark.sql.catalyst.expressions.UnsafeProjection unsafeProj;
+/* 007 */
+/* 008 */   private org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[] mutableStateArray_0 = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[1];
+/* 009 */
+/* 010 */   public SpecificInternalRowToColumnarBatchIterator(Object[] references) {
+/* 011 */     super(
+/* 012 */       ((scala.collection.Iterator) references[0] /* iter */),
+/* 013 */       ((org.apache.spark.sql.catalyst.expressions.Attribute[]) references[1] /* schema */),
+/* 014 */       ((com.nvidia.spark.rapids.CoalesceSizeGoal) references[2] /* goal */),
+/* 015 */       ((com.nvidia.spark.rapids.GpuMetric) references[3] /* streamTime */),
+/* 016 */       ((com.nvidia.spark.rapids.GpuMetric) references[4] /* opTime */),
+/* 017 */       ((com.nvidia.spark.rapids.GpuMetric) references[5] /* numInputRows */),
+/* 018 */       ((com.nvidia.spark.rapids.GpuMetric) references[6] /* numOutputRows */),
+/* 019 */       ((com.nvidia.spark.rapids.GpuMetric) references[7] /* numOutputBatches */));
+/* 020 */
+/* 021 */     mutableStateArray_0[0] = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(3, 0);
+/* 022 */
+/* 023 */   }
+/* 024 */
+/* 025 */   // Avoid virtual function calls by copying the data in a batch at a time instead
+/* 026 */   // of a row at a time.
+/* 027 */   @Override
+/* 028 */   public int[] fillBatch(ai.rapids.cudf.HostMemoryBuffer dataBuffer,
+/* 029 */     ai.rapids.cudf.HostMemoryBuffer offsetsBuffer,
+/* 030 */     long dataLength, int numRows) {
+/* 031 */     final long dataBaseAddress = dataBuffer.getAddress();
+/* 032 */     final long endDataAddress = dataBaseAddress + dataLength;
+/* 033 */
+/* 034 */     int dataOffset = 0;
+/* 035 */     int currentRow = 0;
+/* 036 */     int offsetIndex = 0;
+/* 037 */
+/* 038 */     // If we are here we have at least one row to process, so don't bother checking yet
+/* 039 */     boolean done = false;
+/* 040 */     while (!done) {
+/* 041 */       UnsafeRow row;
+/* 042 */       if (pending != null) {
+/* 043 */         row = pending;
+/* 044 */         pending = null;
+/* 045 */       } else {
+/* 046 */         InternalRow internalRow_0 = (InternalRow) input.next();
+/* 047 */         if (internalRow_0 instanceof UnsafeRow) {
+/* 048 */           row = (UnsafeRow) internalRow_0;
+/* 049 */         } else {
+/* 050 */           mutableStateArray_0[0].reset();
+/* 051 */
+/* 052 */
+/* 053 */
+/* 054 */
+/* 055 */           int value_0 = internalRow_0.getInt(0);
+/* 056 */           mutableStateArray_0[0].write(0, value_0);
+/* 057 */
+/* 058 */           int value_1 = internalRow_0.getInt(1);
+/* 059 */           mutableStateArray_0[0].write(1, value_1);
+/* 060 */
+/* 061 */           double value_2 = internalRow_0.getDouble(2);
+/* 062 */           mutableStateArray_0[0].write(2, value_2);
+/* 063 */           row = (mutableStateArray_0[0].getRow());
+/* 064 */         }
+/* 065 */       }
+/* 066 */       int numBytesUsedByRow = copyInto(row, dataBaseAddress + dataOffset, endDataAddress);
+/* 067 */       offsetsBuffer.setInt(offsetIndex, dataOffset);
+/* 068 */       offsetIndex += 4;
+/* 069 */       if (numBytesUsedByRow < 0) {
+/* 070 */         pending = row;
+/* 071 */         done = true;
+/* 072 */       } else {
+/* 073 */         currentRow += 1;
+/* 074 */         dataOffset += numBytesUsedByRow;
+/* 075 */         done = !(currentRow < numRows &&
+/* 076 */           dataOffset < dataLength &&
+/* 077 */           input.hasNext());
+/* 078 */       }
+/* 079 */     }
+/* 080 */     return new int[] {dataOffset, currentRow};
+/* 081 */   }
+/* 082 */
+/* 083 */   private int copyInto(UnsafeRow input, long startAddress, long endAddress) {
+/* 084 */     Object rowBaseObj_0 = input.getBaseObject();
+/* 085 */     long rowBaseOffset_0 = input.getBaseOffset();
+/* 086 */     Platform.putInt(null, startAddress + 0, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 8));
+/* 087 */     Platform.putInt(null, startAddress + 4, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 16));
+/* 088 */     Platform.putLong(null, startAddress + 8, Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 24));
+/* 089 */
+/* 090 */     // validity
+/* 091 */     long unsafeRowTmp_0;
+/* 092 */     unsafeRowTmp_0 = Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 0);
+/* 093 */     Platform.putByte(null, startAddress + 16, (byte)(0xFF & ~(unsafeRowTmp_0 >> 0)));
+/* 094 */
+/* 095 */     return 24;
+/* 096 */   }
+/* 097 */
+/* 098 */
+/* 099 */ }
+
+26/04/13 10:54:37 DEBUG RapidsConf: OOM injection in tests disable. To enable, set java property `-Dcom.nvidia.spark.rapids.runningTest=true`, and configure using spark.rapids.sql.test.injectRetryOOM.
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 WARN GpuOverrides: 
+*Exec <HashAggregateExec> will run on GPU
+  *Expression <AggregateExpression> count(1) will run on GPU
+    *Expression <Count> count(1) will run on GPU
+  *Expression <Alias> count(1)#9L AS count#10L will run on GPU
+
+26/04/13 10:54:37 INFO GpuOverrides: Plan conversion to the GPU took 1.45 ms
+26/04/13 10:54:37 DEBUG OptimizeSkewedBHJJoinRule: Skewed BHJ join not enabled
+26/04/13 10:54:37 WARN GpuOverrides: 
+*Exec <HashAggregateExec> will run on GPU
+  *Expression <AggregateExpression> count(1) will run on GPU
+    *Expression <Count> count(1) will run on GPU
+  *Expression <Alias> count(1)#9L AS count#10L will run on GPU
+
+26/04/13 10:54:37 INFO GpuOverrides: Plan conversion to the GPU took 0.92 ms
+26/04/13 10:54:37 INFO GpuOverrides: GPU plan transition optimization took 1.18 ms
+26/04/13 10:54:37 DEBUG SparkResourceAdaptor: startDedicatedTaskThread: threadId: 140621727659584, task id: 4
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading com.nvidia.spark.rapids.optimizer.JoinReorderRule using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.optimizer.JoinReorderRule using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading com.nvidia.spark.rapids.optimizer.AggPushdownRule using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.optimizer.AggPushdownRule using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading com.nvidia.spark.rapids.optimizer.DecomposeStddevPop using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.optimizer.DecomposeStddevPop using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading com.nvidia.spark.rapids.optimizer.PushExpressionThroughGenerate using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.optimizer.PushExpressionThroughGenerate using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading com.nvidia.spark.rapids.optimizer.OptimizeSubquerySharedScanRule using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.optimizer.OptimizeSubquerySharedScanRule using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG JoinReorderRule: JoinReorderRule took 0 millis
+26/04/13 10:54:37 DEBUG JoinReorderRule: JoinReorderRule took 0 millis
+26/04/13 10:54:37 DEBUG JoinReorderRule: JoinReorderRule took 0 millis
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 WARN GpuOverrides: 
+*Exec <HashAggregateExec> will run on GPU
+  *Expression <AggregateExpression> sum(val#2) will run on GPU
+    *Expression <Sum> sum(val#2) will run on GPU
+  *Expression <Alias> sum(val#2)#38 AS sum(val)#39 will run on GPU
+  *Exec <ShuffleExchangeExec> will run on GPU
+    *Partitioning <SinglePartition$> will run on GPU
+    *Exec <HashAggregateExec> will run on GPU
+      *Expression <AggregateExpression> partial_sum(val#2) will run on GPU
+        *Expression <Sum> sum(val#2) will run on GPU
+      *Exec <ProjectExec> will run on GPU
+        ! <RDDScanExec> cannot run on GPU because GPU does not currently support the operator class org.apache.spark.sql.execution.RDDScanExec
+          @Expression <AttributeReference> row#0 could run on GPU
+          @Expression <AttributeReference> col#1 could run on GPU
+          @Expression <AttributeReference> val#2 could run on GPU
+
+26/04/13 10:54:37 INFO GpuOverrides: Plan conversion to the GPU took 5.74 ms
+26/04/13 10:54:37 DEBUG OptimizeSkewedBHJJoinRule: Skewed BHJ join not enabled
+26/04/13 10:54:37 WARN GpuOverrides: 
+*Exec <HashAggregateExec> will run on GPU
+  *Expression <AggregateExpression> sum(val#2) will run on GPU
+    *Expression <Sum> sum(val#2) will run on GPU
+  *Expression <Alias> sum(val#2)#38 AS sum(val)#39 will run on GPU
+  *Exec <ShuffleExchangeExec> will run on GPU
+    *Partitioning <SinglePartition$> will run on GPU
+    *Exec <HashAggregateExec> will run on GPU
+      *Expression <AggregateExpression> partial_sum(val#2) will run on GPU
+        *Expression <Sum> sum(val#2) will run on GPU
+      *Exec <ProjectExec> will run on GPU
+        ! <RDDScanExec> cannot run on GPU because GPU does not currently support the operator class org.apache.spark.sql.execution.RDDScanExec
+          @Expression <AttributeReference> row#0 could run on GPU
+          @Expression <AttributeReference> col#1 could run on GPU
+          @Expression <AttributeReference> val#2 could run on GPU
+
+26/04/13 10:54:37 INFO GpuOverrides: Plan conversion to the GPU took 2.22 ms
+26/04/13 10:54:37 DEBUG OptimizeSkewedBHJJoinRule: Skewed BHJ join not enabled
+26/04/13 10:54:37 INFO GpuOverrides: Plan conversion to the GPU took 0.11 ms
+26/04/13 10:54:37 WARN GpuOverrides: 
+*Exec <HashAggregateExec> will run on GPU
+  *Expression <AggregateExpression> sum(val#2) will run on GPU
+    *Expression <Sum> sum(val#2) will run on GPU
+  *Expression <Alias> sum(val#2)#38 AS sum(val)#39 will run on GPU
+  *Exec <ShuffleExchangeExec> will run on GPU
+    *Partitioning <SinglePartition$> will run on GPU
+    *Exec <HashAggregateExec> will run on GPU
+      *Expression <AggregateExpression> partial_sum(val#2) will run on GPU
+        *Expression <Sum> sum(val#2) will run on GPU
+      *Exec <ProjectExec> will run on GPU
+        ! <RDDScanExec> cannot run on GPU because GPU does not currently support the operator class org.apache.spark.sql.execution.RDDScanExec
+          @Expression <AttributeReference> row#0 could run on GPU
+          @Expression <AttributeReference> col#1 could run on GPU
+          @Expression <AttributeReference> val#2 could run on GPU
+
+26/04/13 10:54:37 INFO GpuOverrides: Plan conversion to the GPU took 1.99 ms
+26/04/13 10:54:37 DEBUG OptimizeSkewedBHJJoinRule: Skewed BHJ join not enabled
+26/04/13 10:54:37 INFO GpuOverrides: GPU plan transition optimization took 0.12 ms
+26/04/13 10:54:37 WARN GpuOverrides: 
+*Exec <ShuffleExchangeExec> will run on GPU
+  *Partitioning <SinglePartition$> will run on GPU
+  *Exec <HashAggregateExec> will run on GPU
+    *Expression <AggregateExpression> partial_sum(val#2) will run on GPU
+      *Expression <Sum> sum(val#2) will run on GPU
+    *Exec <ProjectExec> will run on GPU
+      ! <RDDScanExec> cannot run on GPU because GPU does not currently support the operator class org.apache.spark.sql.execution.RDDScanExec
+        @Expression <AttributeReference> row#0 could run on GPU
+        @Expression <AttributeReference> col#1 could run on GPU
+        @Expression <AttributeReference> val#2 could run on GPU
+
+26/04/13 10:54:37 INFO GpuOverrides: Plan conversion to the GPU took 1.51 ms
+26/04/13 10:54:37 INFO GpuOverrides: GPU plan transition optimization took 1.15 ms
+26/04/13 10:54:37 DEBUG SparkResourceAdaptor: startDedicatedTaskThread: threadId: 140621727659584, task id: 5
+26/04/13 10:54:37 DEBUG SparkResourceAdaptor: startDedicatedTaskThread: threadId: 140628699641408, task id: 7
+26/04/13 10:54:37 DEBUG SparkResourceAdaptor: startDedicatedTaskThread: threadId: 140621757011520, task id: 8
+26/04/13 10:54:37 DEBUG SparkResourceAdaptor: startDedicatedTaskThread: threadId: 140621754914368, task id: 6
+26/04/13 10:54:37 DEBUG GeneratedInternalRowToCudfRowIterator: code for row#0,col#1,val#2:
+/* 001 */ public java.lang.Object generate(Object[] references) {
+/* 002 */   return new SpecificInternalRowToColumnarBatchIterator(references);
+/* 003 */ }
+/* 004 */
+/* 005 */ final class SpecificInternalRowToColumnarBatchIterator extends com.nvidia.spark.rapids.InternalRowToColumnarBatchIterator {
+/* 006 */   private final org.apache.spark.sql.catalyst.expressions.UnsafeProjection unsafeProj;
+/* 007 */
+/* 008 */   private org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[] mutableStateArray_0 = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[1];
+/* 009 */
+/* 010 */   public SpecificInternalRowToColumnarBatchIterator(Object[] references) {
+/* 011 */     super(
+/* 012 */       ((scala.collection.Iterator) references[0] /* iter */),
+/* 013 */       ((org.apache.spark.sql.catalyst.expressions.Attribute[]) references[1] /* schema */),
+/* 014 */       ((com.nvidia.spark.rapids.CoalesceSizeGoal) references[2] /* goal */),
+/* 015 */       ((com.nvidia.spark.rapids.GpuMetric) references[3] /* streamTime */),
+/* 016 */       ((com.nvidia.spark.rapids.GpuMetric) references[4] /* opTime */),
+/* 017 */       ((com.nvidia.spark.rapids.GpuMetric) references[5] /* numInputRows */),
+/* 018 */       ((com.nvidia.spark.rapids.GpuMetric) references[6] /* numOutputRows */),
+/* 019 */       ((com.nvidia.spark.rapids.GpuMetric) references[7] /* numOutputBatches */));
+/* 020 */
+/* 021 */     mutableStateArray_0[0] = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(3, 0);
+/* 022 */
+/* 023 */   }
+/* 024 */
+/* 025 */   // Avoid virtual function calls by copying the data in a batch at a time instead
+/* 026 */   // of a row at a time.
+/* 027 */   @Override
+/* 028 */   public int[] fillBatch(ai.rapids.cudf.HostMemoryBuffer dataBuffer,
+/* 029 */     ai.rapids.cudf.HostMemoryBuffer offsetsBuffer,
+/* 030 */     long dataLength, int numRows) {
+/* 031 */     final long dataBaseAddress = dataBuffer.getAddress();
+/* 032 */     final long endDataAddress = dataBaseAddress + dataLength;
+/* 033 */
+/* 034 */     int dataOffset = 0;
+/* 035 */     int currentRow = 0;
+/* 036 */     int offsetIndex = 0;
+/* 037 */
+/* 038 */     // If we are here we have at least one row to process, so don't bother checking yet
+/* 039 */     boolean done = false;
+/* 040 */     while (!done) {
+/* 041 */       UnsafeRow row;
+/* 042 */       if (pending != null) {
+/* 043 */         row = pending;
+/* 044 */         pending = null;
+/* 045 */       } else {
+/* 046 */         InternalRow internalRow_0 = (InternalRow) input.next();
+/* 047 */         if (internalRow_0 instanceof UnsafeRow) {
+/* 048 */           row = (UnsafeRow) internalRow_0;
+/* 049 */         } else {
+/* 050 */           mutableStateArray_0[0].reset();
+/* 051 */
+/* 052 */
+/* 053 */
+/* 054 */
+/* 055 */           int value_0 = internalRow_0.getInt(0);
+/* 056 */           mutableStateArray_0[0].write(0, value_0);
+/* 057 */
+/* 058 */           int value_1 = internalRow_0.getInt(1);
+/* 059 */           mutableStateArray_0[0].write(1, value_1);
+/* 060 */
+/* 061 */           double value_2 = internalRow_0.getDouble(2);
+/* 062 */           mutableStateArray_0[0].write(2, value_2);
+/* 063 */           row = (mutableStateArray_0[0].getRow());
+/* 064 */         }
+/* 065 */       }
+/* 066 */       int numBytesUsedByRow = copyInto(row, dataBaseAddress + dataOffset, endDataAddress);
+/* 067 */       offsetsBuffer.setInt(offsetIndex, dataOffset);
+/* 068 */       offsetIndex += 4;
+/* 069 */       if (numBytesUsedByRow < 0) {
+/* 070 */         pending = row;
+/* 071 */         done = true;
+/* 072 */       } else {
+/* 073 */         currentRow += 1;
+/* 074 */         dataOffset += numBytesUsedByRow;
+/* 075 */         done = !(currentRow < numRows &&
+/* 076 */           dataOffset < dataLength &&
+/* 077 */           input.hasNext());
+/* 078 */       }
+/* 079 */     }
+/* 080 */     return new int[] {dataOffset, currentRow};
+/* 081 */   }
+/* 082 */
+/* 083 */   private int copyInto(UnsafeRow input, long startAddress, long endAddress) {
+/* 084 */     Object rowBaseObj_0 = input.getBaseObject();
+/* 085 */     long rowBaseOffset_0 = input.getBaseOffset();
+/* 086 */     Platform.putInt(null, startAddress + 0, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 8));
+/* 087 */     Platform.putInt(null, startAddress + 4, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 16));
+/* 088 */     Platform.putLong(null, startAddress + 8, Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 24));
+/* 089 */
+/* 090 */     // validity
+/* 091 */     long unsafeRowTmp_0;
+/* 092 */     unsafeRowTmp_0 = Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 0);
+/* 093 */     Platform.putByte(null, startAddress + 16, (byte)(0xFF & ~(unsafeRowTmp_0 >> 0)));
+/* 094 */
+/* 095 */     return 24;
+/* 096 */   }
+/* 097 */
+/* 098 */
+/* 099 */ }
+
+26/04/13 10:54:37 DEBUG GeneratedInternalRowToCudfRowIterator: code for row#0,col#1,val#2:
+/* 001 */ public java.lang.Object generate(Object[] references) {
+/* 002 */   return new SpecificInternalRowToColumnarBatchIterator(references);
+/* 003 */ }
+/* 004 */
+/* 005 */ final class SpecificInternalRowToColumnarBatchIterator extends com.nvidia.spark.rapids.InternalRowToColumnarBatchIterator {
+/* 006 */   private final org.apache.spark.sql.catalyst.expressions.UnsafeProjection unsafeProj;
+/* 007 */
+/* 008 */   private org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[] mutableStateArray_0 = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[1];
+/* 009 */
+/* 010 */   public SpecificInternalRowToColumnarBatchIterator(Object[] references) {
+/* 011 */     super(
+/* 012 */       ((scala.collection.Iterator) references[0] /* iter */),
+/* 013 */       ((org.apache.spark.sql.catalyst.expressions.Attribute[]) references[1] /* schema */),
+/* 014 */       ((com.nvidia.spark.rapids.CoalesceSizeGoal) references[2] /* goal */),
+/* 015 */       ((com.nvidia.spark.rapids.GpuMetric) references[3] /* streamTime */),
+/* 016 */       ((com.nvidia.spark.rapids.GpuMetric) references[4] /* opTime */),
+/* 017 */       ((com.nvidia.spark.rapids.GpuMetric) references[5] /* numInputRows */),
+/* 018 */       ((com.nvidia.spark.rapids.GpuMetric) references[6] /* numOutputRows */),
+/* 019 */       ((com.nvidia.spark.rapids.GpuMetric) references[7] /* numOutputBatches */));
+/* 020 */
+/* 021 */     mutableStateArray_0[0] = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(3, 0);
+/* 022 */
+/* 023 */   }
+/* 024 */
+/* 025 */   // Avoid virtual function calls by copying the data in a batch at a time instead
+/* 026 */   // of a row at a time.
+/* 027 */   @Override
+/* 028 */   public int[] fillBatch(ai.rapids.cudf.HostMemoryBuffer dataBuffer,
+/* 029 */     ai.rapids.cudf.HostMemoryBuffer offsetsBuffer,
+/* 030 */     long dataLength, int numRows) {
+/* 031 */     final long dataBaseAddress = dataBuffer.getAddress();
+/* 032 */     final long endDataAddress = dataBaseAddress + dataLength;
+/* 033 */
+/* 034 */     int dataOffset = 0;
+/* 035 */     int currentRow = 0;
+/* 036 */     int offsetIndex = 0;
+/* 037 */
+/* 038 */     // If we are here we have at least one row to process, so don't bother checking yet
+/* 039 */     boolean done = false;
+/* 040 */     while (!done) {
+/* 041 */       UnsafeRow row;
+/* 042 */       if (pending != null) {
+/* 043 */         row = pending;
+/* 044 */         pending = null;
+/* 045 */       } else {
+/* 046 */         InternalRow internalRow_0 = (InternalRow) input.next();
+/* 047 */         if (internalRow_0 instanceof UnsafeRow) {
+/* 048 */           row = (UnsafeRow) internalRow_0;
+/* 049 */         } else {
+/* 050 */           mutableStateArray_0[0].reset();
+/* 051 */
+/* 052 */
+/* 053 */
+/* 054 */
+/* 055 */           int value_0 = internalRow_0.getInt(0);
+/* 056 */           mutableStateArray_0[0].write(0, value_0);
+/* 057 */
+/* 058 */           int value_1 = internalRow_0.getInt(1);
+/* 059 */           mutableStateArray_0[0].write(1, value_1);
+/* 060 */
+/* 061 */           double value_2 = internalRow_0.getDouble(2);
+/* 062 */           mutableStateArray_0[0].write(2, value_2);
+/* 063 */           row = (mutableStateArray_0[0].getRow());
+/* 064 */         }
+/* 065 */       }
+/* 066 */       int numBytesUsedByRow = copyInto(row, dataBaseAddress + dataOffset, endDataAddress);
+/* 067 */       offsetsBuffer.setInt(offsetIndex, dataOffset);
+/* 068 */       offsetIndex += 4;
+/* 069 */       if (numBytesUsedByRow < 0) {
+/* 070 */         pending = row;
+/* 071 */         done = true;
+/* 072 */       } else {
+/* 073 */         currentRow += 1;
+/* 074 */         dataOffset += numBytesUsedByRow;
+/* 075 */         done = !(currentRow < numRows &&
+/* 076 */           dataOffset < dataLength &&
+/* 077 */           input.hasNext());
+/* 078 */       }
+/* 079 */     }
+/* 080 */     return new int[] {dataOffset, currentRow};
+/* 081 */   }
+/* 082 */
+/* 083 */   private int copyInto(UnsafeRow input, long startAddress, long endAddress) {
+/* 084 */     Object rowBaseObj_0 = input.getBaseObject();
+/* 085 */     long rowBaseOffset_0 = input.getBaseOffset();
+/* 086 */     Platform.putInt(null, startAddress + 0, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 8));
+/* 087 */     Platform.putInt(null, startAddress + 4, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 16));
+/* 088 */     Platform.putLong(null, startAddress + 8, Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 24));
+/* 089 */
+/* 090 */     // validity
+/* 091 */     long unsafeRowTmp_0;
+/* 092 */     unsafeRowTmp_0 = Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 0);
+/* 093 */     Platform.putByte(null, startAddress + 16, (byte)(0xFF & ~(unsafeRowTmp_0 >> 0)));
+/* 094 */
+/* 095 */     return 24;
+/* 096 */   }
+/* 097 */
+/* 098 */
+/* 099 */ }
+
+26/04/13 10:54:37 DEBUG GeneratedInternalRowToCudfRowIterator: code for row#0,col#1,val#2:
+/* 001 */ public java.lang.Object generate(Object[] references) {
+/* 002 */   return new SpecificInternalRowToColumnarBatchIterator(references);
+/* 003 */ }
+/* 004 */
+/* 005 */ final class SpecificInternalRowToColumnarBatchIterator extends com.nvidia.spark.rapids.InternalRowToColumnarBatchIterator {
+/* 006 */   private final org.apache.spark.sql.catalyst.expressions.UnsafeProjection unsafeProj;
+/* 007 */
+/* 008 */   private org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[] mutableStateArray_0 = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[1];
+/* 009 */
+/* 010 */   public SpecificInternalRowToColumnarBatchIterator(Object[] references) {
+/* 011 */     super(
+/* 012 */       ((scala.collection.Iterator) references[0] /* iter */),
+/* 013 */       ((org.apache.spark.sql.catalyst.expressions.Attribute[]) references[1] /* schema */),
+/* 014 */       ((com.nvidia.spark.rapids.CoalesceSizeGoal) references[2] /* goal */),
+/* 015 */       ((com.nvidia.spark.rapids.GpuMetric) references[3] /* streamTime */),
+/* 016 */       ((com.nvidia.spark.rapids.GpuMetric) references[4] /* opTime */),
+/* 017 */       ((com.nvidia.spark.rapids.GpuMetric) references[5] /* numInputRows */),
+/* 018 */       ((com.nvidia.spark.rapids.GpuMetric) references[6] /* numOutputRows */),
+/* 019 */       ((com.nvidia.spark.rapids.GpuMetric) references[7] /* numOutputBatches */));
+/* 020 */
+/* 021 */     mutableStateArray_0[0] = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(3, 0);
+/* 022 */
+/* 023 */   }
+/* 024 */
+/* 025 */   // Avoid virtual function calls by copying the data in a batch at a time instead
+/* 026 */   // of a row at a time.
+/* 027 */   @Override
+/* 028 */   public int[] fillBatch(ai.rapids.cudf.HostMemoryBuffer dataBuffer,
+/* 029 */     ai.rapids.cudf.HostMemoryBuffer offsetsBuffer,
+/* 030 */     long dataLength, int numRows) {
+/* 031 */     final long dataBaseAddress = dataBuffer.getAddress();
+/* 032 */     final long endDataAddress = dataBaseAddress + dataLength;
+/* 033 */
+/* 034 */     int dataOffset = 0;
+/* 035 */     int currentRow = 0;
+/* 036 */     int offsetIndex = 0;
+/* 037 */
+/* 038 */     // If we are here we have at least one row to process, so don't bother checking yet
+/* 039 */     boolean done = false;
+/* 040 */     while (!done) {
+/* 041 */       UnsafeRow row;
+/* 042 */       if (pending != null) {
+/* 043 */         row = pending;
+/* 044 */         pending = null;
+/* 045 */       } else {
+/* 046 */         InternalRow internalRow_0 = (InternalRow) input.next();
+/* 047 */         if (internalRow_0 instanceof UnsafeRow) {
+/* 048 */           row = (UnsafeRow) internalRow_0;
+/* 049 */         } else {
+/* 050 */           mutableStateArray_0[0].reset();
+/* 051 */
+/* 052 */
+/* 053 */
+/* 054 */
+/* 055 */           int value_0 = internalRow_0.getInt(0);
+/* 056 */           mutableStateArray_0[0].write(0, value_0);
+/* 057 */
+/* 058 */           int value_1 = internalRow_0.getInt(1);
+/* 059 */           mutableStateArray_0[0].write(1, value_1);
+/* 060 */
+/* 061 */           double value_2 = internalRow_0.getDouble(2);
+/* 062 */           mutableStateArray_0[0].write(2, value_2);
+/* 063 */           row = (mutableStateArray_0[0].getRow());
+/* 064 */         }
+/* 065 */       }
+/* 066 */       int numBytesUsedByRow = copyInto(row, dataBaseAddress + dataOffset, endDataAddress);
+/* 067 */       offsetsBuffer.setInt(offsetIndex, dataOffset);
+/* 068 */       offsetIndex += 4;
+/* 069 */       if (numBytesUsedByRow < 0) {
+/* 070 */         pending = row;
+/* 071 */         done = true;
+/* 072 */       } else {
+/* 073 */         currentRow += 1;
+/* 074 */         dataOffset += numBytesUsedByRow;
+/* 075 */         done = !(currentRow < numRows &&
+/* 076 */           dataOffset < dataLength &&
+/* 077 */           input.hasNext());
+/* 078 */       }
+/* 079 */     }
+/* 080 */     return new int[] {dataOffset, currentRow};
+/* 081 */   }
+/* 082 */
+/* 083 */   private int copyInto(UnsafeRow input, long startAddress, long endAddress) {
+/* 084 */     Object rowBaseObj_0 = input.getBaseObject();
+/* 085 */     long rowBaseOffset_0 = input.getBaseOffset();
+/* 086 */     Platform.putInt(null, startAddress + 0, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 8));
+/* 087 */     Platform.putInt(null, startAddress + 4, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 16));
+/* 088 */     Platform.putLong(null, startAddress + 8, Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 24));
+/* 089 */
+/* 090 */     // validity
+/* 091 */     long unsafeRowTmp_0;
+/* 092 */     unsafeRowTmp_0 = Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 0);
+/* 093 */     Platform.putByte(null, startAddress + 16, (byte)(0xFF & ~(unsafeRowTmp_0 >> 0)));
+/* 094 */
+/* 095 */     return 24;
+/* 096 */   }
+/* 097 */
+/* 098 */
+/* 099 */ }
+
+26/04/13 10:54:37 DEBUG GeneratedInternalRowToCudfRowIterator: code for row#0,col#1,val#2:
+/* 001 */ public java.lang.Object generate(Object[] references) {
+/* 002 */   return new SpecificInternalRowToColumnarBatchIterator(references);
+/* 003 */ }
+/* 004 */
+/* 005 */ final class SpecificInternalRowToColumnarBatchIterator extends com.nvidia.spark.rapids.InternalRowToColumnarBatchIterator {
+/* 006 */   private final org.apache.spark.sql.catalyst.expressions.UnsafeProjection unsafeProj;
+/* 007 */
+/* 008 */   private org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[] mutableStateArray_0 = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[1];
+/* 009 */
+/* 010 */   public SpecificInternalRowToColumnarBatchIterator(Object[] references) {
+/* 011 */     super(
+/* 012 */       ((scala.collection.Iterator) references[0] /* iter */),
+/* 013 */       ((org.apache.spark.sql.catalyst.expressions.Attribute[]) references[1] /* schema */),
+/* 014 */       ((com.nvidia.spark.rapids.CoalesceSizeGoal) references[2] /* goal */),
+/* 015 */       ((com.nvidia.spark.rapids.GpuMetric) references[3] /* streamTime */),
+/* 016 */       ((com.nvidia.spark.rapids.GpuMetric) references[4] /* opTime */),
+/* 017 */       ((com.nvidia.spark.rapids.GpuMetric) references[5] /* numInputRows */),
+/* 018 */       ((com.nvidia.spark.rapids.GpuMetric) references[6] /* numOutputRows */),
+/* 019 */       ((com.nvidia.spark.rapids.GpuMetric) references[7] /* numOutputBatches */));
+/* 020 */
+/* 021 */     mutableStateArray_0[0] = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(3, 0);
+/* 022 */
+/* 023 */   }
+/* 024 */
+/* 025 */   // Avoid virtual function calls by copying the data in a batch at a time instead
+/* 026 */   // of a row at a time.
+/* 027 */   @Override
+/* 028 */   public int[] fillBatch(ai.rapids.cudf.HostMemoryBuffer dataBuffer,
+/* 029 */     ai.rapids.cudf.HostMemoryBuffer offsetsBuffer,
+/* 030 */     long dataLength, int numRows) {
+/* 031 */     final long dataBaseAddress = dataBuffer.getAddress();
+/* 032 */     final long endDataAddress = dataBaseAddress + dataLength;
+/* 033 */
+/* 034 */     int dataOffset = 0;
+/* 035 */     int currentRow = 0;
+/* 036 */     int offsetIndex = 0;
+/* 037 */
+/* 038 */     // If we are here we have at least one row to process, so don't bother checking yet
+/* 039 */     boolean done = false;
+/* 040 */     while (!done) {
+/* 041 */       UnsafeRow row;
+/* 042 */       if (pending != null) {
+/* 043 */         row = pending;
+/* 044 */         pending = null;
+/* 045 */       } else {
+/* 046 */         InternalRow internalRow_0 = (InternalRow) input.next();
+/* 047 */         if (internalRow_0 instanceof UnsafeRow) {
+/* 048 */           row = (UnsafeRow) internalRow_0;
+/* 049 */         } else {
+/* 050 */           mutableStateArray_0[0].reset();
+/* 051 */
+/* 052 */
+/* 053 */
+/* 054 */
+/* 055 */           int value_0 = internalRow_0.getInt(0);
+/* 056 */           mutableStateArray_0[0].write(0, value_0);
+/* 057 */
+/* 058 */           int value_1 = internalRow_0.getInt(1);
+/* 059 */           mutableStateArray_0[0].write(1, value_1);
+/* 060 */
+/* 061 */           double value_2 = internalRow_0.getDouble(2);
+/* 062 */           mutableStateArray_0[0].write(2, value_2);
+/* 063 */           row = (mutableStateArray_0[0].getRow());
+/* 064 */         }
+/* 065 */       }
+/* 066 */       int numBytesUsedByRow = copyInto(row, dataBaseAddress + dataOffset, endDataAddress);
+/* 067 */       offsetsBuffer.setInt(offsetIndex, dataOffset);
+/* 068 */       offsetIndex += 4;
+/* 069 */       if (numBytesUsedByRow < 0) {
+/* 070 */         pending = row;
+/* 071 */         done = true;
+/* 072 */       } else {
+/* 073 */         currentRow += 1;
+/* 074 */         dataOffset += numBytesUsedByRow;
+/* 075 */         done = !(currentRow < numRows &&
+/* 076 */           dataOffset < dataLength &&
+/* 077 */           input.hasNext());
+/* 078 */       }
+/* 079 */     }
+/* 080 */     return new int[] {dataOffset, currentRow};
+/* 081 */   }
+/* 082 */
+/* 083 */   private int copyInto(UnsafeRow input, long startAddress, long endAddress) {
+/* 084 */     Object rowBaseObj_0 = input.getBaseObject();
+/* 085 */     long rowBaseOffset_0 = input.getBaseOffset();
+/* 086 */     Platform.putInt(null, startAddress + 0, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 8));
+/* 087 */     Platform.putInt(null, startAddress + 4, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 16));
+/* 088 */     Platform.putLong(null, startAddress + 8, Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 24));
+/* 089 */
+/* 090 */     // validity
+/* 091 */     long unsafeRowTmp_0;
+/* 092 */     unsafeRowTmp_0 = Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 0);
+/* 093 */     Platform.putByte(null, startAddress + 16, (byte)(0xFF & ~(unsafeRowTmp_0 >> 0)));
+/* 094 */
+/* 095 */     return 24;
+/* 096 */   }
+/* 097 */
+/* 098 */
+/* 099 */ }
+
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 WARN GpuOverrides: 
+*Exec <HashAggregateExec> will run on GPU
+  *Expression <AggregateExpression> sum(val#2) will run on GPU
+    *Expression <Sum> sum(val#2) will run on GPU
+  *Expression <Alias> sum(val#2)#38 AS sum(val)#39 will run on GPU
+
+26/04/13 10:54:37 INFO GpuOverrides: Plan conversion to the GPU took 1.33 ms
+26/04/13 10:54:37 DEBUG OptimizeSkewedBHJJoinRule: Skewed BHJ join not enabled
+26/04/13 10:54:37 WARN GpuOverrides: 
+*Exec <HashAggregateExec> will run on GPU
+  *Expression <AggregateExpression> sum(val#2) will run on GPU
+    *Expression <Sum> sum(val#2) will run on GPU
+  *Expression <Alias> sum(val#2)#38 AS sum(val)#39 will run on GPU
+
+26/04/13 10:54:37 INFO GpuOverrides: Plan conversion to the GPU took 0.82 ms
+26/04/13 10:54:37 INFO GpuOverrides: GPU plan transition optimization took 0.49 ms
+26/04/13 10:54:37 DEBUG SparkResourceAdaptor: startDedicatedTaskThread: threadId: 140628699641408, task id: 9
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading com.nvidia.spark.rapids.optimizer.JoinReorderRule using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.optimizer.JoinReorderRule using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading com.nvidia.spark.rapids.optimizer.AggPushdownRule using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.optimizer.AggPushdownRule using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading com.nvidia.spark.rapids.optimizer.DecomposeStddevPop using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.optimizer.DecomposeStddevPop using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading com.nvidia.spark.rapids.optimizer.PushExpressionThroughGenerate using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.optimizer.PushExpressionThroughGenerate using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading com.nvidia.spark.rapids.optimizer.OptimizeSubquerySharedScanRule using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.optimizer.OptimizeSubquerySharedScanRule using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG JoinReorderRule: Attempt to reorder join:
+Join Inner, (col#67 = row#72)
+:- Project [row#66, col#67]
+:  +- LogicalRDD [row#66, col#67, val#68], false
++- Project [row#72, col#73]
+   +- LogicalRDD [row#72, col#73, val#74], false
+
+26/04/13 10:54:37 DEBUG JoinReorderRule: No qualifying relations found
+26/04/13 10:54:37 DEBUG JoinReorderRule: JoinReorderRule took 2 millis
+26/04/13 10:54:37 DEBUG JoinReorderRule: Attempt to reorder join:
+Join Inner, (col#67 = row#72)
+:- Project [row#66, col#67]
+:  +- LogicalRDD [row#66, col#67, val#68], false
++- Project [row#72, col#73]
+   +- LogicalRDD [row#72, col#73, val#74], false
+
+26/04/13 10:54:37 DEBUG JoinReorderRule: No qualifying relations found
+26/04/13 10:54:37 DEBUG JoinReorderRule: JoinReorderRule took 0 millis
+26/04/13 10:54:37 DEBUG JoinReorderRule: Attempt to reorder join:
+Join Inner, (col#67 = row#72)
+:- Project [row#66, col#67]
+:  +- LogicalRDD [row#66, col#67, val#68], false
++- Project [row#72, col#73]
+   +- LogicalRDD [row#72, col#73, val#74], false
+
+26/04/13 10:54:37 DEBUG JoinReorderRule: No qualifying relations found
+26/04/13 10:54:37 DEBUG JoinReorderRule: JoinReorderRule took 0 millis
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG GpuHashPartitioningBase: Use murmur3 for GPU hash partitioning.
+26/04/13 10:54:37 DEBUG GpuHashPartitioningBase: Use murmur3 for GPU hash partitioning.
+26/04/13 10:54:37 DEBUG GpuHashPartitioningBase: Use murmur3 for GPU hash partitioning.
+26/04/13 10:54:37 WARN GpuOverrides: 
+*Exec <HashAggregateExec> will run on GPU
+  *Expression <AggregateExpression> count(1) will run on GPU
+    *Expression <Count> count(1) will run on GPU
+  *Expression <Alias> count(1)#107L AS count#108L will run on GPU
+  *Exec <ShuffleExchangeExec> will run on GPU
+    *Partitioning <SinglePartition$> will run on GPU
+    *Exec <HashAggregateExec> will run on GPU
+      *Expression <AggregateExpression> partial_count(1) will run on GPU
+        *Expression <Count> count(1) will run on GPU
+      *Exec <HashAggregateExec> will run on GPU
+        *Exec <ShuffleExchangeExec> will run on GPU
+          *Partitioning <HashPartitioning> will run on GPU
+          *Exec <HashAggregateExec> will run on GPU
+            *Exec <ProjectExec> will run on GPU
+              *Expression <Alias> row#66 AS i#90 will run on GPU
+              *Expression <Alias> col#73 AS j#91 will run on GPU
+              *Exec <SortMergeJoinExec> will run on GPU
+                #Exec <SortExec> could run on GPU but is going to be removed because replacing sortMergeJoin with shuffleHashJoin
+                  #Expression <SortOrder> col#67 ASC NULLS FIRST could run on GPU but is going to be removed because parent plan is removed
+                  *Exec <ShuffleExchangeExec> will run on GPU
+                    *Partitioning <HashPartitioning> will run on GPU
+                    *Exec <ProjectExec> will run on GPU
+                      ! <RDDScanExec> cannot run on GPU because GPU does not currently support the operator class org.apache.spark.sql.execution.RDDScanExec
+                        @Expression <AttributeReference> row#66 could run on GPU
+                        @Expression <AttributeReference> col#67 could run on GPU
+                        @Expression <AttributeReference> val#68 could run on GPU
+                #Exec <SortExec> could run on GPU but is going to be removed because replacing sortMergeJoin with shuffleHashJoin
+                  #Expression <SortOrder> row#72 ASC NULLS FIRST could run on GPU but is going to be removed because parent plan is removed
+                  *Exec <ShuffleExchangeExec> will run on GPU
+                    *Partitioning <HashPartitioning> will run on GPU
+                    *Exec <ProjectExec> will run on GPU
+                      ! <RDDScanExec> cannot run on GPU because GPU does not currently support the operator class org.apache.spark.sql.execution.RDDScanExec
+                        @Expression <AttributeReference> row#72 could run on GPU
+                        @Expression <AttributeReference> col#73 could run on GPU
+                        @Expression <AttributeReference> val#74 could run on GPU
+
+26/04/13 10:54:37 INFO GpuOverrides: Plan conversion to the GPU took 14.30 ms
+26/04/13 10:54:37 DEBUG OptimizeSkewedBHJJoinRule: Skewed BHJ join not enabled
+26/04/13 10:54:37 DEBUG GpuHashPartitioningBase: Use murmur3 for GPU hash partitioning.
+26/04/13 10:54:37 DEBUG GpuHashPartitioningBase: Use murmur3 for GPU hash partitioning.
+26/04/13 10:54:37 DEBUG GpuHashPartitioningBase: Use murmur3 for GPU hash partitioning.
+26/04/13 10:54:37 WARN GpuOverrides: 
+*Exec <HashAggregateExec> will run on GPU
+  *Expression <AggregateExpression> count(1) will run on GPU
+    *Expression <Count> count(1) will run on GPU
+  *Expression <Alias> count(1)#107L AS count#108L will run on GPU
+  *Exec <ShuffleExchangeExec> will run on GPU
+    *Partitioning <SinglePartition$> will run on GPU
+    *Exec <HashAggregateExec> will run on GPU
+      *Expression <AggregateExpression> partial_count(1) will run on GPU
+        *Expression <Count> count(1) will run on GPU
+      *Exec <HashAggregateExec> will run on GPU
+        *Exec <ShuffleExchangeExec> will run on GPU
+          *Partitioning <HashPartitioning> will run on GPU
+          *Exec <HashAggregateExec> will run on GPU
+            *Exec <ProjectExec> will run on GPU
+              *Expression <Alias> row#66 AS i#90 will run on GPU
+              *Expression <Alias> col#73 AS j#91 will run on GPU
+              *Exec <SortMergeJoinExec> will run on GPU
+                #Exec <SortExec> could run on GPU but is going to be removed because replacing sortMergeJoin with shuffleHashJoin
+                  #Expression <SortOrder> col#67 ASC NULLS FIRST could run on GPU but is going to be removed because parent plan is removed
+                  *Exec <ShuffleExchangeExec> will run on GPU
+                    *Partitioning <HashPartitioning> will run on GPU
+                    *Exec <ProjectExec> will run on GPU
+                      ! <RDDScanExec> cannot run on GPU because GPU does not currently support the operator class org.apache.spark.sql.execution.RDDScanExec
+                        @Expression <AttributeReference> row#66 could run on GPU
+                        @Expression <AttributeReference> col#67 could run on GPU
+                        @Expression <AttributeReference> val#68 could run on GPU
+                #Exec <SortExec> could run on GPU but is going to be removed because replacing sortMergeJoin with shuffleHashJoin
+                  #Expression <SortOrder> row#72 ASC NULLS FIRST could run on GPU but is going to be removed because parent plan is removed
+                  *Exec <ShuffleExchangeExec> will run on GPU
+                    *Partitioning <HashPartitioning> will run on GPU
+                    *Exec <ProjectExec> will run on GPU
+                      ! <RDDScanExec> cannot run on GPU because GPU does not currently support the operator class org.apache.spark.sql.execution.RDDScanExec
+                        @Expression <AttributeReference> row#72 could run on GPU
+                        @Expression <AttributeReference> col#73 could run on GPU
+                        @Expression <AttributeReference> val#74 could run on GPU
+
+26/04/13 10:54:37 INFO GpuOverrides: Plan conversion to the GPU took 3.99 ms
+26/04/13 10:54:37 DEBUG OptimizeSkewedBHJJoinRule: Skewed BHJ join not enabled
+26/04/13 10:54:37 INFO GpuOverrides: Plan conversion to the GPU took 0.19 ms
+26/04/13 10:54:37 DEBUG GpuHashPartitioningBase: Use murmur3 for GPU hash partitioning.
+26/04/13 10:54:37 DEBUG GpuHashPartitioningBase: Use murmur3 for GPU hash partitioning.
+26/04/13 10:54:37 DEBUG GpuHashPartitioningBase: Use murmur3 for GPU hash partitioning.
+26/04/13 10:54:37 WARN GpuOverrides: 
+*Exec <HashAggregateExec> will run on GPU
+  *Expression <AggregateExpression> count(1) will run on GPU
+    *Expression <Count> count(1) will run on GPU
+  *Expression <Alias> count(1)#107L AS count#108L will run on GPU
+  *Exec <ShuffleExchangeExec> will run on GPU
+    *Partitioning <SinglePartition$> will run on GPU
+    *Exec <HashAggregateExec> will run on GPU
+      *Expression <AggregateExpression> partial_count(1) will run on GPU
+        *Expression <Count> count(1) will run on GPU
+      *Exec <HashAggregateExec> will run on GPU
+        *Exec <ShuffleExchangeExec> will run on GPU
+          *Partitioning <HashPartitioning> will run on GPU
+          *Exec <HashAggregateExec> will run on GPU
+            *Exec <ProjectExec> will run on GPU
+              *Expression <Alias> row#66 AS i#90 will run on GPU
+              *Expression <Alias> col#73 AS j#91 will run on GPU
+              *Exec <SortMergeJoinExec> will run on GPU
+                #Exec <SortExec> could run on GPU but is going to be removed because replacing sortMergeJoin with shuffleHashJoin
+                  #Expression <SortOrder> col#67 ASC NULLS FIRST could run on GPU but is going to be removed because parent plan is removed
+                  *Exec <ShuffleExchangeExec> will run on GPU
+                    *Partitioning <HashPartitioning> will run on GPU
+                    *Exec <ProjectExec> will run on GPU
+                      ! <RDDScanExec> cannot run on GPU because GPU does not currently support the operator class org.apache.spark.sql.execution.RDDScanExec
+                        @Expression <AttributeReference> row#66 could run on GPU
+                        @Expression <AttributeReference> col#67 could run on GPU
+                        @Expression <AttributeReference> val#68 could run on GPU
+                #Exec <SortExec> could run on GPU but is going to be removed because replacing sortMergeJoin with shuffleHashJoin
+                  #Expression <SortOrder> row#72 ASC NULLS FIRST could run on GPU but is going to be removed because parent plan is removed
+                  *Exec <ShuffleExchangeExec> will run on GPU
+                    *Partitioning <HashPartitioning> will run on GPU
+                    *Exec <ProjectExec> will run on GPU
+                      ! <RDDScanExec> cannot run on GPU because GPU does not currently support the operator class org.apache.spark.sql.execution.RDDScanExec
+                        @Expression <AttributeReference> row#72 could run on GPU
+                        @Expression <AttributeReference> col#73 could run on GPU
+                        @Expression <AttributeReference> val#74 could run on GPU
+
+26/04/13 10:54:37 INFO GpuOverrides: Plan conversion to the GPU took 3.59 ms
+26/04/13 10:54:37 DEBUG OptimizeSkewedBHJJoinRule: Skewed BHJ join not enabled
+26/04/13 10:54:37 INFO GpuOverrides: GPU plan transition optimization took 0.10 ms
+26/04/13 10:54:37 DEBUG GpuHashPartitioningBase: Use murmur3 for GPU hash partitioning.
+26/04/13 10:54:37 WARN GpuOverrides: 
+*Exec <ShuffleExchangeExec> will run on GPU
+  *Partitioning <HashPartitioning> will run on GPU
+  *Exec <ProjectExec> will run on GPU
+    ! <RDDScanExec> cannot run on GPU because GPU does not currently support the operator class org.apache.spark.sql.execution.RDDScanExec
+      @Expression <AttributeReference> row#66 could run on GPU
+      @Expression <AttributeReference> col#67 could run on GPU
+      @Expression <AttributeReference> val#68 could run on GPU
+
+26/04/13 10:54:37 INFO GpuOverrides: Plan conversion to the GPU took 0.86 ms
+26/04/13 10:54:37 INFO GpuOverrides: GPU plan transition optimization took 0.86 ms
+26/04/13 10:54:37 DEBUG GpuHashPartitioningBase: Use murmur3 for GPU hash partitioning.
+26/04/13 10:54:37 WARN GpuOverrides: 
+*Exec <ShuffleExchangeExec> will run on GPU
+  *Partitioning <HashPartitioning> will run on GPU
+  *Exec <ProjectExec> will run on GPU
+    ! <RDDScanExec> cannot run on GPU because GPU does not currently support the operator class org.apache.spark.sql.execution.RDDScanExec
+      @Expression <AttributeReference> row#72 could run on GPU
+      @Expression <AttributeReference> col#73 could run on GPU
+      @Expression <AttributeReference> val#74 could run on GPU
+
+26/04/13 10:54:37 INFO GpuOverrides: Plan conversion to the GPU took 0.68 ms
+26/04/13 10:54:37 INFO GpuOverrides: GPU plan transition optimization took 0.58 ms
+26/04/13 10:54:37 DEBUG SparkResourceAdaptor: startDedicatedTaskThread: threadId: 140621727659584, task id: 13
+26/04/13 10:54:37 DEBUG SparkResourceAdaptor: startDedicatedTaskThread: threadId: 140621757011520, task id: 12
+26/04/13 10:54:37 DEBUG SparkResourceAdaptor: startDedicatedTaskThread: threadId: 140628699641408, task id: 10
+26/04/13 10:54:37 DEBUG SparkResourceAdaptor: startDedicatedTaskThread: threadId: 140621754914368, task id: 11
+26/04/13 10:54:37 DEBUG GeneratedInternalRowToCudfRowIterator: code for row#66,col#67,val#68:
+/* 001 */ public java.lang.Object generate(Object[] references) {
+/* 002 */   return new SpecificInternalRowToColumnarBatchIterator(references);
+/* 003 */ }
+/* 004 */
+/* 005 */ final class SpecificInternalRowToColumnarBatchIterator extends com.nvidia.spark.rapids.InternalRowToColumnarBatchIterator {
+/* 006 */   private final org.apache.spark.sql.catalyst.expressions.UnsafeProjection unsafeProj;
+/* 007 */
+/* 008 */   private org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[] mutableStateArray_0 = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[1];
+/* 009 */
+/* 010 */   public SpecificInternalRowToColumnarBatchIterator(Object[] references) {
+/* 011 */     super(
+/* 012 */       ((scala.collection.Iterator) references[0] /* iter */),
+/* 013 */       ((org.apache.spark.sql.catalyst.expressions.Attribute[]) references[1] /* schema */),
+/* 014 */       ((com.nvidia.spark.rapids.CoalesceSizeGoal) references[2] /* goal */),
+/* 015 */       ((com.nvidia.spark.rapids.GpuMetric) references[3] /* streamTime */),
+/* 016 */       ((com.nvidia.spark.rapids.GpuMetric) references[4] /* opTime */),
+/* 017 */       ((com.nvidia.spark.rapids.GpuMetric) references[5] /* numInputRows */),
+/* 018 */       ((com.nvidia.spark.rapids.GpuMetric) references[6] /* numOutputRows */),
+/* 019 */       ((com.nvidia.spark.rapids.GpuMetric) references[7] /* numOutputBatches */));
+/* 020 */
+/* 021 */     mutableStateArray_0[0] = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(3, 0);
+/* 022 */
+/* 023 */   }
+/* 024 */
+/* 025 */   // Avoid virtual function calls by copying the data in a batch at a time instead
+/* 026 */   // of a row at a time.
+/* 027 */   @Override
+/* 028 */   public int[] fillBatch(ai.rapids.cudf.HostMemoryBuffer dataBuffer,
+/* 029 */     ai.rapids.cudf.HostMemoryBuffer offsetsBuffer,
+/* 030 */     long dataLength, int numRows) {
+/* 031 */     final long dataBaseAddress = dataBuffer.getAddress();
+/* 032 */     final long endDataAddress = dataBaseAddress + dataLength;
+/* 033 */
+/* 034 */     int dataOffset = 0;
+/* 035 */     int currentRow = 0;
+/* 036 */     int offsetIndex = 0;
+/* 037 */
+/* 038 */     // If we are here we have at least one row to process, so don't bother checking yet
+/* 039 */     boolean done = false;
+/* 040 */     while (!done) {
+/* 041 */       UnsafeRow row;
+/* 042 */       if (pending != null) {
+/* 043 */         row = pending;
+/* 044 */         pending = null;
+/* 045 */       } else {
+/* 046 */         InternalRow internalRow_0 = (InternalRow) input.next();
+/* 047 */         if (internalRow_0 instanceof UnsafeRow) {
+/* 048 */           row = (UnsafeRow) internalRow_0;
+/* 049 */         } else {
+/* 050 */           mutableStateArray_0[0].reset();
+/* 051 */
+/* 052 */
+/* 053 */
+/* 054 */
+/* 055 */           int value_0 = internalRow_0.getInt(0);
+/* 056 */           mutableStateArray_0[0].write(0, value_0);
+/* 057 */
+/* 058 */           int value_1 = internalRow_0.getInt(1);
+/* 059 */           mutableStateArray_0[0].write(1, value_1);
+/* 060 */
+/* 061 */           double value_2 = internalRow_0.getDouble(2);
+/* 062 */           mutableStateArray_0[0].write(2, value_2);
+/* 063 */           row = (mutableStateArray_0[0].getRow());
+/* 064 */         }
+/* 065 */       }
+/* 066 */       int numBytesUsedByRow = copyInto(row, dataBaseAddress + dataOffset, endDataAddress);
+/* 067 */       offsetsBuffer.setInt(offsetIndex, dataOffset);
+/* 068 */       offsetIndex += 4;
+/* 069 */       if (numBytesUsedByRow < 0) {
+/* 070 */         pending = row;
+/* 071 */         done = true;
+/* 072 */       } else {
+/* 073 */         currentRow += 1;
+/* 074 */         dataOffset += numBytesUsedByRow;
+/* 075 */         done = !(currentRow < numRows &&
+/* 076 */           dataOffset < dataLength &&
+/* 077 */           input.hasNext());
+/* 078 */       }
+/* 079 */     }
+/* 080 */     return new int[] {dataOffset, currentRow};
+/* 081 */   }
+/* 082 */
+/* 083 */   private int copyInto(UnsafeRow input, long startAddress, long endAddress) {
+/* 084 */     Object rowBaseObj_0 = input.getBaseObject();
+/* 085 */     long rowBaseOffset_0 = input.getBaseOffset();
+/* 086 */     Platform.putInt(null, startAddress + 0, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 8));
+/* 087 */     Platform.putInt(null, startAddress + 4, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 16));
+/* 088 */     Platform.putLong(null, startAddress + 8, Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 24));
+/* 089 */
+/* 090 */     // validity
+/* 091 */     long unsafeRowTmp_0;
+/* 092 */     unsafeRowTmp_0 = Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 0);
+/* 093 */     Platform.putByte(null, startAddress + 16, (byte)(0xFF & ~(unsafeRowTmp_0 >> 0)));
+/* 094 */
+/* 095 */     return 24;
+/* 096 */   }
+/* 097 */
+/* 098 */
+/* 099 */ }
+
+26/04/13 10:54:37 DEBUG GeneratedInternalRowToCudfRowIterator: code for row#66,col#67,val#68:
+/* 001 */ public java.lang.Object generate(Object[] references) {
+/* 002 */   return new SpecificInternalRowToColumnarBatchIterator(references);
+/* 003 */ }
+/* 004 */
+/* 005 */ final class SpecificInternalRowToColumnarBatchIterator extends com.nvidia.spark.rapids.InternalRowToColumnarBatchIterator {
+/* 006 */   private final org.apache.spark.sql.catalyst.expressions.UnsafeProjection unsafeProj;
+/* 007 */
+/* 008 */   private org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[] mutableStateArray_0 = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[1];
+/* 009 */
+/* 010 */   public SpecificInternalRowToColumnarBatchIterator(Object[] references) {
+/* 011 */     super(
+/* 012 */       ((scala.collection.Iterator) references[0] /* iter */),
+/* 013 */       ((org.apache.spark.sql.catalyst.expressions.Attribute[]) references[1] /* schema */),
+/* 014 */       ((com.nvidia.spark.rapids.CoalesceSizeGoal) references[2] /* goal */),
+/* 015 */       ((com.nvidia.spark.rapids.GpuMetric) references[3] /* streamTime */),
+/* 016 */       ((com.nvidia.spark.rapids.GpuMetric) references[4] /* opTime */),
+/* 017 */       ((com.nvidia.spark.rapids.GpuMetric) references[5] /* numInputRows */),
+/* 018 */       ((com.nvidia.spark.rapids.GpuMetric) references[6] /* numOutputRows */),
+/* 019 */       ((com.nvidia.spark.rapids.GpuMetric) references[7] /* numOutputBatches */));
+/* 020 */
+/* 021 */     mutableStateArray_0[0] = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(3, 0);
+/* 022 */
+/* 023 */   }
+/* 024 */
+/* 025 */   // Avoid virtual function calls by copying the data in a batch at a time instead
+/* 026 */   // of a row at a time.
+/* 027 */   @Override
+/* 028 */   public int[] fillBatch(ai.rapids.cudf.HostMemoryBuffer dataBuffer,
+/* 029 */     ai.rapids.cudf.HostMemoryBuffer offsetsBuffer,
+/* 030 */     long dataLength, int numRows) {
+/* 031 */     final long dataBaseAddress = dataBuffer.getAddress();
+/* 032 */     final long endDataAddress = dataBaseAddress + dataLength;
+/* 033 */
+/* 034 */     int dataOffset = 0;
+/* 035 */     int currentRow = 0;
+/* 036 */     int offsetIndex = 0;
+/* 037 */
+/* 038 */     // If we are here we have at least one row to process, so don't bother checking yet
+/* 039 */     boolean done = false;
+/* 040 */     while (!done) {
+/* 041 */       UnsafeRow row;
+/* 042 */       if (pending != null) {
+/* 043 */         row = pending;
+/* 044 */         pending = null;
+/* 045 */       } else {
+/* 046 */         InternalRow internalRow_0 = (InternalRow) input.next();
+/* 047 */         if (internalRow_0 instanceof UnsafeRow) {
+/* 048 */           row = (UnsafeRow) internalRow_0;
+/* 049 */         } else {
+/* 050 */           mutableStateArray_0[0].reset();
+/* 051 */
+/* 052 */
+/* 053 */
+/* 054 */
+/* 055 */           int value_0 = internalRow_0.getInt(0);
+/* 056 */           mutableStateArray_0[0].write(0, value_0);
+/* 057 */
+/* 058 */           int value_1 = internalRow_0.getInt(1);
+/* 059 */           mutableStateArray_0[0].write(1, value_1);
+/* 060 */
+/* 061 */           double value_2 = internalRow_0.getDouble(2);
+/* 062 */           mutableStateArray_0[0].write(2, value_2);
+/* 063 */           row = (mutableStateArray_0[0].getRow());
+/* 064 */         }
+/* 065 */       }
+/* 066 */       int numBytesUsedByRow = copyInto(row, dataBaseAddress + dataOffset, endDataAddress);
+/* 067 */       offsetsBuffer.setInt(offsetIndex, dataOffset);
+/* 068 */       offsetIndex += 4;
+/* 069 */       if (numBytesUsedByRow < 0) {
+/* 070 */         pending = row;
+/* 071 */         done = true;
+/* 072 */       } else {
+/* 073 */         currentRow += 1;
+/* 074 */         dataOffset += numBytesUsedByRow;
+/* 075 */         done = !(currentRow < numRows &&
+/* 076 */           dataOffset < dataLength &&
+/* 077 */           input.hasNext());
+/* 078 */       }
+/* 079 */     }
+/* 080 */     return new int[] {dataOffset, currentRow};
+/* 081 */   }
+/* 082 */
+/* 083 */   private int copyInto(UnsafeRow input, long startAddress, long endAddress) {
+/* 084 */     Object rowBaseObj_0 = input.getBaseObject();
+/* 085 */     long rowBaseOffset_0 = input.getBaseOffset();
+/* 086 */     Platform.putInt(null, startAddress + 0, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 8));
+/* 087 */     Platform.putInt(null, startAddress + 4, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 16));
+/* 088 */     Platform.putLong(null, startAddress + 8, Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 24));
+/* 089 */
+/* 090 */     // validity
+/* 091 */     long unsafeRowTmp_0;
+/* 092 */     unsafeRowTmp_0 = Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 0);
+/* 093 */     Platform.putByte(null, startAddress + 16, (byte)(0xFF & ~(unsafeRowTmp_0 >> 0)));
+/* 094 */
+/* 095 */     return 24;
+/* 096 */   }
+/* 097 */
+/* 098 */
+/* 099 */ }
+
+26/04/13 10:54:37 DEBUG GeneratedInternalRowToCudfRowIterator: code for row#66,col#67,val#68:
+/* 001 */ public java.lang.Object generate(Object[] references) {
+/* 002 */   return new SpecificInternalRowToColumnarBatchIterator(references);
+/* 003 */ }
+/* 004 */
+/* 005 */ final class SpecificInternalRowToColumnarBatchIterator extends com.nvidia.spark.rapids.InternalRowToColumnarBatchIterator {
+/* 006 */   private final org.apache.spark.sql.catalyst.expressions.UnsafeProjection unsafeProj;
+/* 007 */
+/* 008 */   private org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[] mutableStateArray_0 = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[1];
+/* 009 */
+/* 010 */   public SpecificInternalRowToColumnarBatchIterator(Object[] references) {
+/* 011 */     super(
+/* 012 */       ((scala.collection.Iterator) references[0] /* iter */),
+/* 013 */       ((org.apache.spark.sql.catalyst.expressions.Attribute[]) references[1] /* schema */),
+/* 014 */       ((com.nvidia.spark.rapids.CoalesceSizeGoal) references[2] /* goal */),
+/* 015 */       ((com.nvidia.spark.rapids.GpuMetric) references[3] /* streamTime */),
+/* 016 */       ((com.nvidia.spark.rapids.GpuMetric) references[4] /* opTime */),
+/* 017 */       ((com.nvidia.spark.rapids.GpuMetric) references[5] /* numInputRows */),
+/* 018 */       ((com.nvidia.spark.rapids.GpuMetric) references[6] /* numOutputRows */),
+/* 019 */       ((com.nvidia.spark.rapids.GpuMetric) references[7] /* numOutputBatches */));
+/* 020 */
+/* 021 */     mutableStateArray_0[0] = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(3, 0);
+/* 022 */
+/* 023 */   }
+/* 024 */
+/* 025 */   // Avoid virtual function calls by copying the data in a batch at a time instead
+/* 026 */   // of a row at a time.
+/* 027 */   @Override
+/* 028 */   public int[] fillBatch(ai.rapids.cudf.HostMemoryBuffer dataBuffer,
+/* 029 */     ai.rapids.cudf.HostMemoryBuffer offsetsBuffer,
+/* 030 */     long dataLength, int numRows) {
+/* 031 */     final long dataBaseAddress = dataBuffer.getAddress();
+/* 032 */     final long endDataAddress = dataBaseAddress + dataLength;
+/* 033 */
+/* 034 */     int dataOffset = 0;
+/* 035 */     int currentRow = 0;
+/* 036 */     int offsetIndex = 0;
+/* 037 */
+/* 038 */     // If we are here we have at least one row to process, so don't bother checking yet
+/* 039 */     boolean done = false;
+/* 040 */     while (!done) {
+/* 041 */       UnsafeRow row;
+/* 042 */       if (pending != null) {
+/* 043 */         row = pending;
+/* 044 */         pending = null;
+/* 045 */       } else {
+/* 046 */         InternalRow internalRow_0 = (InternalRow) input.next();
+/* 047 */         if (internalRow_0 instanceof UnsafeRow) {
+/* 048 */           row = (UnsafeRow) internalRow_0;
+/* 049 */         } else {
+/* 050 */           mutableStateArray_0[0].reset();
+/* 051 */
+/* 052 */
+/* 053 */
+/* 054 */
+/* 055 */           int value_0 = internalRow_0.getInt(0);
+/* 056 */           mutableStateArray_0[0].write(0, value_0);
+/* 057 */
+/* 058 */           int value_1 = internalRow_0.getInt(1);
+/* 059 */           mutableStateArray_0[0].write(1, value_1);
+/* 060 */
+/* 061 */           double value_2 = internalRow_0.getDouble(2);
+/* 062 */           mutableStateArray_0[0].write(2, value_2);
+/* 063 */           row = (mutableStateArray_0[0].getRow());
+/* 064 */         }
+/* 065 */       }
+/* 066 */       int numBytesUsedByRow = copyInto(row, dataBaseAddress + dataOffset, endDataAddress);
+/* 067 */       offsetsBuffer.setInt(offsetIndex, dataOffset);
+/* 068 */       offsetIndex += 4;
+/* 069 */       if (numBytesUsedByRow < 0) {
+/* 070 */         pending = row;
+/* 071 */         done = true;
+/* 072 */       } else {
+/* 073 */         currentRow += 1;
+/* 074 */         dataOffset += numBytesUsedByRow;
+/* 075 */         done = !(currentRow < numRows &&
+/* 076 */           dataOffset < dataLength &&
+/* 077 */           input.hasNext());
+/* 078 */       }
+/* 079 */     }
+/* 080 */     return new int[] {dataOffset, currentRow};
+/* 081 */   }
+/* 082 */
+/* 083 */   private int copyInto(UnsafeRow input, long startAddress, long endAddress) {
+/* 084 */     Object rowBaseObj_0 = input.getBaseObject();
+/* 085 */     long rowBaseOffset_0 = input.getBaseOffset();
+/* 086 */     Platform.putInt(null, startAddress + 0, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 8));
+/* 087 */     Platform.putInt(null, startAddress + 4, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 16));
+/* 088 */     Platform.putLong(null, startAddress + 8, Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 24));
+/* 089 */
+/* 090 */     // validity
+/* 091 */     long unsafeRowTmp_0;
+/* 092 */     unsafeRowTmp_0 = Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 0);
+/* 093 */     Platform.putByte(null, startAddress + 16, (byte)(0xFF & ~(unsafeRowTmp_0 >> 0)));
+/* 094 */
+/* 095 */     return 24;
+/* 096 */   }
+/* 097 */
+/* 098 */
+/* 099 */ }
+
+26/04/13 10:54:37 DEBUG GeneratedInternalRowToCudfRowIterator: code for row#66,col#67,val#68:
+/* 001 */ public java.lang.Object generate(Object[] references) {
+/* 002 */   return new SpecificInternalRowToColumnarBatchIterator(references);
+/* 003 */ }
+/* 004 */
+/* 005 */ final class SpecificInternalRowToColumnarBatchIterator extends com.nvidia.spark.rapids.InternalRowToColumnarBatchIterator {
+/* 006 */   private final org.apache.spark.sql.catalyst.expressions.UnsafeProjection unsafeProj;
+/* 007 */
+/* 008 */   private org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[] mutableStateArray_0 = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[1];
+/* 009 */
+/* 010 */   public SpecificInternalRowToColumnarBatchIterator(Object[] references) {
+/* 011 */     super(
+/* 012 */       ((scala.collection.Iterator) references[0] /* iter */),
+/* 013 */       ((org.apache.spark.sql.catalyst.expressions.Attribute[]) references[1] /* schema */),
+/* 014 */       ((com.nvidia.spark.rapids.CoalesceSizeGoal) references[2] /* goal */),
+/* 015 */       ((com.nvidia.spark.rapids.GpuMetric) references[3] /* streamTime */),
+/* 016 */       ((com.nvidia.spark.rapids.GpuMetric) references[4] /* opTime */),
+/* 017 */       ((com.nvidia.spark.rapids.GpuMetric) references[5] /* numInputRows */),
+/* 018 */       ((com.nvidia.spark.rapids.GpuMetric) references[6] /* numOutputRows */),
+/* 019 */       ((com.nvidia.spark.rapids.GpuMetric) references[7] /* numOutputBatches */));
+/* 020 */
+/* 021 */     mutableStateArray_0[0] = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(3, 0);
+/* 022 */
+/* 023 */   }
+/* 024 */
+/* 025 */   // Avoid virtual function calls by copying the data in a batch at a time instead
+/* 026 */   // of a row at a time.
+/* 027 */   @Override
+/* 028 */   public int[] fillBatch(ai.rapids.cudf.HostMemoryBuffer dataBuffer,
+/* 029 */     ai.rapids.cudf.HostMemoryBuffer offsetsBuffer,
+/* 030 */     long dataLength, int numRows) {
+/* 031 */     final long dataBaseAddress = dataBuffer.getAddress();
+/* 032 */     final long endDataAddress = dataBaseAddress + dataLength;
+/* 033 */
+/* 034 */     int dataOffset = 0;
+/* 035 */     int currentRow = 0;
+/* 036 */     int offsetIndex = 0;
+/* 037 */
+/* 038 */     // If we are here we have at least one row to process, so don't bother checking yet
+/* 039 */     boolean done = false;
+/* 040 */     while (!done) {
+/* 041 */       UnsafeRow row;
+/* 042 */       if (pending != null) {
+/* 043 */         row = pending;
+/* 044 */         pending = null;
+/* 045 */       } else {
+/* 046 */         InternalRow internalRow_0 = (InternalRow) input.next();
+/* 047 */         if (internalRow_0 instanceof UnsafeRow) {
+/* 048 */           row = (UnsafeRow) internalRow_0;
+/* 049 */         } else {
+/* 050 */           mutableStateArray_0[0].reset();
+/* 051 */
+/* 052 */
+/* 053 */
+/* 054 */
+/* 055 */           int value_0 = internalRow_0.getInt(0);
+/* 056 */           mutableStateArray_0[0].write(0, value_0);
+/* 057 */
+/* 058 */           int value_1 = internalRow_0.getInt(1);
+/* 059 */           mutableStateArray_0[0].write(1, value_1);
+/* 060 */
+/* 061 */           double value_2 = internalRow_0.getDouble(2);
+/* 062 */           mutableStateArray_0[0].write(2, value_2);
+/* 063 */           row = (mutableStateArray_0[0].getRow());
+/* 064 */         }
+/* 065 */       }
+/* 066 */       int numBytesUsedByRow = copyInto(row, dataBaseAddress + dataOffset, endDataAddress);
+/* 067 */       offsetsBuffer.setInt(offsetIndex, dataOffset);
+/* 068 */       offsetIndex += 4;
+/* 069 */       if (numBytesUsedByRow < 0) {
+/* 070 */         pending = row;
+/* 071 */         done = true;
+/* 072 */       } else {
+/* 073 */         currentRow += 1;
+/* 074 */         dataOffset += numBytesUsedByRow;
+/* 075 */         done = !(currentRow < numRows &&
+/* 076 */           dataOffset < dataLength &&
+/* 077 */           input.hasNext());
+/* 078 */       }
+/* 079 */     }
+/* 080 */     return new int[] {dataOffset, currentRow};
+/* 081 */   }
+/* 082 */
+/* 083 */   private int copyInto(UnsafeRow input, long startAddress, long endAddress) {
+/* 084 */     Object rowBaseObj_0 = input.getBaseObject();
+/* 085 */     long rowBaseOffset_0 = input.getBaseOffset();
+/* 086 */     Platform.putInt(null, startAddress + 0, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 8));
+/* 087 */     Platform.putInt(null, startAddress + 4, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 16));
+/* 088 */     Platform.putLong(null, startAddress + 8, Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 24));
+/* 089 */
+/* 090 */     // validity
+/* 091 */     long unsafeRowTmp_0;
+/* 092 */     unsafeRowTmp_0 = Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 0);
+/* 093 */     Platform.putByte(null, startAddress + 16, (byte)(0xFF & ~(unsafeRowTmp_0 >> 0)));
+/* 094 */
+/* 095 */     return 24;
+/* 096 */   }
+/* 097 */
+/* 098 */
+/* 099 */ }
+
+26/04/13 10:54:37 DEBUG SparkResourceAdaptor: startDedicatedTaskThread: threadId: 140621754914368, task id: 14
+26/04/13 10:54:37 DEBUG SparkResourceAdaptor: startDedicatedTaskThread: threadId: 140628699641408, task id: 15
+26/04/13 10:54:37 DEBUG SparkResourceAdaptor: startDedicatedTaskThread: threadId: 140621757011520, task id: 16
+26/04/13 10:54:37 DEBUG SparkResourceAdaptor: startDedicatedTaskThread: threadId: 140621727659584, task id: 17
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG GeneratedInternalRowToCudfRowIterator: code for row#72,col#73,val#74:
+/* 001 */ public java.lang.Object generate(Object[] references) {
+/* 002 */   return new SpecificInternalRowToColumnarBatchIterator(references);
+/* 003 */ }
+/* 004 */
+/* 005 */ final class SpecificInternalRowToColumnarBatchIterator extends com.nvidia.spark.rapids.InternalRowToColumnarBatchIterator {
+/* 006 */   private final org.apache.spark.sql.catalyst.expressions.UnsafeProjection unsafeProj;
+/* 007 */
+/* 008 */   private org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[] mutableStateArray_0 = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[1];
+/* 009 */
+/* 010 */   public SpecificInternalRowToColumnarBatchIterator(Object[] references) {
+/* 011 */     super(
+/* 012 */       ((scala.collection.Iterator) references[0] /* iter */),
+/* 013 */       ((org.apache.spark.sql.catalyst.expressions.Attribute[]) references[1] /* schema */),
+/* 014 */       ((com.nvidia.spark.rapids.CoalesceSizeGoal) references[2] /* goal */),
+/* 015 */       ((com.nvidia.spark.rapids.GpuMetric) references[3] /* streamTime */),
+/* 016 */       ((com.nvidia.spark.rapids.GpuMetric) references[4] /* opTime */),
+/* 017 */       ((com.nvidia.spark.rapids.GpuMetric) references[5] /* numInputRows */),
+/* 018 */       ((com.nvidia.spark.rapids.GpuMetric) references[6] /* numOutputRows */),
+/* 019 */       ((com.nvidia.spark.rapids.GpuMetric) references[7] /* numOutputBatches */));
+/* 020 */
+/* 021 */     mutableStateArray_0[0] = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(3, 0);
+/* 022 */
+/* 023 */   }
+/* 024 */
+/* 025 */   // Avoid virtual function calls by copying the data in a batch at a time instead
+/* 026 */   // of a row at a time.
+/* 027 */   @Override
+/* 028 */   public int[] fillBatch(ai.rapids.cudf.HostMemoryBuffer dataBuffer,
+/* 029 */     ai.rapids.cudf.HostMemoryBuffer offsetsBuffer,
+/* 030 */     long dataLength, int numRows) {
+/* 031 */     final long dataBaseAddress = dataBuffer.getAddress();
+/* 032 */     final long endDataAddress = dataBaseAddress + dataLength;
+/* 033 */
+/* 034 */     int dataOffset = 0;
+/* 035 */     int currentRow = 0;
+/* 036 */     int offsetIndex = 0;
+/* 037 */
+/* 038 */     // If we are here we have at least one row to process, so don't bother checking yet
+/* 039 */     boolean done = false;
+/* 040 */     while (!done) {
+/* 041 */       UnsafeRow row;
+/* 042 */       if (pending != null) {
+/* 043 */         row = pending;
+/* 044 */         pending = null;
+/* 045 */       } else {
+/* 046 */         InternalRow internalRow_0 = (InternalRow) input.next();
+/* 047 */         if (internalRow_0 instanceof UnsafeRow) {
+/* 048 */           row = (UnsafeRow) internalRow_0;
+/* 049 */         } else {
+/* 050 */           mutableStateArray_0[0].reset();
+/* 051 */
+/* 052 */
+/* 053 */
+/* 054 */
+/* 055 */           int value_0 = internalRow_0.getInt(0);
+/* 056 */           mutableStateArray_0[0].write(0, value_0);
+/* 057 */
+/* 058 */           int value_1 = internalRow_0.getInt(1);
+/* 059 */           mutableStateArray_0[0].write(1, value_1);
+/* 060 */
+/* 061 */           double value_2 = internalRow_0.getDouble(2);
+/* 062 */           mutableStateArray_0[0].write(2, value_2);
+/* 063 */           row = (mutableStateArray_0[0].getRow());
+/* 064 */         }
+/* 065 */       }
+/* 066 */       int numBytesUsedByRow = copyInto(row, dataBaseAddress + dataOffset, endDataAddress);
+/* 067 */       offsetsBuffer.setInt(offsetIndex, dataOffset);
+/* 068 */       offsetIndex += 4;
+/* 069 */       if (numBytesUsedByRow < 0) {
+/* 070 */         pending = row;
+/* 071 */         done = true;
+/* 072 */       } else {
+/* 073 */         currentRow += 1;
+/* 074 */         dataOffset += numBytesUsedByRow;
+/* 075 */         done = !(currentRow < numRows &&
+/* 076 */           dataOffset < dataLength &&
+/* 077 */           input.hasNext());
+/* 078 */       }
+/* 079 */     }
+/* 080 */     return new int[] {dataOffset, currentRow};
+/* 081 */   }
+/* 082 */
+/* 083 */   private int copyInto(UnsafeRow input, long startAddress, long endAddress) {
+/* 084 */     Object rowBaseObj_0 = input.getBaseObject();
+/* 085 */     long rowBaseOffset_0 = input.getBaseOffset();
+/* 086 */     Platform.putInt(null, startAddress + 0, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 8));
+/* 087 */     Platform.putInt(null, startAddress + 4, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 16));
+/* 088 */     Platform.putLong(null, startAddress + 8, Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 24));
+/* 089 */
+/* 090 */     // validity
+/* 091 */     long unsafeRowTmp_0;
+/* 092 */     unsafeRowTmp_0 = Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 0);
+/* 093 */     Platform.putByte(null, startAddress + 16, (byte)(0xFF & ~(unsafeRowTmp_0 >> 0)));
+/* 094 */
+/* 095 */     return 24;
+/* 096 */   }
+/* 097 */
+/* 098 */
+/* 099 */ }
+
+26/04/13 10:54:37 DEBUG GeneratedInternalRowToCudfRowIterator: code for row#72,col#73,val#74:
+/* 001 */ public java.lang.Object generate(Object[] references) {
+/* 002 */   return new SpecificInternalRowToColumnarBatchIterator(references);
+/* 003 */ }
+/* 004 */
+/* 005 */ final class SpecificInternalRowToColumnarBatchIterator extends com.nvidia.spark.rapids.InternalRowToColumnarBatchIterator {
+/* 006 */   private final org.apache.spark.sql.catalyst.expressions.UnsafeProjection unsafeProj;
+/* 007 */
+/* 008 */   private org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[] mutableStateArray_0 = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[1];
+/* 009 */
+/* 010 */   public SpecificInternalRowToColumnarBatchIterator(Object[] references) {
+/* 011 */     super(
+/* 012 */       ((scala.collection.Iterator) references[0] /* iter */),
+/* 013 */       ((org.apache.spark.sql.catalyst.expressions.Attribute[]) references[1] /* schema */),
+/* 014 */       ((com.nvidia.spark.rapids.CoalesceSizeGoal) references[2] /* goal */),
+/* 015 */       ((com.nvidia.spark.rapids.GpuMetric) references[3] /* streamTime */),
+/* 016 */       ((com.nvidia.spark.rapids.GpuMetric) references[4] /* opTime */),
+/* 017 */       ((com.nvidia.spark.rapids.GpuMetric) references[5] /* numInputRows */),
+/* 018 */       ((com.nvidia.spark.rapids.GpuMetric) references[6] /* numOutputRows */),
+/* 019 */       ((com.nvidia.spark.rapids.GpuMetric) references[7] /* numOutputBatches */));
+/* 020 */
+/* 021 */     mutableStateArray_0[0] = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(3, 0);
+/* 022 */
+/* 023 */   }
+/* 024 */
+/* 025 */   // Avoid virtual function calls by copying the data in a batch at a time instead
+/* 026 */   // of a row at a time.
+/* 027 */   @Override
+/* 028 */   public int[] fillBatch(ai.rapids.cudf.HostMemoryBuffer dataBuffer,
+/* 029 */     ai.rapids.cudf.HostMemoryBuffer offsetsBuffer,
+/* 030 */     long dataLength, int numRows) {
+/* 031 */     final long dataBaseAddress = dataBuffer.getAddress();
+/* 032 */     final long endDataAddress = dataBaseAddress + dataLength;
+/* 033 */
+/* 034 */     int dataOffset = 0;
+/* 035 */     int currentRow = 0;
+/* 036 */     int offsetIndex = 0;
+/* 037 */
+/* 038 */     // If we are here we have at least one row to process, so don't bother checking yet
+/* 039 */     boolean done = false;
+/* 040 */     while (!done) {
+/* 041 */       UnsafeRow row;
+/* 042 */       if (pending != null) {
+/* 043 */         row = pending;
+/* 044 */         pending = null;
+/* 045 */       } else {
+/* 046 */         InternalRow internalRow_0 = (InternalRow) input.next();
+/* 047 */         if (internalRow_0 instanceof UnsafeRow) {
+/* 048 */           row = (UnsafeRow) internalRow_0;
+/* 049 */         } else {
+/* 050 */           mutableStateArray_0[0].reset();
+/* 051 */
+/* 052 */
+/* 053 */
+/* 054 */
+/* 055 */           int value_0 = internalRow_0.getInt(0);
+/* 056 */           mutableStateArray_0[0].write(0, value_0);
+/* 057 */
+/* 058 */           int value_1 = internalRow_0.getInt(1);
+/* 059 */           mutableStateArray_0[0].write(1, value_1);
+/* 060 */
+/* 061 */           double value_2 = internalRow_0.getDouble(2);
+/* 062 */           mutableStateArray_0[0].write(2, value_2);
+/* 063 */           row = (mutableStateArray_0[0].getRow());
+/* 064 */         }
+/* 065 */       }
+/* 066 */       int numBytesUsedByRow = copyInto(row, dataBaseAddress + dataOffset, endDataAddress);
+/* 067 */       offsetsBuffer.setInt(offsetIndex, dataOffset);
+/* 068 */       offsetIndex += 4;
+/* 069 */       if (numBytesUsedByRow < 0) {
+/* 070 */         pending = row;
+/* 071 */         done = true;
+/* 072 */       } else {
+/* 073 */         currentRow += 1;
+/* 074 */         dataOffset += numBytesUsedByRow;
+/* 075 */         done = !(currentRow < numRows &&
+/* 076 */           dataOffset < dataLength &&
+/* 077 */           input.hasNext());
+/* 078 */       }
+/* 079 */     }
+/* 080 */     return new int[] {dataOffset, currentRow};
+/* 081 */   }
+/* 082 */
+/* 083 */   private int copyInto(UnsafeRow input, long startAddress, long endAddress) {
+/* 084 */     Object rowBaseObj_0 = input.getBaseObject();
+/* 085 */     long rowBaseOffset_0 = input.getBaseOffset();
+/* 086 */     Platform.putInt(null, startAddress + 0, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 8));
+/* 087 */     Platform.putInt(null, startAddress + 4, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 16));
+/* 088 */     Platform.putLong(null, startAddress + 8, Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 24));
+/* 089 */
+/* 090 */     // validity
+/* 091 */     long unsafeRowTmp_0;
+/* 092 */     unsafeRowTmp_0 = Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 0);
+/* 093 */     Platform.putByte(null, startAddress + 16, (byte)(0xFF & ~(unsafeRowTmp_0 >> 0)));
+/* 094 */
+/* 095 */     return 24;
+/* 096 */   }
+/* 097 */
+/* 098 */
+/* 099 */ }
+
+26/04/13 10:54:37 DEBUG GeneratedInternalRowToCudfRowIterator: code for row#72,col#73,val#74:
+/* 001 */ public java.lang.Object generate(Object[] references) {
+/* 002 */   return new SpecificInternalRowToColumnarBatchIterator(references);
+/* 003 */ }
+/* 004 */
+/* 005 */ final class SpecificInternalRowToColumnarBatchIterator extends com.nvidia.spark.rapids.InternalRowToColumnarBatchIterator {
+/* 006 */   private final org.apache.spark.sql.catalyst.expressions.UnsafeProjection unsafeProj;
+/* 007 */
+/* 008 */   private org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[] mutableStateArray_0 = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[1];
+/* 009 */
+/* 010 */   public SpecificInternalRowToColumnarBatchIterator(Object[] references) {
+/* 011 */     super(
+/* 012 */       ((scala.collection.Iterator) references[0] /* iter */),
+/* 013 */       ((org.apache.spark.sql.catalyst.expressions.Attribute[]) references[1] /* schema */),
+/* 014 */       ((com.nvidia.spark.rapids.CoalesceSizeGoal) references[2] /* goal */),
+/* 015 */       ((com.nvidia.spark.rapids.GpuMetric) references[3] /* streamTime */),
+/* 016 */       ((com.nvidia.spark.rapids.GpuMetric) references[4] /* opTime */),
+/* 017 */       ((com.nvidia.spark.rapids.GpuMetric) references[5] /* numInputRows */),
+/* 018 */       ((com.nvidia.spark.rapids.GpuMetric) references[6] /* numOutputRows */),
+/* 019 */       ((com.nvidia.spark.rapids.GpuMetric) references[7] /* numOutputBatches */));
+/* 020 */
+/* 021 */     mutableStateArray_0[0] = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(3, 0);
+/* 022 */
+/* 023 */   }
+/* 024 */
+/* 025 */   // Avoid virtual function calls by copying the data in a batch at a time instead
+/* 026 */   // of a row at a time.
+/* 027 */   @Override
+/* 028 */   public int[] fillBatch(ai.rapids.cudf.HostMemoryBuffer dataBuffer,
+/* 029 */     ai.rapids.cudf.HostMemoryBuffer offsetsBuffer,
+/* 030 */     long dataLength, int numRows) {
+/* 031 */     final long dataBaseAddress = dataBuffer.getAddress();
+/* 032 */     final long endDataAddress = dataBaseAddress + dataLength;
+/* 033 */
+/* 034 */     int dataOffset = 0;
+/* 035 */     int currentRow = 0;
+/* 036 */     int offsetIndex = 0;
+/* 037 */
+/* 038 */     // If we are here we have at least one row to process, so don't bother checking yet
+/* 039 */     boolean done = false;
+/* 040 */     while (!done) {
+/* 041 */       UnsafeRow row;
+/* 042 */       if (pending != null) {
+/* 043 */         row = pending;
+/* 044 */         pending = null;
+/* 045 */       } else {
+/* 046 */         InternalRow internalRow_0 = (InternalRow) input.next();
+/* 047 */         if (internalRow_0 instanceof UnsafeRow) {
+/* 048 */           row = (UnsafeRow) internalRow_0;
+/* 049 */         } else {
+/* 050 */           mutableStateArray_0[0].reset();
+/* 051 */
+/* 052 */
+/* 053 */
+/* 054 */
+/* 055 */           int value_0 = internalRow_0.getInt(0);
+/* 056 */           mutableStateArray_0[0].write(0, value_0);
+/* 057 */
+/* 058 */           int value_1 = internalRow_0.getInt(1);
+/* 059 */           mutableStateArray_0[0].write(1, value_1);
+/* 060 */
+/* 061 */           double value_2 = internalRow_0.getDouble(2);
+/* 062 */           mutableStateArray_0[0].write(2, value_2);
+/* 063 */           row = (mutableStateArray_0[0].getRow());
+/* 064 */         }
+/* 065 */       }
+/* 066 */       int numBytesUsedByRow = copyInto(row, dataBaseAddress + dataOffset, endDataAddress);
+/* 067 */       offsetsBuffer.setInt(offsetIndex, dataOffset);
+/* 068 */       offsetIndex += 4;
+/* 069 */       if (numBytesUsedByRow < 0) {
+/* 070 */         pending = row;
+/* 071 */         done = true;
+/* 072 */       } else {
+/* 073 */         currentRow += 1;
+/* 074 */         dataOffset += numBytesUsedByRow;
+/* 075 */         done = !(currentRow < numRows &&
+/* 076 */           dataOffset < dataLength &&
+/* 077 */           input.hasNext());
+/* 078 */       }
+/* 079 */     }
+/* 080 */     return new int[] {dataOffset, currentRow};
+/* 081 */   }
+/* 082 */
+/* 083 */   private int copyInto(UnsafeRow input, long startAddress, long endAddress) {
+/* 084 */     Object rowBaseObj_0 = input.getBaseObject();
+/* 085 */     long rowBaseOffset_0 = input.getBaseOffset();
+/* 086 */     Platform.putInt(null, startAddress + 0, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 8));
+/* 087 */     Platform.putInt(null, startAddress + 4, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 16));
+/* 088 */     Platform.putLong(null, startAddress + 8, Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 24));
+/* 089 */
+/* 090 */     // validity
+/* 091 */     long unsafeRowTmp_0;
+/* 092 */     unsafeRowTmp_0 = Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 0);
+/* 093 */     Platform.putByte(null, startAddress + 16, (byte)(0xFF & ~(unsafeRowTmp_0 >> 0)));
+/* 094 */
+/* 095 */     return 24;
+/* 096 */   }
+/* 097 */
+/* 098 */
+/* 099 */ }
+
+26/04/13 10:54:37 DEBUG GeneratedInternalRowToCudfRowIterator: code for row#72,col#73,val#74:
+/* 001 */ public java.lang.Object generate(Object[] references) {
+/* 002 */   return new SpecificInternalRowToColumnarBatchIterator(references);
+/* 003 */ }
+/* 004 */
+/* 005 */ final class SpecificInternalRowToColumnarBatchIterator extends com.nvidia.spark.rapids.InternalRowToColumnarBatchIterator {
+/* 006 */   private final org.apache.spark.sql.catalyst.expressions.UnsafeProjection unsafeProj;
+/* 007 */
+/* 008 */   private org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[] mutableStateArray_0 = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter[1];
+/* 009 */
+/* 010 */   public SpecificInternalRowToColumnarBatchIterator(Object[] references) {
+/* 011 */     super(
+/* 012 */       ((scala.collection.Iterator) references[0] /* iter */),
+/* 013 */       ((org.apache.spark.sql.catalyst.expressions.Attribute[]) references[1] /* schema */),
+/* 014 */       ((com.nvidia.spark.rapids.CoalesceSizeGoal) references[2] /* goal */),
+/* 015 */       ((com.nvidia.spark.rapids.GpuMetric) references[3] /* streamTime */),
+/* 016 */       ((com.nvidia.spark.rapids.GpuMetric) references[4] /* opTime */),
+/* 017 */       ((com.nvidia.spark.rapids.GpuMetric) references[5] /* numInputRows */),
+/* 018 */       ((com.nvidia.spark.rapids.GpuMetric) references[6] /* numOutputRows */),
+/* 019 */       ((com.nvidia.spark.rapids.GpuMetric) references[7] /* numOutputBatches */));
+/* 020 */
+/* 021 */     mutableStateArray_0[0] = new org.apache.spark.sql.catalyst.expressions.codegen.UnsafeRowWriter(3, 0);
+/* 022 */
+/* 023 */   }
+/* 024 */
+/* 025 */   // Avoid virtual function calls by copying the data in a batch at a time instead
+/* 026 */   // of a row at a time.
+/* 027 */   @Override
+/* 028 */   public int[] fillBatch(ai.rapids.cudf.HostMemoryBuffer dataBuffer,
+/* 029 */     ai.rapids.cudf.HostMemoryBuffer offsetsBuffer,
+/* 030 */     long dataLength, int numRows) {
+/* 031 */     final long dataBaseAddress = dataBuffer.getAddress();
+/* 032 */     final long endDataAddress = dataBaseAddress + dataLength;
+/* 033 */
+/* 034 */     int dataOffset = 0;
+/* 035 */     int currentRow = 0;
+/* 036 */     int offsetIndex = 0;
+/* 037 */
+/* 038 */     // If we are here we have at least one row to process, so don't bother checking yet
+/* 039 */     boolean done = false;
+/* 040 */     while (!done) {
+/* 041 */       UnsafeRow row;
+/* 042 */       if (pending != null) {
+/* 043 */         row = pending;
+/* 044 */         pending = null;
+/* 045 */       } else {
+/* 046 */         InternalRow internalRow_0 = (InternalRow) input.next();
+/* 047 */         if (internalRow_0 instanceof UnsafeRow) {
+/* 048 */           row = (UnsafeRow) internalRow_0;
+/* 049 */         } else {
+/* 050 */           mutableStateArray_0[0].reset();
+/* 051 */
+/* 052 */
+/* 053 */
+/* 054 */
+/* 055 */           int value_0 = internalRow_0.getInt(0);
+/* 056 */           mutableStateArray_0[0].write(0, value_0);
+/* 057 */
+/* 058 */           int value_1 = internalRow_0.getInt(1);
+/* 059 */           mutableStateArray_0[0].write(1, value_1);
+/* 060 */
+/* 061 */           double value_2 = internalRow_0.getDouble(2);
+/* 062 */           mutableStateArray_0[0].write(2, value_2);
+/* 063 */           row = (mutableStateArray_0[0].getRow());
+/* 064 */         }
+/* 065 */       }
+/* 066 */       int numBytesUsedByRow = copyInto(row, dataBaseAddress + dataOffset, endDataAddress);
+/* 067 */       offsetsBuffer.setInt(offsetIndex, dataOffset);
+/* 068 */       offsetIndex += 4;
+/* 069 */       if (numBytesUsedByRow < 0) {
+/* 070 */         pending = row;
+/* 071 */         done = true;
+/* 072 */       } else {
+/* 073 */         currentRow += 1;
+/* 074 */         dataOffset += numBytesUsedByRow;
+/* 075 */         done = !(currentRow < numRows &&
+/* 076 */           dataOffset < dataLength &&
+/* 077 */           input.hasNext());
+/* 078 */       }
+/* 079 */     }
+/* 080 */     return new int[] {dataOffset, currentRow};
+/* 081 */   }
+/* 082 */
+/* 083 */   private int copyInto(UnsafeRow input, long startAddress, long endAddress) {
+/* 084 */     Object rowBaseObj_0 = input.getBaseObject();
+/* 085 */     long rowBaseOffset_0 = input.getBaseOffset();
+/* 086 */     Platform.putInt(null, startAddress + 0, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 8));
+/* 087 */     Platform.putInt(null, startAddress + 4, Platform.getInt(rowBaseObj_0, rowBaseOffset_0 + 16));
+/* 088 */     Platform.putLong(null, startAddress + 8, Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 24));
+/* 089 */
+/* 090 */     // validity
+/* 091 */     long unsafeRowTmp_0;
+/* 092 */     unsafeRowTmp_0 = Platform.getLong(rowBaseObj_0, rowBaseOffset_0 + 0);
+/* 093 */     Platform.putByte(null, startAddress + 16, (byte)(0xFF & ~(unsafeRowTmp_0 >> 0)));
+/* 094 */
+/* 095 */     return 24;
+/* 096 */   }
+/* 097 */
+/* 098 */
+/* 099 */ }
+
+26/04/13 10:54:37 DEBUG GpuHashPartitioningBase: Use murmur3 for GPU hash partitioning.
+26/04/13 10:54:37 WARN GpuOverrides: 
+*Exec <HashAggregateExec> will run on GPU
+  *Expression <AggregateExpression> count(1) will run on GPU
+    *Expression <Count> count(1) will run on GPU
+  *Expression <Alias> count(1)#107L AS count#108L will run on GPU
+  *Exec <ShuffleExchangeExec> will run on GPU
+    *Partitioning <SinglePartition$> will run on GPU
+    *Exec <HashAggregateExec> will run on GPU
+      *Expression <AggregateExpression> partial_count(1) will run on GPU
+        *Expression <Count> count(1) will run on GPU
+      *Exec <HashAggregateExec> will run on GPU
+        *Exec <ShuffleExchangeExec> will run on GPU
+          *Partitioning <HashPartitioning> will run on GPU
+          *Exec <HashAggregateExec> will run on GPU
+            *Exec <ProjectExec> will run on GPU
+              *Expression <Alias> row#66 AS i#90 will run on GPU
+              *Expression <Alias> col#73 AS j#91 will run on GPU
+              *Exec <BroadcastHashJoinExec> will run on GPU
+                *Exec <BroadcastExchangeExec> will run on GPU
+
+26/04/13 10:54:37 INFO GpuOverrides: Plan conversion to the GPU took 8.62 ms
+26/04/13 10:54:37 DEBUG OptimizeSkewedBHJJoinRule: Skewed BHJ join not enabled
+26/04/13 10:54:37 WARN GpuOverrides: 
+*Exec <BroadcastExchangeExec> will run on GPU
+  *Exec <AQEShuffleReadExec> will run on GPU
+
+26/04/13 10:54:37 INFO GpuOverrides: Plan conversion to the GPU took 2.48 ms
+26/04/13 10:54:37 INFO GpuOverrides: GPU plan transition optimization took 1.36 ms
+26/04/13 10:54:37 DEBUG SparkResourceAdaptor: startDedicatedTaskThread: threadId: 140621754914368, task id: 18
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:37 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:37 DEBUG GpuHashPartitioningBase: Use murmur3 for GPU hash partitioning.
+26/04/13 10:54:37 WARN GpuOverrides: 
+*Exec <HashAggregateExec> will run on GPU
+  *Expression <AggregateExpression> count(1) will run on GPU
+    *Expression <Count> count(1) will run on GPU
+  *Expression <Alias> count(1)#107L AS count#108L will run on GPU
+  *Exec <ShuffleExchangeExec> will run on GPU
+    *Partitioning <SinglePartition$> will run on GPU
+    *Exec <HashAggregateExec> will run on GPU
+      *Expression <AggregateExpression> partial_count(1) will run on GPU
+        *Expression <Count> count(1) will run on GPU
+      *Exec <HashAggregateExec> will run on GPU
+        *Exec <ShuffleExchangeExec> will run on GPU
+          *Partitioning <HashPartitioning> will run on GPU
+          *Exec <HashAggregateExec> will run on GPU
+            *Exec <ProjectExec> will run on GPU
+              *Expression <Alias> row#66 AS i#90 will run on GPU
+              *Expression <Alias> col#73 AS j#91 will run on GPU
+              *Exec <BroadcastHashJoinExec> will run on GPU
+
+26/04/13 10:54:37 INFO GpuOverrides: Plan conversion to the GPU took 3.09 ms
+26/04/13 10:54:37 DEBUG OptimizeSkewedBHJJoinRule: Skewed BHJ join not enabled
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:38 DEBUG GpuHashPartitioningBase: Use murmur3 for GPU hash partitioning.
+26/04/13 10:54:38 WARN GpuOverrides: 
+*Exec <HashAggregateExec> will run on GPU
+  *Expression <AggregateExpression> count(1) will run on GPU
+    *Expression <Count> count(1) will run on GPU
+  *Expression <Alias> count(1)#107L AS count#108L will run on GPU
+  *Exec <ShuffleExchangeExec> will run on GPU
+    *Partitioning <SinglePartition$> will run on GPU
+    *Exec <HashAggregateExec> will run on GPU
+      *Expression <AggregateExpression> partial_count(1) will run on GPU
+        *Expression <Count> count(1) will run on GPU
+      *Exec <HashAggregateExec> will run on GPU
+        *Exec <ShuffleExchangeExec> will run on GPU
+          *Partitioning <HashPartitioning> will run on GPU
+          *Exec <HashAggregateExec> will run on GPU
+            *Exec <ProjectExec> will run on GPU
+              *Expression <Alias> row#66 AS i#90 will run on GPU
+              *Expression <Alias> col#73 AS j#91 will run on GPU
+              *Exec <BroadcastHashJoinExec> will run on GPU
+
+26/04/13 10:54:38 INFO GpuOverrides: Plan conversion to the GPU took 2.67 ms
+26/04/13 10:54:38 DEBUG OptimizeSkewedBHJJoinRule: Skewed BHJ join not enabled
+26/04/13 10:54:38 DEBUG GpuHashPartitioningBase: Use murmur3 for GPU hash partitioning.
+26/04/13 10:54:38 WARN GpuOverrides: 
+*Exec <ShuffleExchangeExec> will run on GPU
+  *Partitioning <HashPartitioning> will run on GPU
+  *Exec <HashAggregateExec> will run on GPU
+    *Exec <ProjectExec> will run on GPU
+      *Expression <Alias> row#66 AS i#90 will run on GPU
+      *Expression <Alias> col#73 AS j#91 will run on GPU
+      *Exec <BroadcastHashJoinExec> will run on GPU
+        *Exec <AQEShuffleReadExec> will run on GPU
+
+26/04/13 10:54:38 INFO GpuOverrides: Plan conversion to the GPU took 1.36 ms
+26/04/13 10:54:38 INFO GpuOverrides: GPU plan transition optimization took 0.61 ms
+26/04/13 10:54:38 DEBUG SparkResourceAdaptor: startDedicatedTaskThread: threadId: 140621754914368, task id: 19
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:38 WARN GpuOverrides: 
+*Exec <HashAggregateExec> will run on GPU
+  *Expression <AggregateExpression> count(1) will run on GPU
+    *Expression <Count> count(1) will run on GPU
+  *Expression <Alias> count(1)#107L AS count#108L will run on GPU
+  *Exec <ShuffleExchangeExec> will run on GPU
+    *Partitioning <SinglePartition$> will run on GPU
+    *Exec <HashAggregateExec> will run on GPU
+      *Expression <AggregateExpression> partial_count(1) will run on GPU
+        *Expression <Count> count(1) will run on GPU
+      *Exec <HashAggregateExec> will run on GPU
+
+26/04/13 10:54:38 INFO GpuOverrides: Plan conversion to the GPU took 1.64 ms
+26/04/13 10:54:38 DEBUG OptimizeSkewedBHJJoinRule: Skewed BHJ join not enabled
+26/04/13 10:54:38 WARN GpuOverrides: 
+*Exec <ShuffleExchangeExec> will run on GPU
+  *Partitioning <SinglePartition$> will run on GPU
+  *Exec <HashAggregateExec> will run on GPU
+    *Expression <AggregateExpression> partial_count(1) will run on GPU
+      *Expression <Count> count(1) will run on GPU
+    *Exec <HashAggregateExec> will run on GPU
+      *Exec <AQEShuffleReadExec> will run on GPU
+
+26/04/13 10:54:38 INFO GpuOverrides: Plan conversion to the GPU took 1.12 ms
+26/04/13 10:54:38 INFO GpuOverrides: GPU plan transition optimization took 0.52 ms
+26/04/13 10:54:38 DEBUG SparkResourceAdaptor: startDedicatedTaskThread: threadId: 140621754914368, task id: 20
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: Loading org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using org.apache.spark.util.MutableURLClassLoader@27aae97b with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: Instantiate org.apache.spark.sql.rapids.optimizer.PartialAggregateStrategy using classloader org.apache.spark.util.MutableURLClassLoader@27aae97b
+26/04/13 10:54:38 DEBUG ShimReflectionUtils: urls file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/04/13 10:54:38 WARN GpuOverrides: 
+*Exec <HashAggregateExec> will run on GPU
+  *Expression <AggregateExpression> count(1) will run on GPU
+    *Expression <Count> count(1) will run on GPU
+  *Expression <Alias> count(1)#107L AS count#108L will run on GPU
+
+26/04/13 10:54:38 INFO GpuOverrides: Plan conversion to the GPU took 0.89 ms
+26/04/13 10:54:38 DEBUG OptimizeSkewedBHJJoinRule: Skewed BHJ join not enabled
+26/04/13 10:54:38 WARN GpuOverrides: 
+*Exec <HashAggregateExec> will run on GPU
+  *Expression <AggregateExpression> count(1) will run on GPU
+    *Expression <Count> count(1) will run on GPU
+  *Expression <Alias> count(1)#107L AS count#108L will run on GPU
+
+26/04/13 10:54:38 INFO GpuOverrides: Plan conversion to the GPU took 0.51 ms
+26/04/13 10:54:38 INFO GpuOverrides: GPU plan transition optimization took 0.31 ms
+26/04/13 10:54:38 DEBUG SparkResourceAdaptor: startDedicatedTaskThread: threadId: 140621754914368, task id: 21
+26/04/13 10:54:39 INFO AwsStorageExecutorPlugin: Shutting down S3 Plugin ... 
