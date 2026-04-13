@@ -218,9 +218,20 @@ void CudaDrHandler::Initialize() {
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(CtxEnablePeerAccess));
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(DeviceCanAccessPeer));
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(DevicePrimaryCtxGetState));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(DevicePrimaryCtxSetFlags));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(DevicePrimaryCtxRetain));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(DevicePrimaryCtxRelease));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(DevicePrimaryCtxReset));
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(CtxDisablePeerAccess));
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(CtxEnablePeerAccess));
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(DeviceCanAccessPeer));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(CtxGetFlags));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(CtxGetApiVersion));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(CtxGetCacheConfig));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(CtxSetCacheConfig));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(CtxGetSharedMemConfig));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(CtxSetSharedMemConfig));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(CtxGetStreamPriorityRange));
 
     /*CudaDrHandler_device*/
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(DeviceComputeCapability));
@@ -230,6 +241,9 @@ void CudaDrHandler::Initialize() {
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(DeviceGetName));
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(DeviceGetProperties));
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(DeviceTotalMem));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(DeviceGetUuid));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(DeviceGetPCIBusId));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(DeviceGetByPCIBusId));
 
     /*CudaDrHandler_driver_entry_point*/
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(GetProcAddress));
@@ -265,6 +279,11 @@ void CudaDrHandler::Initialize() {
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(MemGetAddressRange));
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(MemGetInfo));
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(MemsetD32Async));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(MemAllocManaged));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(MemHostRegister));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(MemHostUnregister));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(MemcpyDtoD));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(MemcpyDtoDAsync));
 
     /*CudaDrHandler_virtmemory*/
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(MemCreate));
@@ -297,6 +316,11 @@ void CudaDrHandler::Initialize() {
 
     /* CudaDrHandler_streammemory */
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(StreamWriteValue32));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(StreamWaitEvent));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(StreamCreateWithPriority));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(StreamGetPriority));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(StreamGetFlags));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(StreamGetCtx));
 
     /*CudaDrHandler_event*/
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(EventCreate));

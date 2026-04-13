@@ -167,3 +167,64 @@ CUDA_DRIVER_HANDLER(CtxSetLimit) {
     CUresult exit_code = cuCtxSetLimit(limit, value);
     return std::make_shared<Result>((cudaError_t)exit_code);
 }
+
+/*Returns the flags for the current context.*/
+CUDA_DRIVER_HANDLER(CtxGetFlags) {
+    unsigned int flags;
+    CUresult exit_code = cuCtxGetFlags(&flags);
+    std::shared_ptr<Buffer> out = std::make_shared<Buffer>();
+    out->Add(flags);
+    return std::make_shared<Result>((cudaError_t)exit_code, out);
+}
+
+/*Gets the context's API version.*/
+CUDA_DRIVER_HANDLER(CtxGetApiVersion) {
+    CUcontext ctx = input_buffer->Get<CUcontext>();
+    unsigned int version;
+    CUresult exit_code = cuCtxGetApiVersion(ctx, &version);
+    std::shared_ptr<Buffer> out = std::make_shared<Buffer>();
+    out->Add(version);
+    return std::make_shared<Result>((cudaError_t)exit_code, out);
+}
+
+/*Returns the preferred cache configuration for the current context.*/
+CUDA_DRIVER_HANDLER(CtxGetCacheConfig) {
+    CUfunc_cache config;
+    CUresult exit_code = cuCtxGetCacheConfig(&config);
+    std::shared_ptr<Buffer> out = std::make_shared<Buffer>();
+    out->Add(config);
+    return std::make_shared<Result>((cudaError_t)exit_code, out);
+}
+
+/*Sets the preferred cache configuration for the current context.*/
+CUDA_DRIVER_HANDLER(CtxSetCacheConfig) {
+    CUfunc_cache config = input_buffer->Get<CUfunc_cache>();
+    CUresult exit_code = cuCtxSetCacheConfig(config);
+    return std::make_shared<Result>((cudaError_t)exit_code);
+}
+
+/*Returns the current shared memory configuration for the current context.*/
+CUDA_DRIVER_HANDLER(CtxGetSharedMemConfig) {
+    CUsharedconfig config;
+    CUresult exit_code = cuCtxGetSharedMemConfig(&config);
+    std::shared_ptr<Buffer> out = std::make_shared<Buffer>();
+    out->Add(config);
+    return std::make_shared<Result>((cudaError_t)exit_code, out);
+}
+
+/*Sets the shared memory configuration for the current context.*/
+CUDA_DRIVER_HANDLER(CtxSetSharedMemConfig) {
+    CUsharedconfig config = input_buffer->Get<CUsharedconfig>();
+    CUresult exit_code = cuCtxSetSharedMemConfig(config);
+    return std::make_shared<Result>((cudaError_t)exit_code);
+}
+
+/*Returns the numerical values that correspond to the least and greatest stream priorities.*/
+CUDA_DRIVER_HANDLER(CtxGetStreamPriorityRange) {
+    int leastPriority, greatestPriority;
+    CUresult exit_code = cuCtxGetStreamPriorityRange(&leastPriority, &greatestPriority);
+    std::shared_ptr<Buffer> out = std::make_shared<Buffer>();
+    out->Add(leastPriority);
+    out->Add(greatestPriority);
+    return std::make_shared<Result>((cudaError_t)exit_code, out);
+}

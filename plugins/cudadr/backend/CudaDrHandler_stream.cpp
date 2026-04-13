@@ -58,3 +58,53 @@ CUDA_DRIVER_HANDLER(StreamSynchronize) {
     CUresult exit_code = cuStreamSynchronize(phStream);
     return std::make_shared<Result>((cudaError_t)exit_code);
 }
+
+/*Make a stream wait on an event.*/
+CUDA_DRIVER_HANDLER(StreamWaitEvent) {
+    CUstream hStream = input_buffer->Get<CUstream>();
+    CUevent hEvent = input_buffer->Get<CUevent>();
+    unsigned int Flags = input_buffer->Get<unsigned int>();
+    CUresult exit_code = cuStreamWaitEvent(hStream, hEvent, Flags);
+    return std::make_shared<Result>((cudaError_t)exit_code);
+}
+
+/*Create a stream with priority.*/
+CUDA_DRIVER_HANDLER(StreamCreateWithPriority) {
+    CUstream phStream = NULL;
+    unsigned int flags = input_buffer->Get<unsigned int>();
+    int priority = input_buffer->Get<int>();
+    CUresult exit_code = cuStreamCreateWithPriority(&phStream, flags, priority);
+    std::shared_ptr<Buffer> out = std::make_shared<Buffer>();
+    out->AddMarshal(phStream);
+    return std::make_shared<Result>((cudaError_t)exit_code, out);
+}
+
+/*Query the priority of a stream.*/
+CUDA_DRIVER_HANDLER(StreamGetPriority) {
+    CUstream hStream = input_buffer->Get<CUstream>();
+    int priority;
+    CUresult exit_code = cuStreamGetPriority(hStream, &priority);
+    std::shared_ptr<Buffer> out = std::make_shared<Buffer>();
+    out->Add(priority);
+    return std::make_shared<Result>((cudaError_t)exit_code, out);
+}
+
+/*Query the flags of a stream.*/
+CUDA_DRIVER_HANDLER(StreamGetFlags) {
+    CUstream hStream = input_buffer->Get<CUstream>();
+    unsigned int flags;
+    CUresult exit_code = cuStreamGetFlags(hStream, &flags);
+    std::shared_ptr<Buffer> out = std::make_shared<Buffer>();
+    out->Add(flags);
+    return std::make_shared<Result>((cudaError_t)exit_code, out);
+}
+
+/*Query the context associated with a stream.*/
+CUDA_DRIVER_HANDLER(StreamGetCtx) {
+    CUstream hStream = input_buffer->Get<CUstream>();
+    CUcontext pctx;
+    CUresult exit_code = cuStreamGetCtx(hStream, &pctx);
+    std::shared_ptr<Buffer> out = std::make_shared<Buffer>();
+    out->AddMarshal(pctx);
+    return std::make_shared<Result>((cudaError_t)exit_code, out);
+}

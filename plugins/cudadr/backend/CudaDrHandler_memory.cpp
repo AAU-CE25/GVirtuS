@@ -179,3 +179,47 @@ CUDA_DRIVER_HANDLER(MemsetD32Async) {
                                             << dstDevice << ", ui: " << ui << ", N: " << N);
     return std::make_shared<Result>((cudaError_t)exit_code);
 }
+
+/*Allocates managed memory.*/
+CUDA_DRIVER_HANDLER(MemAllocManaged) {
+    size_t bytesize = input_buffer->Get<size_t>();
+    unsigned int flags = input_buffer->Get<unsigned int>();
+    CUdeviceptr dptr = 0;
+    CUresult exit_code = cuMemAllocManaged(&dptr, bytesize, flags);
+    std::shared_ptr<Buffer> out = std::make_shared<Buffer>();
+    out->AddMarshal(dptr);
+    return std::make_shared<Result>((cudaError_t)exit_code, out);
+}
+
+/*Registers an existing host memory range for use by CUDA.*/
+CUDA_DRIVER_HANDLER(MemHostRegister) {
+    size_t bytesize = input_buffer->Get<size_t>();
+    unsigned int flags = input_buffer->Get<unsigned int>();
+    /* Note: host registration is a local operation - the pointer is on the backend.
+       For GVirtuS, we return success since the backend manages its own memory. */
+    return std::make_shared<Result>((cudaError_t)CUDA_SUCCESS);
+}
+
+/*Unregisters a memory range registered with cuMemHostRegister.*/
+CUDA_DRIVER_HANDLER(MemHostUnregister) {
+    return std::make_shared<Result>((cudaError_t)CUDA_SUCCESS);
+}
+
+/*Copies memory between two devices.*/
+CUDA_DRIVER_HANDLER(MemcpyDtoD) {
+    CUdeviceptr dstDevice = input_buffer->Get<CUdeviceptr>();
+    CUdeviceptr srcDevice = input_buffer->Get<CUdeviceptr>();
+    size_t ByteCount = input_buffer->Get<size_t>();
+    CUresult exit_code = cuMemcpyDtoD(dstDevice, srcDevice, ByteCount);
+    return std::make_shared<Result>((cudaError_t)exit_code);
+}
+
+/*Copies memory between two devices asynchronously.*/
+CUDA_DRIVER_HANDLER(MemcpyDtoDAsync) {
+    CUdeviceptr dstDevice = input_buffer->Get<CUdeviceptr>();
+    CUdeviceptr srcDevice = input_buffer->Get<CUdeviceptr>();
+    size_t ByteCount = input_buffer->Get<size_t>();
+    CUstream hStream = input_buffer->Get<CUstream>();
+    CUresult exit_code = cuMemcpyDtoDAsync(dstDevice, srcDevice, ByteCount, hStream);
+    return std::make_shared<Result>((cudaError_t)exit_code);
+}

@@ -371,3 +371,38 @@ extern "C" CUresult cuMemsetD8(CUdeviceptr dstDevice, unsigned char uc, size_t N
     cerr << "*** Error: cuMemsetD8() not yet implemented!" << endl;
     return (CUresult)1;
 }
+
+// Undefine CUDA header macro that renames cuMemHostRegister
+#ifdef cuMemHostRegister
+#undef cuMemHostRegister
+#endif
+
+/*Allocates managed memory (accessible from both CPU and GPU).*/
+extern "C" CUresult cuMemAllocManaged(CUdeviceptr *dptr, size_t bytesize, unsigned int flags) {
+    CudaDrFrontend::Prepare();
+    CudaDrFrontend::AddVariableForArguments(bytesize);
+    CudaDrFrontend::AddVariableForArguments(flags);
+    CudaDrFrontend::Execute("cuMemAllocManaged");
+    if (CudaDrFrontend::Success()) *dptr = (CUdeviceptr)(CudaDrFrontend::GetOutputDevicePointer());
+    return CudaDrFrontend::GetExitCode();
+}
+
+/*Registers an existing host memory range for use by CUDA (v2).*/
+extern "C" CUresult cuMemHostRegister_v2(void *p, size_t bytesize, unsigned int Flags) {
+    CudaDrFrontend::Prepare();
+    CudaDrFrontend::AddVariableForArguments(bytesize);
+    CudaDrFrontend::AddVariableForArguments(Flags);
+    CudaDrFrontend::Execute("cuMemHostRegister");
+    return CudaDrFrontend::GetExitCode();
+}
+
+// Provide unversioned alias
+extern "C" CUresult cuMemHostRegister(void *p, size_t bytesize, unsigned int Flags)
+    __attribute__((alias("cuMemHostRegister_v2")));
+
+/*Unregisters a memory range previously registered with cuMemHostRegister.*/
+extern "C" CUresult cuMemHostUnregister(void *p) {
+    CudaDrFrontend::Prepare();
+    CudaDrFrontend::Execute("cuMemHostUnregister");
+    return CudaDrFrontend::GetExitCode();
+}
