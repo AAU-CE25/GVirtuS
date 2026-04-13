@@ -58,13 +58,13 @@ GVIRTUS_HOME_PATH = "/opt/GVirtuS"
 GVIRTUS_LIB_PATH = f"{GVIRTUS_HOME_PATH}/lib/frontend:{GVIRTUS_HOME_PATH}/lib"
 RAPIDS_NATIVE_PATH = "/tmp/rapids-native"  # Extracted by entrypoint from JAR
 
-SPARK_RAPIDS_GVIRTUS_CONFIG = [
+SPARK_RAPIDS_CONFIG_WITH_LD_PRELOAD = [
     *SPARK_RAPIDS_CONFIG,
     # Ensure executor/driver use GVirtuS frontend libs + RAPIDS native libs
     ("spark.executor.extraLibraryPath", f"{GVIRTUS_LIB_PATH}:{RAPIDS_NATIVE_PATH}"),
     ("spark.driver.extraLibraryPath", f"{GVIRTUS_LIB_PATH}:{RAPIDS_NATIVE_PATH}"),
     # Pass GVirtuS env vars to executors
-    ("spark.executorEnv.GVIRTUS_HOME", GVIRTUS_HOME_PATH),
-    ("spark.executorEnv.LD_LIBRARY_PATH", f"{GVIRTUS_LIB_PATH}:{RAPIDS_NATIVE_PATH}"),
-    ("spark.executorEnv.LD_PRELOAD", f"{GVIRTUS_HOME_PATH}/lib/frontend/libcudart.so:{GVIRTUS_HOME_PATH}/lib/frontend/libcuda.so"),
+    #("spark.executorEnv.GVIRTUS_HOME", GVIRTUS_HOME_PATH),
+    #("spark.executorEnv.LD_LIBRARY_PATH", f"{GVIRTUS_LIB_PATH}:{RAPIDS_NATIVE_PATH}"),
+    #("spark.executorEnv.LD_PRELOAD", f"{GVIRTUS_HOME_PATH}/lib/frontend/libcudart.so:{GVIRTUS_HOME_PATH}/lib/frontend/libcuda.so"),
 ]

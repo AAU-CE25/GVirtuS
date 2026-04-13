@@ -87,18 +87,16 @@ RUN pip3 install --no-cache-dir --upgrade pip && \
 # Verify Spark is reachable
 RUN python3 -c "import pyspark; print(f'PySpark {pyspark.__version__} OK')"
 
-# ── GVirtuS environment (set here so ALL processes use GVirtuS stubs) ──
+# ── GVirtuS environment (LD_PRELOAD is set in entrypoint, not here) ──
 ENV GVIRTUS_HOME=/opt/GVirtuS \
     GVIRTUS_LOGLEVEL=40000 \
-    LD_LIBRARY_PATH=/opt/GVirtuS/lib/frontend:/opt/GVirtuS/lib \
-    LD_PRELOAD=/opt/GVirtuS/lib/frontend/libcudart.so:/opt/GVirtuS/lib/frontend/libcuda.so
+    LD_LIBRARY_PATH=/opt/GVirtuS/lib/frontend:/opt/GVirtuS/lib
 
 # ── Working directory ──
 WORKDIR /app/src
 
 # Simple entrypoint (env vars already set above)
-COPY examples/spark_simple_matrix/entrypoint-gvirtus.sh /entrypoint-gvirtus.sh
-RUN chmod +x /entrypoint-gvirtus.sh
+COPY --chmod=755 examples/spark_simple_matrix/entrypoint-gvirtus.sh /entrypoint-gvirtus.sh
 
 ENTRYPOINT ["/entrypoint-gvirtus.sh"]
 

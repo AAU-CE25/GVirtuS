@@ -40,7 +40,7 @@ from config import (
     SPARK_MASTER, 
     SPARK_CONFIG,
     SPARK_RAPIDS_CONFIG,
-    SPARK_RAPIDS_GVIRTUS_CONFIG
+    SPARK_RAPIDS_CONFIG_WITH_LD_PRELOAD
 )
 
 from pyspark.sql import SparkSession
@@ -77,8 +77,17 @@ def create_spark_session(custom_config, session_name="SimpleMatrix"):
     for k, v in config:
         builder = builder.config(k, v)
 
-    log.debug(f"Spark config for {app_name}: {dict(config)}")
+    log.debug(f"Initializing Spark config for {app_name}...")
+    log.info(">>> About to call SparkSession.builder.getOrCreate() - this triggers RAPIDS/CUDA init")
+    import sys
+    sys.stdout.flush()
+    sys.stderr.flush()
+    logging.getLogger().handlers[0].flush()  # Force log flush
+    
     spark = builder.getOrCreate()
+    
+    log.info("<<< SparkSession created successfully")
+    log.debug(f"Spark config for {app_name}: {dict(config)}")
 
     # Suppress Spark's verbose Java logs (keep only WARN+)
     spark.sparkContext.setLogLevel(SPARK_LOG_LEVEL)
@@ -217,7 +226,7 @@ def main(env, compute_mode, results_overwrite, run_minimal=False):
     use_rapids = compute_mode == "rapids"
     log.info(f"Env: {env} | Mode: {compute_mode} | Matrix size: {N}x{N}  (scale factor {SCALE_FACTOR})")
 
-    config = SPARK_RAPIDS_CONFIG if use_rapids else SPARK_CONFIG
+    config = SPARK_RAPIDS_CONFIG_WITH_LD_PRELOAD if use_rapids else SPARK_CONFIG
     app_name = f"SimpleMatrixMultiply-{compute_mode.upper()}-{env.upper()}"
     spark = create_spark_session(custom_config=config, session_name=app_name)
 

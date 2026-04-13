@@ -216,7 +216,7 @@ run-spark-docker-rapids:
 		--name spark-simple-matrix-$(USER) \
 		--runtime=nvidia \
 		--shm-size=8G \
-		$(DOCKER_SPARK_LOCAL) --mode rapids --overwrite yes
+		$(DOCKER_SPARK_LOCAL) --mode rapids --overwrite yes --minimal
 
 stop-spark-simple-matrix:
 	docker stop spark-simple-matrix-$(USER) || true
@@ -236,18 +236,20 @@ docker-build-push-spark-gvirtus:
 		.
 
 run-spark-gvirtus:
+	mkdir -p $(SPARK_MATRIX_DIR)/logs/gvirtus
 	docker run --rm \
 		--name spark-simple-matrix-gvirtus-$(USER) \
 		--network host \
 		-v ./$(SPARK_MATRIX_DIR)/src:/app/src \
 		-v ./$(SPARK_MATRIX_DIR)/results:/app/results \
 		-v ./$(SPARK_MATRIX_DIR)/jars:/app/jars \
+		-v ./$(SPARK_MATRIX_DIR)/logs/gvirtus:/app/logs \
 		-v ./etc/properties.json:/opt/GVirtuS/etc/properties.json \
 		-e PYSPARK_PYTHON=python3 \
 		-e PYSPARK_DRIVER_PYTHON=python3 \
 		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL)  \
 		--shm-size=8G \
-		$(DOCKER_SPARK_GVIRTUS) --mode rapids --overwrite yes
+		$(DOCKER_SPARK_GVIRTUS) --mode rapids --overwrite yes --minimal
 
 # Quick GVirtuS connectivity test (no Spark, just cudaGetDeviceCount etc.)
 test-spark-gvirtus:
