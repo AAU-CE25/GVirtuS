@@ -33,6 +33,7 @@
 #include <cuda_runtime_api.h>
 #include <gvirtus/frontend/Frontend.h>
 
+#include <cstdlib>
 #include <list>
 #include <map>
 #include <set>
@@ -52,6 +53,9 @@ class CudaRtFrontend {
             gvirtus::frontend::Frontend::GetFrontend()->Execute(routine, input_buffer);
         } catch (const std::exception& e) {
             cerr << "Execution exception: " << e.what() << endl;
+            // Do not continue after a failed remote execution; subsequent CUDA runtime
+            // calls may dereference invalid state and crash the process.
+            std::exit(EXIT_FAILURE);
         }
     }
 

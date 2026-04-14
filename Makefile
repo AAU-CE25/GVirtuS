@@ -8,7 +8,9 @@ UCX_TLS ?= tcp,self
 UCX_NET_DEVICES ?= ens1f1np1
 UCX_LOG_LEVEL ?= info
 UCX_SOCKADDR_TLS_PRIORITY ?= tcp
+UCX_IB_GID_INDEX ?= # empty by default; set to 3 for RoCEv2
 SIMPLE_MATRIX_GPU_FLAGS ?=
+
 
 DOCKER_REPO_DEV := $(DOCKER_HUB_USERNAME)/gvirtus-dev
 DOCKER_REPO_TEST := $(DOCKER_HUB_USERNAME)/gvirtus-test
@@ -168,17 +170,21 @@ local-docker-build-simple-matrix:
 		-t $(DOCKER_REPO_DEV)/simple_matrix_gvirtus:cuda12.6 \
 		.
 
-run-simple-matrix-test: 
+run-simple-matrix-test:
 	docker run --rm \
 		--name simple_matrix_test_container-$(USER) \
 		$(SIMPLE_MATRIX_GPU_FLAGS) \
 		--network host \
+		--device /dev/infiniband \
+		--cap-add IPC_LOCK \
+		--ulimit memlock=-1 \
 		-e GVIRTUS_CONFIG=/opt/GVirtuS/etc/properties_ucx.json \
 		-e GVIRTUS_UCX_DATAPATH=$(GVIRTUS_UCX_DATAPATH) \
 		-e UCX_TLS=$(UCX_TLS) \
 		-e UCX_NET_DEVICES=$(UCX_NET_DEVICES) \
 		-e UCX_LOG_LEVEL=$(UCX_LOG_LEVEL) \
 		-e UCX_SOCKADDR_TLS_PRIORITY=$(UCX_SOCKADDR_TLS_PRIORITY) \
+		$(if $(UCX_IB_GID_INDEX),-e UCX_IB_GID_INDEX=$(UCX_IB_GID_INDEX)) \
 		-v ./examples/simple_matrix:/opt/GVirtuS/examples \
 		-v ./etc/properties_ucx.json:/opt/GVirtuS/etc/properties_ucx.json \
 		$(DOCKER_REPO_DEV)/simple_matrix_gvirtus:cuda12.6 \
