@@ -61,7 +61,7 @@ def build_spark_rapids_config(jar_path):
 
 def get_spark_config(env, compute_mode):
     using_docker = env == "docker" or env == "gvirtus"
-    use_rapids = compute_mode == "rapids"
+    use_rapids = compute_mode == "rapids" 
 
     jar_path = RAPIDS_JAR_PATH_DOCKER if using_docker else RAPIDS_JAR_PATH_HOST
 

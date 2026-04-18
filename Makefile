@@ -152,14 +152,6 @@ stop-simple-matrix-test:
 	docker stop simple_matrix_test_container-$(USER) || true
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# spark_simple_matrix - Matrix multiplication benchmark with Spark + RAPIDS
-#
-# Single unified Docker image supports all execution modes:
-#   1. Local native   - Run directly on host (make run-spark-local-*)
-#   2. Docker GPU     - Run in Docker with local GPU (--runtime=nvidia)
-#   3. Docker GVirtuS - Run in Docker with remote GPU (no --runtime=nvidia)
-#   4. Docker CPU     - Run in Docker, CPU only
-#
 # The switch between local GPU and GVirtuS happens at the Spark config level:
 #   - Local GPU: JVM loads real CUDA libs from /usr/local/cuda/lib64
 #   - GVirtuS:   JVM loads GVirtuS stubs via spark.executor.extraLibraryPath
@@ -196,28 +188,29 @@ run-spark-local-rapids:
 # Requirements: Docker, NVIDIA Container Toolkit, local GPU
 
 run-spark-docker-cpu:
+	mkdir -p $(SPARK_MATRIX_DIR)/logs/docker-cpu
 	docker run --rm \
 		--name spark-simple-matrix-$(USER) \
 		--network host \
 		-v ./$(SPARK_MATRIX_DIR)/src:/app/src \
 		-v ./$(SPARK_MATRIX_DIR)/results:/app/results \
-		-v ../jars:/app/jars \
-		-v ./$(SPARK_MATRIX_DIR)/logs:/app/logs \
+		-v $(RAPIDS_JARS):/app/jars \
+		-v ./$(SPARK_MATRIX_DIR)/logs/docker-cpu:/app/logs \
 		-e PYSPARK_PYTHON=python3 \
 		-e PYSPARK_DRIVER_PYTHON=python3 \
 		--shm-size=8G \
 		$(DOCKER_SPARK) docker --mode cpu --overwrite yes
 
 run-spark-docker-rapids:
-	mkdir -p $(SPARK_MATRIX_DIR)/logs/docker
+	mkdir -p $(SPARK_MATRIX_DIR)/logs/docker-rapids
 	docker run --rm \
 		-it \
 		--network host \
 		--privileged \
 		-v ./$(SPARK_MATRIX_DIR)/src:/app/src \
 		-v ./$(SPARK_MATRIX_DIR)/results:/app/results \
-		-v ../jars:/app/jars \
-		-v ./$(SPARK_MATRIX_DIR)/logs/docker:/app/logs \
+		-v $(RAPIDS_JARS):/app/jars \
+		-v ./$(SPARK_MATRIX_DIR)/logs/docker-rapids:/app/logs \
 		-e PYSPARK_PYTHON=python3 \
 		-e PYSPARK_DRIVER_PYTHON=python3 \
 		--name spark-simple-matrix-$(USER) \
@@ -236,7 +229,7 @@ run-spark-gvirtus:
 		--network host \
 		-v ./$(SPARK_MATRIX_DIR)/src:/app/src \
 		-v ./$(SPARK_MATRIX_DIR)/results:/app/results \
-		-v ../jars:/app/jars \
+		-v $(RAPIDS_JARS):/app/jars \
 		-v ./$(SPARK_MATRIX_DIR)/logs/gvirtus:/app/logs \
 		-v ./$(SPARK_MATRIX_DIR)/entrypoint.sh:/entrypoint.sh \
 		-v ./etc/properties.json:/opt/GVirtuS/etc/properties.json \
@@ -252,7 +245,7 @@ test-spark-gvirtus:
 		--name spark-gvirtus-test-$(USER) \
 		--network host \
 		-v ./$(SPARK_MATRIX_DIR)/src:/app/src \
-		-v ../jars:/app/jars \
+		-v $(RAPIDS_JARS):/app/jars \
 		-v ./$(SPARK_MATRIX_DIR)/entrypoint.sh:/entrypoint.sh \
 		-v ./etc/properties.json:/opt/GVirtuS/etc/properties.json \
 		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
