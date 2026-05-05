@@ -16,8 +16,8 @@ SPARK_LOG_LEVEL = "DEBUG"  # Suppress Spark's verbose Java logs
 DATA_DIR = f"/data/wg38up/spark_simple_matrix/sf{SCALE_FACTOR}"
 RESULTS_DIR = f"../results/sf{SCALE_FACTOR}"
 
-RAPIDS_JAR_PATH_HOST = "/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.12-26.02.1.jar"
-RAPIDS_JAR_PATH_DOCKER = "/app/jars/rapids-4-spark_2.12-26.02.1.jar"
+RAPIDS_JAR_PATH_HOST = "/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.13-26.04.0-cuda13.jar"
+RAPIDS_JAR_PATH_DOCKER = "/app/jars/rapids-4-spark_2.13-26.04.0-cuda13.jar"
 
 # ── Spark config (CPU-only, no RAPIDS plugin enabled) ──
 # JAR is on classpath so the JVM doesn't need to restart when switching modes.
@@ -27,6 +27,8 @@ SPARK_MASTER = "local[1]"
 # These settings ensure Spark executors use GVirtuS frontend libs
 GVIRTUS_HOME_PATH = "/opt/GVirtuS"
 GVIRTUS_LIB_PATH = f"{GVIRTUS_HOME_PATH}/lib/frontend:{GVIRTUS_HOME_PATH}/lib"
+GVIRTUS_FRONTEND_LIB = f"{GVIRTUS_HOME_PATH}/lib/frontend"
+GVIRTUS_LD_PRELOAD = f"{GVIRTUS_FRONTEND_LIB}/libcudart.so.12.2:{GVIRTUS_FRONTEND_LIB}/libcublas.so.12.2"
 
 # Path to log4j2.properties (same directory as this file)
 import os
@@ -56,6 +58,8 @@ def build_spark_rapids_config(jar_path):
         ("spark.rapids.memory.gpu.state.debug.enabled", "true"),
         ("spark.executor.extraLibraryPath", f"{GVIRTUS_LIB_PATH}"),
         ("spark.driver.extraLibraryPath", f"{GVIRTUS_LIB_PATH}"),
+        ("spark.executorEnv.LD_PRELOAD", GVIRTUS_LD_PRELOAD),
+        ("spark.driverEnv.LD_PRELOAD", GVIRTUS_LD_PRELOAD),
     ]
 
 def get_spark_config(env, compute_mode):

@@ -24,8 +24,8 @@ RUN mkdir -p build && cd build && \
     cmake -DCMAKE_INSTALL_PREFIX=${GVIRTUS_HOME} .. && \
     make -j$(nproc) && make install
 
-## ===== Stage 2: Frontend dev image (has nvcc for compiling, no GPU needed) =====
-FROM nvidia/cuda:12.6.3-cudnn-devel-ubuntu22.04
+## ===== Stage 2: Frontend runtime (minimal, no CUDA toolkit needed) =====
+FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV GVIRTUS_HOME=/opt/GVirtuS
