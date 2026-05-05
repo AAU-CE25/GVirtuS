@@ -851,6 +851,20 @@ CUDA_ROUTINE_HANDLER(Memset) {
         return std::make_shared<Result>(cudaErrorMemoryAllocation);
     }
 }
+CUDA_ROUTINE_HANDLER(MemsetAsync) {
+    try {
+        void *devPtr = (void *)input_buffer->Get<gvirtus::common::pointer_t>();
+        int value = input_buffer->Get<int>();
+        size_t count = input_buffer->Get<size_t>();
+        cudaStream_t stream = (cudaStream_t)input_buffer->Get<gvirtus::common::pointer_t>();
+
+        cudaError_t exit_code = cudaMemsetAsync(devPtr, value, count, stream);
+        return std::make_shared<Result>(exit_code);
+    } catch (const std::exception& e) {
+        cerr << e.what() << endl;
+        return std::make_shared<Result>(cudaErrorMemoryAllocation);
+    }
+}
 
 CUDA_ROUTINE_HANDLER(Memset2D) {
     try {

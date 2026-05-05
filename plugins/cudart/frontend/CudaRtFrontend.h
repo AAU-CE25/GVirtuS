@@ -58,6 +58,14 @@ class CudaRtFrontend {
             std::exit(EXIT_FAILURE);
         }
     }
+    static inline void ExecuteAsync(const char* routine, const Buffer* input_buffer = NULL) {
+        try {
+            gvirtus::frontend::Frontend::GetFrontend()->ExecuteAsync(routine, input_buffer);
+        } catch (const std::exception& e) {
+            cerr << "Execution exception: " << e.what() << endl;
+            std::exit(EXIT_FAILURE);
+            }
+        }
 
     /**
      * Prepares the Frontend for the execution. This method _must_ be called

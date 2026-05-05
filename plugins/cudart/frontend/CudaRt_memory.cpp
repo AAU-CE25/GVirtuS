@@ -861,7 +861,8 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemsetAsync(void *devPtr, int c, s
     CudaRtFrontend::AddDevicePointerForArguments(devPtr);
     CudaRtFrontend::AddVariableForArguments(c);
     CudaRtFrontend::AddVariableForArguments(count);
-    CudaRtFrontend::Execute("cudaMemset");
+    CudaRtFrontend::AddVariableForArguments((gvirtus::common::pointer_t)stream);
+    CudaRtFrontend::ExecuteAsync("cudaMemsetAsync");
     return CudaRtFrontend::GetExitCode();
 }
 

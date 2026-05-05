@@ -237,8 +237,17 @@ Frontend *Frontend::GetFrontend(Communicator *c) {
 
     return f;
 }
+void Frontend::Execute(const char *routine, const communicators::Buffer *input_buffer) {
+    ExecuteInternal(routine, input_buffer, false);
+}
 
-void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
+void Frontend::ExecuteAsync(const char *routine, const communicators::Buffer *input_buffer) {
+    ExecuteInternal(routine, input_buffer, true);
+}
+
+void Frontend::ExecuteInternal(const char *routine, 
+                               const Buffer *input_buffer, 
+                               bool force_fire_and_forget) {
     if (input_buffer == nullptr) input_buffer = mpInputBuffer.get();
 
     pid_t tid = syscall(SYS_gettid);
@@ -266,6 +275,7 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
     frontend->mRoutinesExecuted++;
 
     const bool ucx_am_mode = frontend->_communicator->obj_ptr()->to_string() == "ucxcommunicator";
+    const bool fire_and_forget = force_fire_and_forget;
 
     if (ucx_am_mode) {
         auto start_send = steady_clock::now();
@@ -279,7 +289,7 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
         req_header.version = gvirtus::communicators::ucxam::kEnvelopeVersion;
         req_header.message_type = static_cast<std::uint16_t>(gvirtus::communicators::ucxam::MessageType::Request);
         req_header.header_size = static_cast<std::uint16_t>(sizeof(gvirtus::communicators::ucxam::EnvelopeHeader));
-        req_header.reserved0 = 0;
+        req_header.reserved0 = fire_and_forget ? gvirtus::communicators::ucxam::kEnvelopeFlagNoResponse : 0;
         req_header.status_code = 0;
         req_header.request_id = request_id;
         req_header.routine_size = static_cast<std::uint64_t>(routine_size);
@@ -304,6 +314,18 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
         frontend->_communicator->obj_ptr()->Sync();
 
         send_sec = duration_cast<milliseconds>(steady_clock::now() - start_send).count() / 1000.0;
+
+        if (fire_and_forget) {
+            frontend->mExitCode = 0;
+            frontend->mSendingTime += send_sec;
+            frontend->mpOutputBuffer->Reset();
+
+            LOG4CPLUS_DEBUG(logger,
+                            "[UCX AM] Fire-and-forget: skipping response wait for '"
+                                << routine << "' [req_id=" << request_id << "]");
+
+            return;
+        }
 
         frontend->mpOutputBuffer->Reset();
         auto start_recv = steady_clock::now();

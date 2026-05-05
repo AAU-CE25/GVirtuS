@@ -36,6 +36,7 @@
 #include <signal.h>
 #include <unistd.h>
 
+#include<chrono>
 #include <functional>
 #include <cstring>
 #include <iostream>
@@ -293,6 +294,10 @@ void Process::Start() {
                                        "Client disconnected (UCX AM): " << read_error);
                         break;
                     }
+                
+                    const bool no_response =
+                        (request_header.reserved0 &
+                        gvirtus::communicators::ucxam::kEnvelopeFlagNoResponse) != 0;
 
                     std::shared_ptr<Buffer> am_input = std::make_shared<Buffer>();
                     if (!am_payload.empty()) {
@@ -319,6 +324,18 @@ void Process::Start() {
                                 steady_clock::now() - start)
                                 .count() /
                             1000.0);
+                    }
+
+                    if (no_response) {
+                        LOG4CPLUS_DEBUG(logger,
+                                        "[Process " << getpid() << "]: AM fire-and-forget routine '"
+                                                    << am_routine
+                                                    << "' executed with exit_code="
+                                                    << result->GetExitCode()
+                                                    << " [req_id=" << request_header.request_id
+                                                    << "], no response sent.");
+
+                        continue;
                     }
 
                     std::string write_error;
