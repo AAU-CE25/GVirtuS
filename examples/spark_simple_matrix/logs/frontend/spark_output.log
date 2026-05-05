@@ -2950,3 +2950,331 @@ Caused by: java.io.IOException: error=2, No such file or directory
 	at java.lang.ProcessBuilder.start(ProcessBuilder.java:1110) ~[?:?]
 	... 38 more
 26/05/05 11:42:23 INFO RapidsExecutorPlugin: Halting after 40 seconds
+26/05/05 11:55:04 DEBUG ShimLoader: ShimLoader object instance: com.nvidia.spark.rapids.ShimLoader$@50263a33 loaded by org.apache.spark.util.MutableURLClassLoader@4c9e38
+26/05/05 11:55:04 INFO ShimLoader: Loading shim for Spark version: 3.5.2
+26/05/05 11:55:04 INFO ShimLoader: Complete Spark build info: 3.5.2, https://github.com/apache/spark, HEAD, bb7846dd487f259994fdc69e18e03382e3f64f42, 2024-08-06T11:36:15Z
+26/05/05 11:55:04 INFO ShimLoader: Scala version: version 2.12.18
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark330.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@5d958046
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: urls jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark330/
+jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark331.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@7c533223
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: urls jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark331/
+jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark332.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@3c8d1c5f
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: urls jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark332/
+jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark332db.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@28aafb0
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: urls jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark332db/
+jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/05/05 11:55:04 DEBUG DatabricksShimServiceProvider: Databricks detection failed: java.lang.NoClassDefFoundError: org/apache/spark/BuildInfo$
+java.lang.NoClassDefFoundError: org/apache/spark/BuildInfo$
+	at com.nvidia.spark.rapids.DatabricksShimServiceProvider$.matchesVersion(DatabricksShimServiceProvider.scala:34) ~[?:?]
+	at com.nvidia.spark.rapids.shims.spark332db.SparkShimServiceProvider.matchesVersion(SparkShimServiceProvider.scala:35) ~[?:?]
+	at com.nvidia.spark.rapids.ShimLoader$.$anonfun$detectShimProvider$11(ShimLoader.scala:270) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.$anonfun$detectShimProvider$11$adapted(ShimLoader.scala:269) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at scala.collection.immutable.Stream.$anonfun$partition$1(Stream.scala:589) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.immutable.Stream.$anonfun$partition$1$adapted(Stream.scala:589) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.immutable.Stream.filterImpl(Stream.scala:506) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.immutable.Stream.filterImpl(Stream.scala:204) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.TraversableLike.filter(TraversableLike.scala:395) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.TraversableLike.filter$(TraversableLike.scala:395) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.AbstractTraversable.filter(Traversable.scala:108) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.immutable.Stream.partition(Stream.scala:589) ~[scala-library-2.12.18.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.detectShimProvider(ShimLoader.scala:269) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.findShimProvider(ShimLoader.scala:299) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.initShimProviderIfNeeded(ShimLoader.scala:92) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.getShimClassLoader(ShimLoader.scala:184) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimReflectionUtils$.loadClass(ShimReflectionUtils.scala:28) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimReflectionUtils$.newInstanceOf(ShimReflectionUtils.scala:34) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.newDriverPlugin(ShimLoader.scala:335) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.SQLPlugin.driverPlugin(SQLPlugin.scala:28) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at org.apache.spark.internal.plugin.DriverPluginContainer.$anonfun$driverPlugins$1(PluginContainer.scala:47) ~[spark-core_2.12-3.5.2.jar:3.5.2]
+	at scala.collection.TraversableLike.$anonfun$flatMap$1(TraversableLike.scala:293) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.mutable.ResizableArray.foreach(ResizableArray.scala:62) [scala-library-2.12.18.jar:?]
+	at scala.collection.mutable.ResizableArray.foreach$(ResizableArray.scala:55) [scala-library-2.12.18.jar:?]
+	at scala.collection.mutable.ArrayBuffer.foreach(ArrayBuffer.scala:49) [scala-library-2.12.18.jar:?]
+	at scala.collection.TraversableLike.flatMap(TraversableLike.scala:293) [scala-library-2.12.18.jar:?]
+	at scala.collection.TraversableLike.flatMap$(TraversableLike.scala:290) [scala-library-2.12.18.jar:?]
+	at scala.collection.AbstractTraversable.flatMap(Traversable.scala:108) [scala-library-2.12.18.jar:?]
+	at org.apache.spark.internal.plugin.DriverPluginContainer.<init>(PluginContainer.scala:46) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.internal.plugin.PluginContainer$.apply(PluginContainer.scala:210) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.internal.plugin.PluginContainer$.apply(PluginContainer.scala:193) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.SparkContext.<init>(SparkContext.scala:574) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.api.java.JavaSparkContext.<init>(JavaSparkContext.scala:58) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at jdk.internal.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method) ~[?:?]
+	at jdk.internal.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:77) [?:?]
+	at jdk.internal.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45) [?:?]
+	at java.lang.reflect.Constructor.newInstanceWithCaller(Constructor.java:500) [?:?]
+	at java.lang.reflect.Constructor.newInstance(Constructor.java:481) [?:?]
+	at py4j.reflection.MethodInvoker.invoke(MethodInvoker.java:247) [py4j-0.10.9.7.jar:?]
+	at py4j.reflection.ReflectionEngine.invoke(ReflectionEngine.java:374) [py4j-0.10.9.7.jar:?]
+	at py4j.Gateway.invoke(Gateway.java:238) [py4j-0.10.9.7.jar:?]
+	at py4j.commands.ConstructorCommand.invokeConstructor(ConstructorCommand.java:80) [py4j-0.10.9.7.jar:?]
+	at py4j.commands.ConstructorCommand.execute(ConstructorCommand.java:69) [py4j-0.10.9.7.jar:?]
+	at py4j.ClientServerConnection.waitForCommands(ClientServerConnection.java:182) [py4j-0.10.9.7.jar:?]
+	at py4j.ClientServerConnection.run(ClientServerConnection.java:106) [py4j-0.10.9.7.jar:?]
+	at java.lang.Thread.run(Thread.java:840) [?:?]
+Caused by: java.lang.ClassNotFoundException: org.apache.spark.BuildInfo$
+	at java.net.URLClassLoader.findClass(URLClassLoader.java:445) ~[?:?]
+	at java.lang.ClassLoader.loadClass(ClassLoader.java:592) ~[?:?]
+	at java.lang.ClassLoader.loadClass(ClassLoader.java:525) ~[?:?]
+	... 46 more
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark333.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@3c535841
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: urls jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark333/
+jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark334.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@10d3f01b
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: urls jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark334/
+jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark340.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@1954f804
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: urls jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark340/
+jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark341.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@4470265f
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: urls jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark341/
+jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark341db.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@3fec7c85
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: urls jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark341db/
+jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/05/05 11:55:04 DEBUG DatabricksShimServiceProvider: Databricks detection failed: java.lang.NoClassDefFoundError: org/apache/spark/BuildInfo$
+java.lang.NoClassDefFoundError: org/apache/spark/BuildInfo$
+	at com.nvidia.spark.rapids.DatabricksShimServiceProvider$.matchesVersion(DatabricksShimServiceProvider.scala:34) ~[?:?]
+	at com.nvidia.spark.rapids.shims.spark341db.SparkShimServiceProvider.matchesVersion(SparkShimServiceProvider.scala:35) ~[?:?]
+	at com.nvidia.spark.rapids.ShimLoader$.$anonfun$detectShimProvider$11(ShimLoader.scala:270) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.$anonfun$detectShimProvider$11$adapted(ShimLoader.scala:269) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at scala.collection.immutable.Stream.$anonfun$partition$1(Stream.scala:589) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.immutable.Stream.$anonfun$partition$1$adapted(Stream.scala:589) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.immutable.Stream.filterImpl(Stream.scala:506) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.immutable.Stream.filterImpl(Stream.scala:204) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.TraversableLike.filter(TraversableLike.scala:395) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.TraversableLike.filter$(TraversableLike.scala:395) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.AbstractTraversable.filter(Traversable.scala:108) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.immutable.Stream.partition(Stream.scala:589) ~[scala-library-2.12.18.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.detectShimProvider(ShimLoader.scala:269) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.findShimProvider(ShimLoader.scala:299) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.initShimProviderIfNeeded(ShimLoader.scala:92) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.getShimClassLoader(ShimLoader.scala:184) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimReflectionUtils$.loadClass(ShimReflectionUtils.scala:28) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimReflectionUtils$.newInstanceOf(ShimReflectionUtils.scala:34) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.newDriverPlugin(ShimLoader.scala:335) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.SQLPlugin.driverPlugin(SQLPlugin.scala:28) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at org.apache.spark.internal.plugin.DriverPluginContainer.$anonfun$driverPlugins$1(PluginContainer.scala:47) ~[spark-core_2.12-3.5.2.jar:3.5.2]
+	at scala.collection.TraversableLike.$anonfun$flatMap$1(TraversableLike.scala:293) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.mutable.ResizableArray.foreach(ResizableArray.scala:62) [scala-library-2.12.18.jar:?]
+	at scala.collection.mutable.ResizableArray.foreach$(ResizableArray.scala:55) [scala-library-2.12.18.jar:?]
+	at scala.collection.mutable.ArrayBuffer.foreach(ArrayBuffer.scala:49) [scala-library-2.12.18.jar:?]
+	at scala.collection.TraversableLike.flatMap(TraversableLike.scala:293) [scala-library-2.12.18.jar:?]
+	at scala.collection.TraversableLike.flatMap$(TraversableLike.scala:290) [scala-library-2.12.18.jar:?]
+	at scala.collection.AbstractTraversable.flatMap(Traversable.scala:108) [scala-library-2.12.18.jar:?]
+	at org.apache.spark.internal.plugin.DriverPluginContainer.<init>(PluginContainer.scala:46) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.internal.plugin.PluginContainer$.apply(PluginContainer.scala:210) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.internal.plugin.PluginContainer$.apply(PluginContainer.scala:193) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.SparkContext.<init>(SparkContext.scala:574) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.api.java.JavaSparkContext.<init>(JavaSparkContext.scala:58) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at jdk.internal.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method) ~[?:?]
+	at jdk.internal.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:77) [?:?]
+	at jdk.internal.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45) [?:?]
+	at java.lang.reflect.Constructor.newInstanceWithCaller(Constructor.java:500) [?:?]
+	at java.lang.reflect.Constructor.newInstance(Constructor.java:481) [?:?]
+	at py4j.reflection.MethodInvoker.invoke(MethodInvoker.java:247) [py4j-0.10.9.7.jar:?]
+	at py4j.reflection.ReflectionEngine.invoke(ReflectionEngine.java:374) [py4j-0.10.9.7.jar:?]
+	at py4j.Gateway.invoke(Gateway.java:238) [py4j-0.10.9.7.jar:?]
+	at py4j.commands.ConstructorCommand.invokeConstructor(ConstructorCommand.java:80) [py4j-0.10.9.7.jar:?]
+	at py4j.commands.ConstructorCommand.execute(ConstructorCommand.java:69) [py4j-0.10.9.7.jar:?]
+	at py4j.ClientServerConnection.waitForCommands(ClientServerConnection.java:182) [py4j-0.10.9.7.jar:?]
+	at py4j.ClientServerConnection.run(ClientServerConnection.java:106) [py4j-0.10.9.7.jar:?]
+	at java.lang.Thread.run(Thread.java:840) [?:?]
+Caused by: java.lang.ClassNotFoundException: org.apache.spark.BuildInfo$
+	at java.net.URLClassLoader.findClass(URLClassLoader.java:445) ~[?:?]
+	at java.lang.ClassLoader.loadClass(ClassLoader.java:592) ~[?:?]
+	at java.lang.ClassLoader.loadClass(ClassLoader.java:525) ~[?:?]
+	... 46 more
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark342.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@24800023
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: urls jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark342/
+jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark343.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@650ee29e
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: urls jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark343/
+jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark344.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@79691bfb
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: urls jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark344/
+jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark350.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@67a2f6a8
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: urls jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark350/
+jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark350db143.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@3b6b5a46
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: urls jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark350db143/
+jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/05/05 11:55:04 DEBUG DatabricksShimServiceProvider: Databricks detection failed: java.lang.NoClassDefFoundError: org/apache/spark/BuildInfo$
+java.lang.NoClassDefFoundError: org/apache/spark/BuildInfo$
+	at com.nvidia.spark.rapids.DatabricksShimServiceProvider$.matchesVersion(DatabricksShimServiceProvider.scala:34) ~[?:?]
+	at com.nvidia.spark.rapids.shims.spark350db143.SparkShimServiceProvider.matchesVersion(SparkShimServiceProvider.scala:46) ~[?:?]
+	at com.nvidia.spark.rapids.ShimLoader$.$anonfun$detectShimProvider$11(ShimLoader.scala:270) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.$anonfun$detectShimProvider$11$adapted(ShimLoader.scala:269) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at scala.collection.immutable.Stream.$anonfun$partition$1(Stream.scala:589) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.immutable.Stream.$anonfun$partition$1$adapted(Stream.scala:589) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.immutable.Stream.filterImpl(Stream.scala:506) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.immutable.Stream.filterImpl(Stream.scala:204) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.TraversableLike.filter(TraversableLike.scala:395) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.TraversableLike.filter$(TraversableLike.scala:395) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.AbstractTraversable.filter(Traversable.scala:108) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.immutable.Stream.partition(Stream.scala:589) ~[scala-library-2.12.18.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.detectShimProvider(ShimLoader.scala:269) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.findShimProvider(ShimLoader.scala:299) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.initShimProviderIfNeeded(ShimLoader.scala:92) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.getShimClassLoader(ShimLoader.scala:184) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimReflectionUtils$.loadClass(ShimReflectionUtils.scala:28) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimReflectionUtils$.newInstanceOf(ShimReflectionUtils.scala:34) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.ShimLoader$.newDriverPlugin(ShimLoader.scala:335) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.SQLPlugin.driverPlugin(SQLPlugin.scala:28) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at org.apache.spark.internal.plugin.DriverPluginContainer.$anonfun$driverPlugins$1(PluginContainer.scala:47) ~[spark-core_2.12-3.5.2.jar:3.5.2]
+	at scala.collection.TraversableLike.$anonfun$flatMap$1(TraversableLike.scala:293) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.mutable.ResizableArray.foreach(ResizableArray.scala:62) [scala-library-2.12.18.jar:?]
+	at scala.collection.mutable.ResizableArray.foreach$(ResizableArray.scala:55) [scala-library-2.12.18.jar:?]
+	at scala.collection.mutable.ArrayBuffer.foreach(ArrayBuffer.scala:49) [scala-library-2.12.18.jar:?]
+	at scala.collection.TraversableLike.flatMap(TraversableLike.scala:293) [scala-library-2.12.18.jar:?]
+	at scala.collection.TraversableLike.flatMap$(TraversableLike.scala:290) [scala-library-2.12.18.jar:?]
+	at scala.collection.AbstractTraversable.flatMap(Traversable.scala:108) [scala-library-2.12.18.jar:?]
+	at org.apache.spark.internal.plugin.DriverPluginContainer.<init>(PluginContainer.scala:46) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.internal.plugin.PluginContainer$.apply(PluginContainer.scala:210) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.internal.plugin.PluginContainer$.apply(PluginContainer.scala:193) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.SparkContext.<init>(SparkContext.scala:574) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.api.java.JavaSparkContext.<init>(JavaSparkContext.scala:58) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at jdk.internal.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method) ~[?:?]
+	at jdk.internal.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:77) [?:?]
+	at jdk.internal.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45) [?:?]
+	at java.lang.reflect.Constructor.newInstanceWithCaller(Constructor.java:500) [?:?]
+	at java.lang.reflect.Constructor.newInstance(Constructor.java:481) [?:?]
+	at py4j.reflection.MethodInvoker.invoke(MethodInvoker.java:247) [py4j-0.10.9.7.jar:?]
+	at py4j.reflection.ReflectionEngine.invoke(ReflectionEngine.java:374) [py4j-0.10.9.7.jar:?]
+	at py4j.Gateway.invoke(Gateway.java:238) [py4j-0.10.9.7.jar:?]
+	at py4j.commands.ConstructorCommand.invokeConstructor(ConstructorCommand.java:80) [py4j-0.10.9.7.jar:?]
+	at py4j.commands.ConstructorCommand.execute(ConstructorCommand.java:69) [py4j-0.10.9.7.jar:?]
+	at py4j.ClientServerConnection.waitForCommands(ClientServerConnection.java:182) [py4j-0.10.9.7.jar:?]
+	at py4j.ClientServerConnection.run(ClientServerConnection.java:106) [py4j-0.10.9.7.jar:?]
+	at java.lang.Thread.run(Thread.java:840) [?:?]
+Caused by: java.lang.ClassNotFoundException: org.apache.spark.BuildInfo$
+	at java.net.URLClassLoader.findClass(URLClassLoader.java:445) ~[?:?]
+	at java.lang.ClassLoader.loadClass(ClassLoader.java:592) ~[?:?]
+	at java.lang.ClassLoader.loadClass(ClassLoader.java:525) ~[?:?]
+	... 46 more
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark351.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@17ffbec8
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: urls jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark351/
+jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.shims.spark352.SparkShimServiceProvider using classloader org.apache.spark.util.MutableURLClassLoader@2abe0efd
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: urls jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+26/05/05 11:55:04 INFO ShimLoader: findURLClassLoader found a URLClassLoader org.apache.spark.util.MutableURLClassLoader@4c9e38
+26/05/05 11:55:04 INFO ShimLoader: Updating spark classloader org.apache.spark.util.MutableURLClassLoader@4c9e38 with the URLs: jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/, jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/05/05 11:55:04 INFO ShimLoader: Spark classLoader org.apache.spark.util.MutableURLClassLoader@4c9e38 updated successfully
+26/05/05 11:55:04 INFO ShimLoader: Updating spark classloader org.apache.spark.util.MutableURLClassLoader@4c9e38 with the URLs: jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/, jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/05/05 11:55:04 INFO ShimLoader: Spark classLoader org.apache.spark.util.MutableURLClassLoader@4c9e38 updated successfully
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: Loading com.nvidia.spark.rapids.RapidsDriverPlugin using org.apache.spark.util.MutableURLClassLoader@4c9e38 with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.RapidsDriverPlugin using classloader org.apache.spark.util.MutableURLClassLoader@4c9e38
+26/05/05 11:55:04 DEBUG ShimReflectionUtils: urls file:/app/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/05/05 11:55:04 INFO RapidsPluginUtils: RAPIDS Accelerator build: Map(url -> https://github.com/NVIDIA/spark-rapids.git, branch -> HEAD, revision -> 5e6b7f7ff87fbd1a64f200771e39a3590ee1102f, version -> 26.02.1, date -> 2026-03-10T03:31:31Z, cudf_version -> 26.02.0, user -> root)
+26/05/05 11:55:04 INFO RapidsPluginUtils: RAPIDS Accelerator JNI build: Map(url -> https://github.com/NVIDIA/spark-rapids-jni.git, branch -> HEAD, gpu_architectures -> 100;120;70;75;80;86;90, revision -> 14a182dca4a349519bfe4e5ddf8eebd9a8af95e5, version -> 26.02.0, date -> 2026-02-05T05:04:44Z, user -> root)
+26/05/05 11:55:04 INFO RapidsPluginUtils: cudf build: Map(url -> https://github.com/rapidsai/cudf.git, branch -> HEAD, gpu_architectures -> 100;120;70;75;80;86;90, revision -> 9782a269e689140d2b00b5172a93056bdf19e8c2, version -> 26.02.0, date -> 2026-02-05T05:04:41Z, user -> root)
+26/05/05 11:55:04 INFO RapidsPluginUtils: RAPIDS Accelerator Private Map(url -> https://gitlab-master.nvidia.com/nvspark/spark-rapids-private.git, branch -> HEAD, revision -> 7fc1f44974bc64fec937f5b72d0f3dbffa9ecf0b, version -> 26.02.0, date -> 2026-02-06T03:18:39Z, user -> root)
+26/05/05 11:55:04 WARN RapidsPluginUtils: RAPIDS Accelerator 26.02.1 using cudf 26.02.0, private revision 7fc1f44974bc64fec937f5b72d0f3dbffa9ecf0b
+26/05/05 11:55:05 WARN RapidsPluginUtils: RAPIDS Accelerator is enabled, to disable GPU support set `spark.rapids.sql.enabled` to false.
+26/05/05 11:55:05 WARN RapidsPluginUtils: spark.rapids.sql.explain is set to `ALL`. Set it to 'NONE' to suppress the diagnostics logging about the query placement on the GPU.
+26/05/05 11:55:05 DEBUG AwsStoragePlugin: com.nvidia.spark.rapids.AwsStoragePlugin@3b862090 does not implement driverPlugin
+26/05/05 11:55:05 DEBUG RapidsDriverPlugin: Loading extra driver plugins: com.nvidia.spark.rapids.optimizer.OptimizerDriverPlugin
+26/05/05 11:55:05 DEBUG OptimizerDriverPlugin: Spark RAPIDS Optimizer Plugin Enabled.
+26/05/05 11:55:06 DEBUG ShimReflectionUtils: Loading com.nvidia.spark.rapids.RapidsExecutorPlugin using org.apache.spark.util.MutableURLClassLoader@4c9e38 with the parent loader jdk.internal.loader.ClassLoaders$AppClassLoader@5ffd2b27
+26/05/05 11:55:06 DEBUG ShimReflectionUtils: Instantiate com.nvidia.spark.rapids.RapidsExecutorPlugin using classloader org.apache.spark.util.MutableURLClassLoader@4c9e38
+26/05/05 11:55:06 DEBUG ShimReflectionUtils: urls file:/app/jars/rapids-4-spark_2.12-26.02.1.jar
+jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark-shared/
+jar:file:/app/jars/rapids-4-spark_2.12-26.02.1.jar!/spark352/
+26/05/05 11:55:06 INFO RapidsPluginUtils: Estimated number of cores is 1
+26/05/05 11:55:06 INFO RapidsExecutorPlugin: Initializing memory from Executor Plugin
+26/05/05 11:55:15 ERROR RapidsExecutorPlugin: Exception in the executor plugin, shutting down!
+ai.rapids.cudf.CudaFatalException: Fatal CUDA error encountered at: /home/jenkins/agent/workspace/jenkins-spark-rapids-jni-release-29-cuda12/thirdparty/cudf/java/src/main/native/src/CudaJni.cpp:137: 36 cudaErrorCallRequiresNewerDriver API call is not supported in the installed CUDA driver
+	at ai.rapids.cudf.Cuda.getDeviceCount(Native Method) ~[rapids-4-spark_2.12-26.02.1.jar:?]
+	at com.nvidia.spark.rapids.GpuDeviceManager$.findGpuAndAcquire(GpuDeviceManager.scala:132) ~[spark352/:?]
+	at com.nvidia.spark.rapids.GpuDeviceManager$.$anonfun$initializeMemory$1(GpuDeviceManager.scala:627) ~[spark352/:?]
+	at scala.runtime.java8.JFunction0$mcI$sp.apply(JFunction0$mcI$sp.java:23) ~[scala-library-2.12.18.jar:?]
+	at scala.Option.getOrElse(Option.scala:189) ~[scala-library-2.12.18.jar:?]
+	at com.nvidia.spark.rapids.GpuDeviceManager$.initializeMemory(GpuDeviceManager.scala:627) ~[spark352/:?]
+	at com.nvidia.spark.rapids.GpuDeviceManager$.initializeGpuAndMemory(GpuDeviceManager.scala:192) ~[spark352/:?]
+	at com.nvidia.spark.rapids.RapidsExecutorPlugin.init(Plugin.scala:613) ~[spark352/:?]
+	at org.apache.spark.internal.plugin.ExecutorPluginContainer.$anonfun$executorPlugins$1(PluginContainer.scala:125) ~[spark-core_2.12-3.5.2.jar:3.5.2]
+	at scala.collection.TraversableLike.$anonfun$flatMap$1(TraversableLike.scala:293) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.mutable.ResizableArray.foreach(ResizableArray.scala:62) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.mutable.ResizableArray.foreach$(ResizableArray.scala:55) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.mutable.ArrayBuffer.foreach(ArrayBuffer.scala:49) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.TraversableLike.flatMap(TraversableLike.scala:293) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.TraversableLike.flatMap$(TraversableLike.scala:290) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.AbstractTraversable.flatMap(Traversable.scala:108) ~[scala-library-2.12.18.jar:?]
+	at org.apache.spark.internal.plugin.ExecutorPluginContainer.<init>(PluginContainer.scala:113) ~[spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.internal.plugin.PluginContainer$.apply(PluginContainer.scala:211) ~[spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.internal.plugin.PluginContainer$.apply(PluginContainer.scala:199) ~[spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.executor.Executor.$anonfun$plugins$1(Executor.scala:337) ~[spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.util.Utils$.withContextClassLoader(Utils.scala:178) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.executor.Executor.<init>(Executor.scala:337) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.scheduler.local.LocalEndpoint.<init>(LocalSchedulerBackend.scala:64) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.scheduler.local.LocalSchedulerBackend.start(LocalSchedulerBackend.scala:132) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.scheduler.TaskSchedulerImpl.start(TaskSchedulerImpl.scala:235) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.SparkContext.<init>(SparkContext.scala:599) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.api.java.JavaSparkContext.<init>(JavaSparkContext.scala:58) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at jdk.internal.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method) ~[?:?]
+	at jdk.internal.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:77) [?:?]
+	at jdk.internal.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45) [?:?]
+	at java.lang.reflect.Constructor.newInstanceWithCaller(Constructor.java:500) [?:?]
+	at java.lang.reflect.Constructor.newInstance(Constructor.java:481) [?:?]
+	at py4j.reflection.MethodInvoker.invoke(MethodInvoker.java:247) [py4j-0.10.9.7.jar:?]
+	at py4j.reflection.ReflectionEngine.invoke(ReflectionEngine.java:374) [py4j-0.10.9.7.jar:?]
+	at py4j.Gateway.invoke(Gateway.java:238) [py4j-0.10.9.7.jar:?]
+	at py4j.commands.ConstructorCommand.invokeConstructor(ConstructorCommand.java:80) [py4j-0.10.9.7.jar:?]
+	at py4j.commands.ConstructorCommand.execute(ConstructorCommand.java:69) [py4j-0.10.9.7.jar:?]
+	at py4j.ClientServerConnection.waitForCommands(ClientServerConnection.java:182) [py4j-0.10.9.7.jar:?]
+	at py4j.ClientServerConnection.run(ClientServerConnection.java:106) [py4j-0.10.9.7.jar:?]
+	at java.lang.Thread.run(Thread.java:840) [?:?]
+26/05/05 11:55:15 WARN RapidsExecutorPlugin: nvidia-smi process failed
+java.io.IOException: Cannot run program "nvidia-smi": error=2, No such file or directory
+	at java.lang.ProcessBuilder.start(ProcessBuilder.java:1143) ~[?:?]
+	at java.lang.ProcessBuilder.start(ProcessBuilder.java:1073) ~[?:?]
+	at scala.sys.process.ProcessBuilderImpl$Simple.run(ProcessBuilderImpl.scala:75) ~[scala-library-2.12.18.jar:?]
+	at scala.sys.process.ProcessBuilderImpl$AbstractBuilder.run(ProcessBuilderImpl.scala:106) ~[scala-library-2.12.18.jar:?]
+	at scala.sys.process.ProcessBuilderImpl$AbstractBuilder.run(ProcessBuilderImpl.scala:105) ~[scala-library-2.12.18.jar:?]
+	at com.nvidia.spark.rapids.RapidsExecutorPlugin.logGpuDebugInfoAndExit(Plugin.scala:717) ~[spark352/:?]
+	at com.nvidia.spark.rapids.RapidsExecutorPlugin.init(Plugin.scala:648) ~[spark352/:?]
+	at org.apache.spark.internal.plugin.ExecutorPluginContainer.$anonfun$executorPlugins$1(PluginContainer.scala:125) ~[spark-core_2.12-3.5.2.jar:3.5.2]
+	at scala.collection.TraversableLike.$anonfun$flatMap$1(TraversableLike.scala:293) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.mutable.ResizableArray.foreach(ResizableArray.scala:62) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.mutable.ResizableArray.foreach$(ResizableArray.scala:55) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.mutable.ArrayBuffer.foreach(ArrayBuffer.scala:49) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.TraversableLike.flatMap(TraversableLike.scala:293) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.TraversableLike.flatMap$(TraversableLike.scala:290) ~[scala-library-2.12.18.jar:?]
+	at scala.collection.AbstractTraversable.flatMap(Traversable.scala:108) ~[scala-library-2.12.18.jar:?]
+	at org.apache.spark.internal.plugin.ExecutorPluginContainer.<init>(PluginContainer.scala:113) ~[spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.internal.plugin.PluginContainer$.apply(PluginContainer.scala:211) ~[spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.internal.plugin.PluginContainer$.apply(PluginContainer.scala:199) ~[spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.executor.Executor.$anonfun$plugins$1(Executor.scala:337) ~[spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.util.Utils$.withContextClassLoader(Utils.scala:178) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.executor.Executor.<init>(Executor.scala:337) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.scheduler.local.LocalEndpoint.<init>(LocalSchedulerBackend.scala:64) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.scheduler.local.LocalSchedulerBackend.start(LocalSchedulerBackend.scala:132) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.scheduler.TaskSchedulerImpl.start(TaskSchedulerImpl.scala:235) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.SparkContext.<init>(SparkContext.scala:599) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at org.apache.spark.api.java.JavaSparkContext.<init>(JavaSparkContext.scala:58) [spark-core_2.12-3.5.2.jar:3.5.2]
+	at jdk.internal.reflect.NativeConstructorAccessorImpl.newInstance0(Native Method) ~[?:?]
+	at jdk.internal.reflect.NativeConstructorAccessorImpl.newInstance(NativeConstructorAccessorImpl.java:77) [?:?]
+	at jdk.internal.reflect.DelegatingConstructorAccessorImpl.newInstance(DelegatingConstructorAccessorImpl.java:45) [?:?]
+	at java.lang.reflect.Constructor.newInstanceWithCaller(Constructor.java:500) [?:?]
+	at java.lang.reflect.Constructor.newInstance(Constructor.java:481) [?:?]
+	at py4j.reflection.MethodInvoker.invoke(MethodInvoker.java:247) [py4j-0.10.9.7.jar:?]
+	at py4j.reflection.ReflectionEngine.invoke(ReflectionEngine.java:374) [py4j-0.10.9.7.jar:?]
+	at py4j.Gateway.invoke(Gateway.java:238) [py4j-0.10.9.7.jar:?]
+	at py4j.commands.ConstructorCommand.invokeConstructor(ConstructorCommand.java:80) [py4j-0.10.9.7.jar:?]
+	at py4j.commands.ConstructorCommand.execute(ConstructorCommand.java:69) [py4j-0.10.9.7.jar:?]
+	at py4j.ClientServerConnection.waitForCommands(ClientServerConnection.java:182) [py4j-0.10.9.7.jar:?]
+	at py4j.ClientServerConnection.run(ClientServerConnection.java:106) [py4j-0.10.9.7.jar:?]
+	at java.lang.Thread.run(Thread.java:840) [?:?]
+Caused by: java.io.IOException: error=2, No such file or directory
+	at java.lang.ProcessImpl.forkAndExec(Native Method) ~[?:?]
+	at java.lang.ProcessImpl.<init>(ProcessImpl.java:314) ~[?:?]
+	at java.lang.ProcessImpl.start(ProcessImpl.java:244) ~[?:?]
+	at java.lang.ProcessBuilder.start(ProcessBuilder.java:1110) ~[?:?]
+	... 38 more
+26/05/05 11:55:15 INFO RapidsExecutorPlugin: Halting after 40 seconds

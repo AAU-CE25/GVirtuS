@@ -228,7 +228,7 @@ run-spark-frontend:
 		-v ./examples/spark_simple_matrix/src:/app/src \
 		-v ./examples/spark_simple_matrix/results:/app/results \
 		-v ./examples/spark_simple_matrix/logs/frontend:/app/logs \
-		-v $$(pwd)/$(RAPIDS_JARS):/app/jars \
+		-v $(RAPIDS_JARS):/app/jars \
 		-v ./examples/spark_simple_matrix/entrypoint.sh:/entrypoint.sh \
 		-v ./etc/properties.json:/opt/GVirtuS/etc/properties.json \
 		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
