@@ -1,4 +1,4 @@
-.PHONY: docker-build-push-dev docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test run-spark-local-cpu run-spark-local-rapids docker-build-spark run-spark-docker-cpu run-spark-docker-rapids run-spark-gvirtus test-spark-gvirtus stop-spark-simple-matrix
+.PHONY: docker-build-push-dev docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test run-spark-local-cpu run-spark-local-rapids docker-build-spark run-spark-docker-cpu run-spark-docker-rapids run-spark-gvirtus test-spark-gvirtus stop-spark-simple-matrix docker-build-frontend run-simple-matrix-frontend run-spark-frontend
 USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
 DOCKER_HUB_USERNAME ?= aauce25
 
@@ -184,73 +184,56 @@ run-spark-local-rapids:
 		--overwrite yes \
 		--minimal
 
-# ── 2. DOCKER WITH LOCAL GPU (--runtime=nvidia) ──
-# Requirements: Docker, NVIDIA Container Toolkit, local GPU
 
-run-spark-docker-cpu:
-	mkdir -p $(SPARK_MATRIX_DIR)/logs/docker-cpu
+# ═══════════════════════════════════════════════════════════════════════════════
+# Frontend-only image (no GPU/CUDA runtime needed on client)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+DOCKER_FRONTEND := $(DOCKER_HUB_USERNAME)/gvirtus-frontend:latest
+
+docker-build-frontend:
+	docker buildx build \
+		--platform linux/amd64 \
+		--push \
+		--no-cache \
+		-f docker/frontend/Dockerfile \
+		-t $(DOCKER_FRONTEND) \
+		.
+
+run-simple-matrix-frontend:
 	docker run --rm \
-		--name spark-simple-matrix-$(USER) \
+		--name simple-matrix-frontend-$(USER) \
 		--network host \
-		-v ./$(SPARK_MATRIX_DIR)/src:/app/src \
-		-v ./$(SPARK_MATRIX_DIR)/results:/app/results \
-		-v $(RAPIDS_JARS):/app/jars \
-		-v ./$(SPARK_MATRIX_DIR)/logs/docker-cpu:/app/logs \
-		-e PYSPARK_PYTHON=python3 \
-		-e PYSPARK_DRIVER_PYTHON=python3 \
-		--shm-size=8G \
-		$(DOCKER_SPARK) docker --mode cpu --overwrite yes
-
-run-spark-docker-rapids:
-	mkdir -p $(SPARK_MATRIX_DIR)/logs/docker-rapids
-	docker run --rm \
-		-it \
-		--network host \
-		--privileged \
-		-v ./$(SPARK_MATRIX_DIR)/src:/app/src \
-		-v ./$(SPARK_MATRIX_DIR)/results:/app/results \
-		-v $(RAPIDS_JARS):/app/jars \
-		-v ./$(SPARK_MATRIX_DIR)/logs/docker-rapids:/app/logs \
-		-e PYSPARK_PYTHON=python3 \
-		-e PYSPARK_DRIVER_PYTHON=python3 \
-		--name spark-simple-matrix-$(USER) \
-		--runtime=nvidia \
-		--shm-size=8G \
-		$(DOCKER_SPARK) docker --mode rapids --overwrite yes --minimal
-
-# ── 3. DOCKER WITH GVIRTUS (no local GPU, remote via GVirtuS) ──
-# Requirements: Docker, GVirtuS backend running on remote host
-# Same image, different entrypoint args → JVM uses GVirtuS stubs
-
-run-spark-gvirtus:
-	mkdir -p $(SPARK_MATRIX_DIR)/logs/gvirtus
-	docker run --rm \
-		--name spark-simple-matrix-gvirtus-$(USER) \
-		--network host \
-		-v ./$(SPARK_MATRIX_DIR)/src:/app/src \
-		-v ./$(SPARK_MATRIX_DIR)/results:/app/results \
-		-v $(RAPIDS_JARS):/app/jars \
-		-v ./$(SPARK_MATRIX_DIR)/logs/gvirtus:/app/logs \
-		-v ./$(SPARK_MATRIX_DIR)/entrypoint.sh:/entrypoint.sh \
-		-v ./etc/properties.json:/opt/GVirtuS/etc/properties.json \
-		-e PYSPARK_PYTHON=python3 \
-		-e PYSPARK_DRIVER_PYTHON=python3 \
-		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
-		--shm-size=8G \
-		$(DOCKER_SPARK) gvirtus --mode rapids --overwrite yes --minimal
-
-# Quick GVirtuS connectivity test (no Spark, just cudaGetDeviceCount etc.)
-test-spark-gvirtus:
-	docker run --rm \
-		--name spark-gvirtus-test-$(USER) \
-		--network host \
-		-v ./$(SPARK_MATRIX_DIR)/src:/app/src \
-		-v $(RAPIDS_JARS):/app/jars \
-		-v ./$(SPARK_MATRIX_DIR)/entrypoint.sh:/entrypoint.sh \
+		-v ./examples/simple_matrix:/opt/GVirtuS/examples \
 		-v ./etc/properties.json:/opt/GVirtuS/etc/properties.json \
 		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
-		$(DOCKER_SPARK) --test
+		$(DOCKER_FRONTEND) \
+		bash /opt/GVirtuS/examples/frontend.sh
 
-stop-spark-simple-matrix:
-	docker stop spark-simple-matrix-$(USER) || true
-	docker stop spark-simple-matrix-gvirtus-$(USER) || true
+DOCKER_SPARK_FRONTEND := $(DOCKER_HUB_USERNAME)/spark-gvirtus-frontend:latest
+
+docker-build-spark-frontend:
+	docker buildx build \
+		--platform linux/amd64 \
+		--no-cache \
+		-f examples/spark_simple_matrix/Dockerfile.frontend \
+		-t $(DOCKER_SPARK_FRONTEND) \
+		examples/spark_simple_matrix
+
+run-spark-frontend:
+	mkdir -p examples/spark_simple_matrix/logs/frontend
+	docker run --rm \
+		--name spark-frontend-$(USER) \
+		--network host \
+		-v ./examples/spark_simple_matrix/src:/app/src \
+		-v ./examples/spark_simple_matrix/results:/app/results \
+		-v ./examples/spark_simple_matrix/logs/frontend:/app/logs \
+		-v $$(pwd)/$(RAPIDS_JARS):/app/jars \
+		-v ./examples/spark_simple_matrix/entrypoint.sh:/entrypoint.sh \
+		-v ./etc/properties.json:/opt/GVirtuS/etc/properties.json \
+		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
+		-e PYSPARK_PYTHON=python3 \
+		-e PYSPARK_DRIVER_PYTHON=python3 \
+		--shm-size=8G \
+		$(DOCKER_SPARK_FRONTEND) \
+		gvirtus --mode rapids --overwrite yes --minimal

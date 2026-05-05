@@ -57,3 +57,18 @@ source spark-venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
+
+
+
+# ── Extract RAPIDS native libs from JAR (needed for both modes) ──
+if [[ -f "$RAPIDS_JAR" ]] && [[ ! -d "$NATIVE_DIR" ]]; then
+    mkdir -p "$NATIVE_DIR"
+    unzip -q -j "$RAPIDS_JAR" "amd64/Linux/*.so" -d "$NATIVE_DIR" 2>/dev/null || true
+    
+    if [[ -f "$NATIVE_DIR/libnvcomp.so" ]]; then
+        ln -sf libnvcomp.so "$NATIVE_DIR/libnvcomp.so.5"
+        ln -sf libnvcomp.so "$NATIVE_DIR/libnvcomp.so.4"
+    fi
+    
+    [[ -f "$NATIVE_DIR/libcudf.so" ]] && echo "Extracted RAPIDS native libs to $NATIVE_DIR" >&2
+fi

@@ -21,13 +21,12 @@ RAPIDS_JAR_PATH_DOCKER = "/app/jars/rapids-4-spark_2.12-26.02.1.jar"
 
 # ── Spark config (CPU-only, no RAPIDS plugin enabled) ──
 # JAR is on classpath so the JVM doesn't need to restart when switching modes.
-SPARK_MASTER = "local[4]"
+SPARK_MASTER = "local[1]"
 
 # ── GVirtuS-specific RAPIDS config ──
 # These settings ensure Spark executors use GVirtuS frontend libs
 GVIRTUS_HOME_PATH = "/opt/GVirtuS"
 GVIRTUS_LIB_PATH = f"{GVIRTUS_HOME_PATH}/lib/frontend:{GVIRTUS_HOME_PATH}/lib"
-RAPIDS_NATIVE_PATH = "/tmp/rapids-native"  # Extracted by entrypoint from JAR
 
 # Path to log4j2.properties (same directory as this file)
 import os
@@ -55,8 +54,8 @@ def build_spark_rapids_config(jar_path):
         ("spark.rapids.sql.castStringToFloat.enabled", "false"),
         ("spark.rapids.sql.expression.HiveSimpleUDF", "false"),
         ("spark.rapids.memory.gpu.state.debug.enabled", "true"),
-        ("spark.executor.extraLibraryPath", f"{GVIRTUS_LIB_PATH}:{RAPIDS_NATIVE_PATH}"),
-        ("spark.driver.extraLibraryPath", f"{GVIRTUS_LIB_PATH}:{RAPIDS_NATIVE_PATH}"),
+        ("spark.executor.extraLibraryPath", f"{GVIRTUS_LIB_PATH}"),
+        ("spark.driver.extraLibraryPath", f"{GVIRTUS_LIB_PATH}"),
     ]
 
 def get_spark_config(env, compute_mode):

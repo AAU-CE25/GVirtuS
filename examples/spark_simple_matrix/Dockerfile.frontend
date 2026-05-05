@@ -1,0 +1,22 @@
+## Spark + RAPIDS on GVirtuS frontend base image
+FROM aauce25/gvirtus-frontend:latest
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt update && apt install -y --no-install-recommends \
+    openjdk-17-jre-headless \
+    python3 \
+    python3-pip \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+
+COPY requirements.txt /tmp/requirements.txt
+RUN pip3 install --no-cache-dir -r /tmp/requirements.txt && rm /tmp/requirements.txt
+
+WORKDIR /app/src
+
+ENV GVIRTUS_LOGLEVEL=20000
+
+ENTRYPOINT ["/entrypoint.sh"]
