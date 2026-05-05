@@ -1,29 +1,39 @@
-##  1. Configuration
+# Spark Simple Matrix (RAPIDS + GVirtuS)
 
-### RAPIDS JAR
+Matrix multiplication benchmark using Apache Spark with optional RAPIDS GPU acceleration via GVirtuS.
 
-The RAPIDS Accelerator JAR must be placed in a `jars/` folder at the project root:
+## Prerequisites
+
+- Python 3.10+, Java 17+
+- RAPIDS JAR in a `jars/` directory (sibling to the GVirtuS repo):
 
 ```bash
-mkdir -p jars
-wget -P jars/ https://repo1.maven.org/maven2/com/nvidia/rapids-4-spark_2.12/26.02.1/rapids-4-spark_2.12-26.02.1.jar
+mkdir -p ../jars
+wget -P ../jars/ https://repo1.maven.org/maven2/com/nvidia/rapids-4-spark_2.12/26.02.1/rapids-4-spark_2.12-26.02.1.jar
 ```
 
-### 2. Run (from GVirtuS root directory)
+For local (non-Docker) runs, create a venv:
 
-| Mode | Command | Description |
-|------|---------|-------------|
-| **Local Native** | `make run-spark-local` | Run directly on host (CPU + RAPIDS) |
-| | `make run-spark-local-cpu` | CPU only |
-| | `make run-spark-local-rapids` | RAPIDS GPU only |
-| **Docker Local** | `make run-spark-docker-local` | Docker with local GPU (CPU + RAPIDS) |
-| | `make run-spark-docker-local-cpu` | Docker, CPU only |
-| | `make run-spark-docker-local-rapids` | Docker, RAPIDS GPU only |
-| **Docker GVirtuS** | `make run-spark-docker-gvirtus` | Docker with remote GPU via GVirtuS |
+```bash
+cd ~/GVirtuS/examples/spark_simple_matrix
+python3 -m venv spark-venv && source spark-venv/bin/activate
+pip install -r requirements.txt
+```
 
-### 3. Check Results
+## Run (from GVirtuS root)
 
-Results are saved to `results/sf{N}/simple_matrix_{env}_{mode}_results.json`.
+| Mode | Command | Requirements |
+|------|---------|--------------|
+| Local CPU | `make run-spark-local-cpu` | Host Python + Java + venv |
+| Local RAPIDS | `make run-spark-local-rapids` | + NVIDIA GPU + driver |
+| GVirtuS Frontend | `make run-spark-frontend` | Docker + GVirtuS backend running |
+
+### Build images (one-time)
+
+```bash
+make docker-build-frontend         # Base GVirtuS frontend image
+make docker-build-spark-frontend   # Adds Java + PySpark on top
+```
 
 ## Configuration
 
@@ -31,32 +41,25 @@ Edit `src/config.py`:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `SCALE_FACTOR` | 1 | Matrix size = 100 x SCALE_FACTOR |
-| `SPARK_MASTER` | `local[4]` | Spark master URL |
+| `SCALE_FACTOR` | 1 | Matrix size = 100 × SCALE_FACTOR |
+| `SPARK_MASTER` | `local[1]` | Spark master URL |
 | `LOG_LEVEL` | `DEBUG` | Python logging level |
 
 ## CLI Options
 
-| Option | Choices | Default | Description |
-|--------|---------|---------|-------------|
-| `env` | `local`, `docker`, `gvirtus` | `local` | Execution environment |
-| `--mode` | `cpu`, `rapids` | `cpu` | Execution mode |
-| `--overwrite` | `yes`, `no` | `yes` | Overwrite results file, or merge into existing |
-
-## Prerequisites
-
-- **Local Native**: Python 3.10+, Java 17+, NVIDIA GPU + driver
-- **Docker Local**: Docker, NVIDIA Container Toolkit
-- **Docker GVirtuS**: Docker, GVirtuS backend running on remote host
-
-
-```bash
-cd ~/GVirtuS/examples/spark_simple_matrix
-python3 -m venv spark-venv
-source spark-venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
 ```
+python3 simple_matrix.py <env> [--mode cpu|rapids] [--overwrite yes|no] [--minimal]
+```
+
+| `env` | `local`, `docker`, `gvirtus` | — | Execution environment |
+| `--mode` | `cpu`, `rapids` | `cpu` | Compute mode |
+| `--overwrite` | `yes`, `no` | `yes` | Overwrite or merge results |
+| `--minimal` | flag | off | Run small GPU test before full benchmark |
+
+## Output
+
+Results: `results/sf{N}/simple_matrix_{env}_{mode}_results.json`
+Logs: `logs/{env}/`
 
 
 
