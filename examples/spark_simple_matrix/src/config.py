@@ -16,8 +16,8 @@ SPARK_LOG_LEVEL = "DEBUG"  # Suppress Spark's verbose Java logs
 DATA_DIR = f"/data/wg38up/spark_simple_matrix/sf{SCALE_FACTOR}"
 RESULTS_DIR = f"../results/sf{SCALE_FACTOR}"
 
-RAPIDS_JAR_PATH_HOST = "/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.13-26.04.0-cuda13.jar"
-RAPIDS_JAR_PATH_DOCKER = "/app/jars/rapids-4-spark_2.13-26.04.0-cuda13.jar"
+RAPIDS_JAR_PATH_HOST = "/home/student.aau.dk/wg38up/jars/rapids-4-spark_2.13-26.04.0.jar"
+RAPIDS_JAR_PATH_DOCKER = "/app/jars/rapids-4-spark_2.13-26.04.0.jar"
 
 # ── Spark config (CPU-only, no RAPIDS plugin enabled) ──
 # JAR is on classpath so the JVM doesn't need to restart when switching modes.
