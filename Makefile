@@ -2,8 +2,9 @@
 USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
 DOCKER_HUB_USERNAME ?= entr# change username for local dev!
 
-GVIRTUS_LOG_LEVEL ?= 20000
-GVIRTUS_UCX_DATAPATH ?= tag-framed
+
+GVIRTUS_LOG_LEVEL ?= 10000
+GVIRTUS_UCX_DATAPATH ?= am
 UCX_TLS ?= tcp,self
 UCX_NET_DEVICES ?= ens1f1np1
 UCX_LOG_LEVEL ?= info
