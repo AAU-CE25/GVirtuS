@@ -133,6 +133,9 @@ void UcxCommunicator::init_ucx() {
 
     // Initialize UCX context/worker and register the AM receive callback.
     am_id_ = kUcxAmId;
+    if (!am_state_) {
+        am_state_ = std::make_shared<AmState>();
+    }
 
     ucp_params_t ucp_params{};
     ucp_params.field_mask = UCP_PARAM_FIELD_FEATURES;
@@ -299,25 +302,25 @@ void UcxCommunicator::wait_request_completion(void *request, const char *op_name
 void UcxCommunicator::enqueue_am_message(std::vector<unsigned char> message) {
     // Store a completed AM payload for stream-style Read().
     {
-        std::lock_guard<std::mutex> lock(am_mutex_);
-        am_queue_.push_back(std::move(message));
+        std::lock_guard<std::mutex> lock(am_state_->mutex);
+        am_state_->queue.push_back(std::move(message));
     }
-    am_cv_.notify_one();
+    am_state_->cv.notify_one();
 }
 
 void UcxCommunicator::enqueue_am_rndv(void *request, std::vector<unsigned char> buffer) {
     // Track a rendezvous receive until UCX reports completion.
-    std::lock_guard<std::mutex> lock(am_mutex_);
-    am_rndv_.push_back(PendingAmRecv{request, std::move(buffer)});
+    std::lock_guard<std::mutex> lock(am_state_->mutex);
+    am_state_->rndv.push_back(PendingAmRecv{request, std::move(buffer)});
 }
 
 void UcxCommunicator::progress_am_rndv() {
     // Check rendezvous receive requests and move completed payloads into the queue.
-    std::lock_guard<std::mutex> lock(am_mutex_);
-    for (auto it = am_rndv_.begin(); it != am_rndv_.end();) {
+    std::lock_guard<std::mutex> lock(am_state_->mutex);
+    for (auto it = am_state_->rndv.begin(); it != am_state_->rndv.end();) {
         if (it->request == nullptr) {
-            am_queue_.push_back(std::move(it->buffer));
-            it = am_rndv_.erase(it);
+            am_state_->queue.push_back(std::move(it->buffer));
+            it = am_state_->rndv.erase(it);
             continue;
         }
 
@@ -329,13 +332,13 @@ void UcxCommunicator::progress_am_rndv() {
 
         ucp_request_free(it->request);
         if (status == UCS_OK) {
-            am_queue_.push_back(std::move(it->buffer));
-            am_cv_.notify_one();
+            am_state_->queue.push_back(std::move(it->buffer));
+            am_state_->cv.notify_one();
         } else {
             std::fprintf(stderr, "UCX AM rendezvous receive failed: %s\n",
                          ucs_status_string(status));
         }
-        it = am_rndv_.erase(it);
+        it = am_state_->rndv.erase(it);
     }
 }
 
@@ -384,6 +387,7 @@ const gvirtus::communicators::Communicator *const UcxCommunicator::Accept() cons
     accepted->owns_context_worker_listener_ = false;
     accepted->running_ = true;
     accepted->worker_mutex_ = self->worker_mutex_;
+    accepted->am_state_ = self->am_state_;
     accepted->endpoint_failed_.store(false);
 
     ucp_ep_params_t ep_params{};
@@ -443,6 +447,7 @@ size_t UcxCommunicator::Read(char *buffer, size_t size) {
     }
 
     // Drain AM queue into the caller buffer, preserving stream semantics.
+    // Busy-poll to keep ucp_worker_progress() running continuously.
     size_t copied = 0;
     while (copied < size) {
         if (pending_read_offset_ < pending_read_bytes_.size()) {
@@ -461,10 +466,10 @@ size_t UcxCommunicator::Read(char *buffer, size_t size) {
         }
 
         {
-            std::unique_lock<std::mutex> lock(am_mutex_);
-            if (!am_queue_.empty()) {
-                pending_read_bytes_ = std::move(am_queue_.front());
-                am_queue_.pop_front();
+            std::unique_lock<std::mutex> lock(am_state_->mutex);
+            if (!am_state_->queue.empty()) {
+                pending_read_bytes_ = std::move(am_state_->queue.front());
+                am_state_->queue.pop_front();
                 pending_read_offset_ = 0;
                 continue;
             }
@@ -481,12 +486,6 @@ size_t UcxCommunicator::Read(char *buffer, size_t size) {
             return copied == 0 ? 0 : copied;
         }
 
-        {
-            std::unique_lock<std::mutex> lock(am_mutex_);
-            if (am_queue_.empty()) {
-                am_cv_.wait_for(lock, std::chrono::microseconds(200));
-            }
-        }
     }
 
     return size;

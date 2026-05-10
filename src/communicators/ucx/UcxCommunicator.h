@@ -56,6 +56,13 @@ class UcxCommunicator : public Communicator {
         std::vector<unsigned char> buffer;
     };
 
+    struct AmState {
+        std::mutex mutex;
+        std::condition_variable cv;
+        std::deque<std::vector<unsigned char>> queue;
+        std::vector<PendingAmRecv> rndv;
+    };
+
     std::string hostname_;
     std::uint16_t port_{};
     ucp_context_h context_{nullptr};
@@ -73,10 +80,7 @@ class UcxCommunicator : public Communicator {
     std::shared_ptr<std::mutex> worker_mutex_{std::make_shared<std::mutex>()};
 
     unsigned am_id_{1};
-    std::mutex am_mutex_;
-    std::condition_variable am_cv_;
-    std::deque<std::vector<unsigned char>> am_queue_;
-    std::vector<PendingAmRecv> am_rndv_;
+    std::shared_ptr<AmState> am_state_{std::make_shared<AmState>()};
 
     std::vector<unsigned char> pending_read_bytes_;
     size_t pending_read_offset_{0};
