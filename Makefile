@@ -1,10 +1,11 @@
 .PHONY: docker-build-push-dev local-docker-build-backend docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test local-docker-build-simple-matrix
 USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
-DOCKER_HUB_USERNAME ?= entr# change username for local dev!
+DOCKER_HUB_USERNAME ?= ul11nh# change username for local dev!
 
 
 GVIRTUS_LOG_LEVEL ?= 10000
 GVIRTUS_UCX_DATAPATH ?= am
+GVIRTUS_CONFIG_FILE ?= properties_ucx.json
 UCX_TLS ?= tcp,self
 UCX_NET_DEVICES ?= ens1f1np1
 UCX_LOG_LEVEL ?= info
@@ -179,7 +180,7 @@ run-simple-matrix-test:
 		--device /dev/infiniband \
 		--cap-add IPC_LOCK \
 		--ulimit memlock=-1 \
-		-e GVIRTUS_CONFIG=/opt/GVirtuS/etc/properties_ucx.json \
+		-e GVIRTUS_CONFIG=/opt/GVirtuS/etc/$(GVIRTUS_CONFIG_FILE) \
 		-e GVIRTUS_UCX_DATAPATH=$(GVIRTUS_UCX_DATAPATH) \
 		-e UCX_TLS=$(UCX_TLS) \
 		-e UCX_NET_DEVICES=$(UCX_NET_DEVICES) \
@@ -187,7 +188,7 @@ run-simple-matrix-test:
 		-e UCX_SOCKADDR_TLS_PRIORITY=$(UCX_SOCKADDR_TLS_PRIORITY) \
 		$(if $(UCX_IB_GID_INDEX),-e UCX_IB_GID_INDEX=$(UCX_IB_GID_INDEX)) \
 		-v ./examples/simple_matrix:/opt/GVirtuS/examples \
-		-v ./etc/properties_ucx.json:/opt/GVirtuS/etc/properties_ucx.json \
+		-v ./etc/$(GVIRTUS_CONFIG_FILE):/opt/GVirtuS/etc/$(GVIRTUS_CONFIG_FILE) \
 		$(DOCKER_REPO_DEV)/simple_matrix_gvirtus:cuda12.6 \
 		bash /opt/GVirtuS/examples/frontend.sh
 

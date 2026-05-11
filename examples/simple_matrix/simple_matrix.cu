@@ -1,50 +1,86 @@
 #include <iostream>
+#include <cstdlib>
+#include <cstring>
+#include <chrono>
 #include <cublas_v2.h>
 
+using clk = std::chrono::steady_clock;
+
+static long ms(clk::time_point a, clk::time_point b) {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(b - a).count();
+}
+
 int main() {
-    // Matrix A (2x3)
-    float A[6] = {1, 2, 3, 4, 5, 6};
-    // Matrix B (3x2)
-    float B[6] = {7, 8, 9, 10, 11, 12};
-    // Matrix C (2x2), the result
-    float C[4] = {0};
+    // Matrix size: N x N, configurable via MATRIX_N env var (default 512)
+    const char *env_n = std::getenv("MATRIX_N");
+    int N = env_n ? std::atoi(env_n) : 512;
+    if (N <= 0) N = 512;
 
+    std::cerr << "BENCHMARK_MATRIX_N=" << N << std::endl;
+
+    size_t elems = (size_t)N * N;
+    size_t bytes = elems * sizeof(float);
+
+    // ── malloc ────────────────────────────────────────────────────────────────
+    auto t0 = clk::now();
+    float *h_A = new float[elems];
+    float *h_B = new float[elems];
+    float *h_C = new float[elems];
+    for (size_t i = 0; i < elems; i++) { h_A[i] = 1.0f; h_B[i] = 1.0f; h_C[i] = 0.0f; }
+    auto t1 = clk::now();
+    std::cerr << "STAGE_MALLOC_MS=" << ms(t0, t1) << std::endl;
+
+    // ── H2D ──────────────────────────────────────────────────────────────────
     float *d_A, *d_B, *d_C;
-    const float alpha = 1.0f;
-    const float beta = 0.0f;
+    cudaMalloc((void **)&d_A, bytes);
+    cudaMalloc((void **)&d_B, bytes);
+    cudaMalloc((void **)&d_C, bytes);
+    auto t2 = clk::now();
+    cudaMemcpy(d_A, h_A, bytes, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_B, h_B, bytes, cudaMemcpyHostToDevice);
+    auto t3 = clk::now();
+    std::cerr << "STAGE_H2D_MS=" << ms(t2, t3) << std::endl;
 
-    // Allocate device memory
-    cudaMalloc((void **)&d_A, 6 * sizeof(float));
-    cudaMalloc((void **)&d_B, 6 * sizeof(float));
-    cudaMalloc((void **)&d_C, 4 * sizeof(float));
-
-    // Copy matrices from host to device
-    cudaMemcpy(d_A, A, 6 * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_B, B, 6 * sizeof(float), cudaMemcpyHostToDevice);
-
-    // Create cuBLAS handle
+    // ── cublasCreate ─────────────────────────────────────────────────────────
     cublasHandle_t handle;
+    auto t4 = clk::now();
     cublasCreate(&handle);
+    auto t5 = clk::now();
+    std::cerr << "STAGE_CUBLAS_CREATE_MS=" << ms(t4, t5) << std::endl;
 
-    // Perform matrix multiplication: C = alpha * A * B + beta * C
-    // A: 2x3, B: 3x2, C: 2x2
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, 2, 2, 3, &alpha, d_A, 2, d_B, 3, &beta, d_C, 2);
+    // ── SGEMM: C = A * B ─────────────────────────────────────────────────────
+    const float alpha = 1.0f, beta = 0.0f;
+    auto t6 = clk::now();
+    cublasSgemm(handle,
+                CUBLAS_OP_N, CUBLAS_OP_N,
+                N, N, N,
+                &alpha, d_A, N, d_B, N,
+                &beta,  d_C, N);
+    auto t7 = clk::now();
+    std::cerr << "STAGE_GEMM_MS=" << ms(t6, t7) << std::endl;
 
-    // Copy result back to host
-    cudaMemcpy(C, d_C, 4 * sizeof(float), cudaMemcpyDeviceToHost);
+    // ── D2H ──────────────────────────────────────────────────────────────────
+    auto t8 = clk::now();
+    cudaMemcpy(h_C, d_C, bytes, cudaMemcpyDeviceToHost);
+    auto t9 = clk::now();
+    std::cerr << "STAGE_D2H_MS=" << ms(t8, t9) << std::endl;
 
-    // Print result
-    std::cout << "Matrix C: ";
-    for (int i = 0; i < 4; i++) {
-        std::cout << C[i] << " ";
-    }
-    std::cout << std::endl;
-
-    // Free resources
+    // ── cleanup ───────────────────────────────────────────────────────────────
+    auto t10 = clk::now();
     cublasDestroy(handle);
     cudaFree(d_A);
     cudaFree(d_B);
     cudaFree(d_C);
+    delete[] h_A;
+    delete[] h_B;
+    delete[] h_C;
+    auto t11 = clk::now();
+    std::cerr << "STAGE_CLEANUP_MS=" << ms(t10, t11) << std::endl;
 
+    // ── total ─────────────────────────────────────────────────────────────────
+    long total = ms(t0, t11);
+    std::cerr << "BENCHMARK_RESULT_MS=" << total << std::endl;
+
+    std::cout << "OK N=" << N << " total_ms=" << total << std::endl;
     return 0;
 }
