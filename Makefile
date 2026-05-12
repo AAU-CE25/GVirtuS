@@ -84,6 +84,7 @@ run-gvirtus-backend-dev:
 		--runtime=nvidia \
 		--shm-size=8G \
 		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
+		-e GVIRTUS_CONFIG_FILE=$(GVIRTUS_CONFIG_FILE) \
 		-e GVIRTUS_UCX_DATAPATH=$(GVIRTUS_UCX_DATAPATH) \
 		-e UCX_TLS=$(UCX_TLS) \
 		-e UCX_NET_DEVICES=$(UCX_NET_DEVICES) \
@@ -182,6 +183,7 @@ run-simple-matrix-test:
 		--ulimit memlock=-1 \
 		-e GVIRTUS_CONFIG=/opt/GVirtuS/etc/$(GVIRTUS_CONFIG_FILE) \
 		-e GVIRTUS_UCX_DATAPATH=$(GVIRTUS_UCX_DATAPATH) \
+		-e GVIRTUS_CONFIG_FILE=$(GVIRTUS_CONFIG_FILE) \
 		-e UCX_TLS=$(UCX_TLS) \
 		-e UCX_NET_DEVICES=$(UCX_NET_DEVICES) \
 		-e UCX_LOG_LEVEL=$(UCX_LOG_LEVEL) \
