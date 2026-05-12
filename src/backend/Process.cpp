@@ -95,14 +95,7 @@ bool read_ucx_am_request(Communicator *client_comm,
         return false;
     }
 
-    if (header.magic != gvirtus::communicators::ucxam::kEnvelopeMagic ||
-        header.version != gvirtus::communicators::ucxam::kEnvelopeVersion ||
-        header.header_size != sizeof(gvirtus::communicators::ucxam::EnvelopeHeader)) {
-        error = "invalid AM header";
-        return false;
-    }
-
-    if (header.message_type !=static_cast<uint16_t>(gvirtus::communicators::ucxam::MessageType::Request)) {
+    if (header.message_type != static_cast<uint8_t>(gvirtus::communicators::ucxam::MessageType::Request)) {
         error = "unexpected AM message type";
         return false;
     }
@@ -127,7 +120,7 @@ bool read_ucx_am_request(Communicator *client_comm,
 
 bool write_ucx_am_response(Communicator *client_comm,
                            const gvirtus::communicators::ucxam::EnvelopeHeader &request_header,
-                           int exit_code, double server_exec_sec,
+                           int exit_code,
                            const std::shared_ptr<Buffer> &output_buffer,
                            std::string &error) {
     size_t out_size = 0;
@@ -137,34 +130,22 @@ bool write_ucx_am_response(Communicator *client_comm,
         out_data = output_buffer->GetBuffer();
     }
 
-    const size_t payload_size = sizeof(double) + sizeof(size_t) + out_size;
-    std::vector<unsigned char> payload(payload_size);
-
-    size_t off = 0;
-    std::memcpy(payload.data() + off, &server_exec_sec, sizeof(double));
-    off += sizeof(double);
-    std::memcpy(payload.data() + off, &out_size, sizeof(size_t));
-    off += sizeof(size_t);
-    if (out_size > 0 && out_data != nullptr) {
-        std::memcpy(payload.data() + off, out_data, out_size);
-    }
-
     gvirtus::communicators::ucxam::EnvelopeHeader response_header{};
-    response_header.magic = gvirtus::communicators::ucxam::kEnvelopeMagic;
-    response_header.version = gvirtus::communicators::ucxam::kEnvelopeVersion;
-    response_header.message_type = static_cast<uint16_t>(gvirtus::communicators::ucxam::MessageType::Response);
-    response_header.header_size = static_cast<uint16_t>(sizeof(gvirtus::communicators::ucxam::EnvelopeHeader));
-    response_header.reserved0 = 0;
-    response_header.status_code = static_cast<uint32_t>(exit_code);
+    response_header.message_type = static_cast<uint8_t>(gvirtus::communicators::ucxam::MessageType::Response);
+    response_header.status_code = static_cast<int8_t>(exit_code);
     response_header.request_id = request_header.request_id;
     response_header.routine_size = 0;
-    response_header.payload_size = static_cast<uint64_t>(payload_size);
+    response_header.payload_size = static_cast<uint32_t>(out_size);
+    response_header.reserved = 0;
 
     try {
-        client_comm->Write(reinterpret_cast<const char *>(&response_header), sizeof(response_header));
-        if (!payload.empty()) {
-            client_comm->Write(reinterpret_cast<const char *>(payload.data()), payload.size());
+        // Send header + payload as a single AM frame
+        std::vector<unsigned char> frame(sizeof(response_header) + out_size);
+        std::memcpy(frame.data(), &response_header, sizeof(response_header));
+        if (out_size > 0 && out_data != nullptr) {
+            std::memcpy(frame.data() + sizeof(response_header), out_data, out_size);
         }
+        client_comm->Write(reinterpret_cast<const char *>(frame.data()), frame.size());
         client_comm->Sync();
     } catch (const std::exception &e) {
         error = e.what();
@@ -322,7 +303,7 @@ void Process::Start() {
                     }
 
                     std::string write_error;
-                    if (!write_ucx_am_response(client_comm, request_header, result->GetExitCode(), result->TimeTaken(),
+                    if (!write_ucx_am_response(client_comm, request_header, result->GetExitCode(),
                                                result->GetOutputBuffer(), write_error)) {
                         LOG4CPLUS_WARN(logger,
                                        "UCX AM response write failed: " << write_error);

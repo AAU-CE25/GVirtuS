@@ -1,6 +1,6 @@
 .PHONY: docker-build-push-dev local-docker-build-backend docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test local-docker-build-simple-matrix
 USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
-DOCKER_HUB_USERNAME ?= entr# change username for local dev!
+DOCKER_HUB_USERNAME ?= aauce25
 
 
 GVIRTUS_LOG_LEVEL ?= 10000

@@ -73,7 +73,7 @@ static Frontend msFrontend;
 std::mutex gFrontendMutex;
 map<pthread_t, Frontend *> *Frontend::mpFrontends = NULL;
 static bool initialized = false;
-static std::atomic<std::uint64_t> gUcxAmRequestId{1};
+static std::atomic<std::uint32_t> gUcxAmRequestId{1};
 
 Logger logger;
 
@@ -270,20 +270,17 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
     if (ucx_am_mode) {
         auto start_send = steady_clock::now();
 
-        const std::uint64_t request_id = gUcxAmRequestId.fetch_add(1);
+        const std::uint32_t request_id = gUcxAmRequestId.fetch_add(1);
         const std::size_t routine_size = std::strlen(routine);
         const std::size_t payload_size = input_buffer->GetBufferSize();
 
         gvirtus::communicators::ucxam::EnvelopeHeader req_header{};
-        req_header.magic = gvirtus::communicators::ucxam::kEnvelopeMagic;
-        req_header.version = gvirtus::communicators::ucxam::kEnvelopeVersion;
-        req_header.message_type = static_cast<std::uint16_t>(gvirtus::communicators::ucxam::MessageType::Request);
-        req_header.header_size = static_cast<std::uint16_t>(sizeof(gvirtus::communicators::ucxam::EnvelopeHeader));
-        req_header.reserved0 = 0;
+        req_header.message_type = static_cast<std::uint8_t>(gvirtus::communicators::ucxam::MessageType::Request);
         req_header.status_code = 0;
         req_header.request_id = request_id;
-        req_header.routine_size = static_cast<std::uint64_t>(routine_size);
-        req_header.payload_size = static_cast<std::uint64_t>(payload_size);
+        req_header.routine_size = static_cast<std::uint16_t>(routine_size);
+        req_header.payload_size = static_cast<std::uint32_t>(payload_size);
+        req_header.reserved = 0;
 
         std::vector<unsigned char> request_frame(sizeof(req_header) + routine_size + payload_size);
         std::size_t offset = 0;
@@ -313,49 +310,28 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
             throw std::runtime_error("Frontend UCX AM: failed to read response header");
         }
 
-        if (resp_header.magic != gvirtus::communicators::ucxam::kEnvelopeMagic ||
-            resp_header.version != gvirtus::communicators::ucxam::kEnvelopeVersion ||
-            resp_header.header_size != sizeof(gvirtus::communicators::ucxam::EnvelopeHeader)) {
-            throw std::runtime_error("Frontend UCX AM: invalid response header");
-        }
-
         if (resp_header.request_id != request_id) {
             throw std::runtime_error("Frontend UCX AM: response request_id mismatch");
         }
 
-        std::vector<unsigned char> resp_payload(static_cast<std::size_t>(resp_header.payload_size));
-        if (!resp_payload.empty() &&
-            !read_exact(frontend->_communicator->obj_ptr().get(), reinterpret_cast<char *>(resp_payload.data()), resp_payload.size())) {
-            throw std::runtime_error("Frontend UCX AM: failed to read response payload");
-        }
-
+        const std::size_t out_buffer_size = static_cast<std::size_t>(resp_header.payload_size);
         frontend->mExitCode = static_cast<int>(resp_header.status_code);
         exit_code = frontend->mExitCode;
 
-        const std::size_t fixed_prefix = sizeof(double) + sizeof(size_t);
-        if (resp_payload.size() < fixed_prefix) {
-            throw std::runtime_error("Frontend UCX AM: response payload too small");
-        }
-
-        std::size_t parse_off = 0;
-        std::memcpy(&server_exec_sec, resp_payload.data() + parse_off, sizeof(double));
-        parse_off += sizeof(double);
-
-        size_t out_buffer_size = 0;
-        std::memcpy(&out_buffer_size, resp_payload.data() + parse_off, sizeof(size_t));
-        parse_off += sizeof(size_t);
-
-        if (resp_payload.size() < parse_off + out_buffer_size) {
-            throw std::runtime_error("Frontend UCX AM: output payload size mismatch");
-        }
-
-        frontend->mDataReceived += out_buffer_size;
-        for (size_t i = 0; i < out_buffer_size; ++i) {
-            frontend->mpOutputBuffer->Add<char>(static_cast<char>(resp_payload[parse_off + i]));
+        if (out_buffer_size > 0) {
+            std::vector<unsigned char> resp_payload(out_buffer_size);
+            if (!read_exact(frontend->_communicator->obj_ptr().get(), reinterpret_cast<char *>(resp_payload.data()), resp_payload.size())) {
+                throw std::runtime_error("Frontend UCX AM: failed to read response payload");
+            }
+            frontend->mDataReceived += out_buffer_size;
+            for (size_t i = 0; i < out_buffer_size; ++i) {
+                frontend->mpOutputBuffer->Add<char>(static_cast<char>(resp_payload[i]));
+            }
         }
 
         recv_sec = duration_cast<milliseconds>(steady_clock::now() - start_recv).count() / 1000.0;
 
+        server_exec_sec = 0.0;  // No longer sent in compact protocol
         frontend->mRoutineExecutionTime += server_exec_sec;
         frontend->mSendingTime += send_sec;
         frontend->mReceivingTime += recv_sec;
