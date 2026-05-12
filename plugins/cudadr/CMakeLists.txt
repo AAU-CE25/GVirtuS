@@ -85,6 +85,8 @@ function(configure_cudadr_plugin)
         frontend/CudaDr_virtmemory.cpp
         frontend/CudaDrFrontend.cpp
     )
+    # cuGetProcAddress uses dlopen/dlsym/dladdr to resolve symbols within libcuda.so itself.
+    target_link_libraries(cuda dl)
 
 endfunction()
 

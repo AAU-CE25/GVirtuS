@@ -49,6 +49,8 @@
 
 #include "communicators/hybrid/HybridCommunicator.h"
 #include "log4cplus/configurator.h"
+#include "log4cplus/consoleappender.h"
+#include "log4cplus/layout.h"
 #include "log4cplus/logger.h"
 #include "log4cplus/loggingmacros.h"
 
@@ -78,9 +80,14 @@ std::string getEnvVar(std::string const &key) {
 }
 
 void Frontend::Init(Communicator *c) {
-    // Logger configuration
-    BasicConfigurator basicConfigurator;
-    basicConfigurator.configure();
+    // Logger configuration - use stderr to avoid interfering with stdout
+    SharedAppenderPtr appender(new ConsoleAppender(true, true));  // logToStdErr=true, immediateFlush=true
+    appender->setName(LOG4CPLUS_TEXT("stderr"));
+    appender->setLayout(std::unique_ptr<Layout>(new PatternLayout(
+        LOG4CPLUS_TEXT("%D{%Y-%m-%d %H:%M:%S.%q} [%-5p] [%c] (%b:%L) - %m%n"))));
+    
+    Logger root = Logger::getRoot();
+    root.addAppender(appender);
 
     // Set the logging level
     std::string logLevelString = getEnvVar("GVIRTUS_LOGLEVEL");
@@ -95,7 +102,6 @@ void Frontend::Init(Communicator *c) {
         }
     }
 
-    Logger root = Logger::getRoot();
     root.setLogLevel(logLevel);
 
     logger = Logger::getInstance(LOG4CPLUS_TEXT("Frontend"));
@@ -241,6 +247,7 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
         frontend = it->second;
     }
 
+    LOG4CPLUS_INFO(logger, "CUDA call: " << routine);
     LOG4CPLUS_DEBUG(logger, "DEBUG - Received routine " << routine << " [pid=" << pid
                                                         << ", tid=" << tid << "]");
 
@@ -305,6 +312,9 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
     frontend->mReceivingTime += recv_sec;
 
     // ===== print log =====
+    if (exit_code == -1) {
+        LOG4CPLUS_ERROR(logger, "Unsupported CUDA call: " << routine);
+    }
     LOG4CPLUS_DEBUG(logger, "Routine '" << routine << "' returned " << exit_code
                                         << " | server_exec=" << server_exec_sec << "s"
                                         << " | send=" << send_sec << "s"

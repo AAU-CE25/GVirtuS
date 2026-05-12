@@ -172,7 +172,8 @@ void Process::Start() {
         std::shared_ptr<Buffer> input_buffer = std::make_shared<Buffer>();
 
         while (getstring(client_comm, routine)) {
-            LOG4CPLUS_TRACE(logger, "Received routine " << routine);
+            LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "] Received routine: " << routine);
+            LOG4CPLUS_INFO(logger, "CUDA call: " << routine);
 
             // === before reading buffer, chose the protocol of this round by rountine ===
             gvirtus::communicators::HybridCommunicator *hybrid = nullptr;
@@ -209,8 +210,8 @@ void Process::Start() {
 
             std::shared_ptr<communicators::Result> result;
             if (h == nullptr) {
-                LOG4CPLUS_ERROR(logger, "[Process " << getpid() << "]: Requested unknown routine '"
-                                                    << routine << "'.");
+                LOG4CPLUS_ERROR(logger, "Unsupported CUDA call: " << routine
+                                                    << " (no handler found)");
                 result = std::make_shared<communicators::Result>(-1, std::make_shared<Buffer>());
             } else {
                 auto start = steady_clock::now();

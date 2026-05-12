@@ -33,7 +33,8 @@ class CommunicatorFactory {
         std::cout << "CommunicatorFactory::get_communicator(): found gvirtus home: " << gvirtus_home
                   << std::endl;
 #endif
-        std::cout << "DEBUG: protocol string is [" << end->protocol() << "]" << std::endl;
+        // comented out for interference 
+        // std::cout << "DEBUG: protocol string is [" << end->protocol() << "]" << std::endl;
         // Supported unsecure communicators
         std::vector<std::string> unsecureMatches = {
             "tcp", "http", "oldtcp", "ws", "ib", "hybrid",
