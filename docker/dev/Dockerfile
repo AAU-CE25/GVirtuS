@@ -23,10 +23,10 @@ RUN rm -f /etc/apt/sources.list.d/cuda*.list \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Install UCX with mlx5 support (MOFED build — includes libuct_ib_mlx5.so)
+# Install UCX with mlx5 + CUDA support (install all UCX debs from the bundle)
 RUN wget -q https://github.com/openucx/ucx/releases/download/v1.20.0/ucx-1.20.0-ubuntu22.04-mofed5-cuda12-x86_64.tar.bz2 \
     && tar xf ucx-1.20.0-ubuntu22.04-mofed5-cuda12-x86_64.tar.bz2 \
-    && dpkg -i ucx-1.20.0.deb \
+    && dpkg -i ucx-*.deb \
     && rm -rf ucx-1.20.0* \
     && ldconfig
 
