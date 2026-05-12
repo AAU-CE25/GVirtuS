@@ -197,6 +197,7 @@ local-docker-build-simple-matrix:
 run-simple-matrix-test:
 	docker run --rm \
 		--name simple_matrix_test_container-$(USER) \
+		--gpus all \
 		--network host \
 		--device /dev/infiniband \
 		--cap-add IPC_LOCK \
