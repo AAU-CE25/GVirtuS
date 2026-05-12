@@ -6,6 +6,7 @@ export GVIRTUS_HOME=/opt/GVirtuS
 export EXTRA_NVCCFLAGS='--cudart=shared'
 export GVIRTUS_LOGLEVEL=10000
 export LD_LIBRARY_PATH=${GVIRTUS_HOME}/lib:${GVIRTUS_HOME}/lib/frontend:${LD_LIBRARY_PATH}
+export MATRIX_N="${MATRIX_N:-512}"
 
 # If requested RDMA resources are not available in the container, force UCX to TCP mode.
 # This avoids UCX crashes when mlx5/rdmacm are configured but not usable at runtime.
@@ -42,7 +43,7 @@ cd "${GVIRTUS_HOME}/examples" || { echo "Failed to enter ${GVIRTUS_HOME}/example
 nvcc simple_matrix.cu -o simple_matrix \
     -L${GVIRTUS_HOME}/lib/frontend \
     -L${GVIRTUS_HOME}/lib/ \
-    -lcuda -lcudart -lcublas 
+    -lcuda -lcudart -lcublas
 
 # --- Run the compiled program ---
 ./simple_matrix
