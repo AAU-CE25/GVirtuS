@@ -1,4 +1,4 @@
-.PHONY: docker-build-push-dev local-docker-build-backend docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test local-docker-build-simple-matrix
+.PHONY: docker-build-push-dev local-docker-build-backend docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test local-docker-build-simple-matrix local-docker-build-benchmark run-benchmark stop-benchmark
 USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
 DOCKER_HUB_USERNAME ?= aauce25
 
@@ -6,7 +6,7 @@ DOCKER_HUB_USERNAME ?= aauce25
 GVIRTUS_LOG_LEVEL ?= 10000
 GVIRTUS_UCX_DATAPATH ?= am
 UCX_TLS ?= tcp,self
-UCX_NET_DEVICES ?= ens1f1np1
+UCX_NET_DEVICES ?= ens1f0np0
 UCX_LOG_LEVEL ?= info
 UCX_SOCKADDR_TLS_PRIORITY ?= tcp
 UCX_IB_GID_INDEX ?= # empty by default; set to 3 for RoCEv2
@@ -204,3 +204,35 @@ run-simple-matrix-reconnect-test:
 
 stop-simple-matrix-test:
 	docker stop simple_matrix_test_container-$(USER) || true
+
+local-docker-build-benchmark:
+	docker buildx build \
+		--platform linux/amd64 \
+		--load \
+		--no-cache \
+		-f examples/simple_matrix_benchmark/Dockerfile \
+		-t $(DOCKER_REPO_DEV)/benchmark_gvirtus:cuda12.6 \
+		.
+
+run-benchmark:
+	docker run --rm \
+		--name benchmark_container-$(USER) \
+		--network host \
+		--device /dev/infiniband \
+		--cap-add IPC_LOCK \
+		--ulimit memlock=-1 \
+		-e GVIRTUS_CONFIG=/opt/GVirtuS/etc/properties_ucx.json \
+		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
+		-e GVIRTUS_UCX_DATAPATH=$(GVIRTUS_UCX_DATAPATH) \
+		-e UCX_TLS=$(UCX_TLS) \
+		-e UCX_NET_DEVICES=$(UCX_NET_DEVICES) \
+		-e UCX_LOG_LEVEL=$(UCX_LOG_LEVEL) \
+		-e UCX_SOCKADDR_TLS_PRIORITY=$(UCX_SOCKADDR_TLS_PRIORITY) \
+		$(if $(UCX_IB_GID_INDEX),-e UCX_IB_GID_INDEX=$(UCX_IB_GID_INDEX)) \
+		-v ./examples/simple_matrix_benchmark:/opt/GVirtuS/examples \
+		-v ./etc/properties_ucx.json:/opt/GVirtuS/etc/properties_ucx.json \
+		$(DOCKER_REPO_DEV)/benchmark_gvirtus:cuda12.6 \
+		bash /opt/GVirtuS/examples/frontend.sh
+
+stop-benchmark:
+	docker stop benchmark_container-$(USER) || true
