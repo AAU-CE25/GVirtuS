@@ -1,0 +1,330 @@
+INFO - Using properties file: /opt/GVirtuS/etc/properties_ucx.json
+INFO - Parsing endpoint config from: /opt/GVirtuS/etc/properties_ucx.json
+DEBUG - Full JSON dump:
+{
+    "communicator": [
+        {
+            "endpoint": {
+                "port": "6767",
+                "protocol": "ucx",
+                "server_address": "24.24.24.2",
+                "suite": "ucx"
+            },
+            "plugins": [
+                "cuda",
+                "cudart",
+                "cublas",
+                "curand",
+                "cudnn",
+                "cufft",
+                "cusolver",
+                "cusparse",
+                "nvrtc",
+                "nvml"
+            ]
+        }
+    ],
+    "secure_application": false
+}
+INFO - Parsed endpoint suite: ucx
+DEBUG: protocol string is [ucx]
+[1778592907.900657] [es-dpu-01:62   :0]     ucp_context.c:2431 UCX  INFO  Version 1.20.0 (loaded from /lib/libucp.so.0)
+[1778592907.976615] [es-dpu-01:62   :0]          parser.c:2368 UCX  INFO  UCX_* env variables: UCX_NET_DEVICES=ens1f0np0 UCX_TLS=tcp,self UCX_SOCKADDR_TLS_PRIORITY=tcp UCX_LOG_LEVEL=info
+UCX control-plane connected: Connect (24.24.24.2:6767)
+DEBUG - DEBUG - Received routine cudaRegisterFatBinary [pid=62, tid=62]
+[1778592907.978257] [es-dpu-01:62   :0]      ucp_worker.c:1912 UCX  INFO  ucp_context_0 intra-node cfg#1 am(tcp/ens1f0np0)
+[1778592908.045439] [es-dpu-01:62   :0]      ucp_worker.c:1912 UCX  INFO      ucp_context_0 inter-node cfg#2 am(tcp/ens1f0np0)
+[1778592908.106128] [es-dpu-01:62   :0]      ucp_worker.c:1912 UCX  INFO    ucp_context_0 inter-node cfg#3 am(tcp/ens1f0np0)
+DEBUG - [UCX AM] Routine 'cudaRegisterFatBinary' returned 0 | server_exec=0s | send=0.189s | recv=0s | in=1151B | out=0B | pid=62 tid=62 | req_id=1
+DEBUG - DEBUG - Called: cudaRegisterFatBinary
+DEBUG - DEBUG - Received routine cudaRegisterFatBinaryEnd [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaRegisterFatBinaryEnd' returned 0 | server_exec=0s | send=0s | recv=0s | in=1151B | out=0B | pid=62 tid=62 | req_id=2
+DEBUG - DEBUG - Called: cudaRegisterFatBinaryEnd
+DEBUG - DEBUG - Received routine cublasCreate_v2 [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cublasCreate_v2' returned 0 | server_exec=0s | send=0s | recv=0s | in=0B | out=8B | pid=62 tid=62 | req_id=3
+DEBUG - DEBUG - Called: cublasCreate_v2
+DEBUG - DEBUG - Received routine cudaMalloc [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMalloc' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=8B | pid=62 tid=62 | req_id=4
+DEBUG - DEBUG - Called: cudaMalloc
+DEBUG - DEBUG - Received routine cudaMalloc [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMalloc' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=8B | pid=62 tid=62 | req_id=5
+DEBUG - DEBUG - Called: cudaMalloc
+DEBUG - DEBUG - Received routine cudaMalloc [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMalloc' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=8B | pid=62 tid=62 | req_id=6
+DEBUG - DEBUG - Called: cudaMalloc
+DEBUG - DEBUG - Received routine cudaMemcpy [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMemcpy' returned 0 | server_exec=0s | send=0s | recv=0s | in=4124B | out=0B | pid=62 tid=62 | req_id=7
+DEBUG - DEBUG - Called: cudaMemcpy
+DEBUG - DEBUG - Received routine cudaMemcpy [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMemcpy' returned 0 | server_exec=0s | send=0s | recv=0s | in=4124B | out=0B | pid=62 tid=62 | req_id=8
+DEBUG - DEBUG - Called: cudaMemcpy
+DEBUG - DEBUG - Received routine cublasSgemm_v2 [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cublasSgemm_v2' returned 0 | server_exec=0s | send=0s | recv=0s | in=88B | out=0B | pid=62 tid=62 | req_id=9
+DEBUG - DEBUG - Called: cublasSgemm_v2
+DEBUG - DEBUG - Received routine cudaMemcpy [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMemcpy' returned 0 | server_exec=0s | send=0s | recv=0s | in=29B | out=4104B | pid=62 tid=62 | req_id=10
+DEBUG - DEBUG - Called: cudaMemcpy
+DEBUG - DEBUG - Received routine cudaFree [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaFree' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=0B | pid=62 tid=62 | req_id=11
+DEBUG - DEBUG - Called: cudaFree
+DEBUG - DEBUG - Received routine cudaFree [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaFree' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=0B | pid=62 tid=62 | req_id=12
+DEBUG - DEBUG - Called: cudaFree
+DEBUG - DEBUG - Received routine cudaFree [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaFree' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=0B | pid=62 tid=62 | req_id=13
+DEBUG - DEBUG - Called: cudaFree
+N,alloc_ms,h2d_ms,gemm_ms,d2h_ms,free_ms,total_ms
+DEBUG - DEBUG - Received routine cudaMalloc [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMalloc' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=8B | pid=62 tid=62 | req_id=14
+DEBUG - DEBUG - Called: cudaMalloc
+DEBUG - DEBUG - Received routine cudaMalloc [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMalloc' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=8B | pid=62 tid=62 | req_id=15
+DEBUG - DEBUG - Called: cudaMalloc
+DEBUG - DEBUG - Received routine cudaMalloc [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMalloc' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=8B | pid=62 tid=62 | req_id=16
+DEBUG - DEBUG - Called: cudaMalloc
+DEBUG - DEBUG - Received routine cudaMemcpy [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMemcpy' returned 0 | server_exec=0s | send=0s | recv=0s | in=4124B | out=0B | pid=62 tid=62 | req_id=17
+DEBUG - DEBUG - Called: cudaMemcpy
+DEBUG - DEBUG - Received routine cudaMemcpy [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMemcpy' returned 0 | server_exec=0s | send=0s | recv=0s | in=4124B | out=0B | pid=62 tid=62 | req_id=18
+DEBUG - DEBUG - Called: cudaMemcpy
+DEBUG - DEBUG - Received routine cublasSgemm_v2 [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cublasSgemm_v2' returned 0 | server_exec=0s | send=0s | recv=0s | in=88B | out=0B | pid=62 tid=62 | req_id=19
+DEBUG - DEBUG - Called: cublasSgemm_v2
+DEBUG - DEBUG - Received routine cudaMemcpy [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMemcpy' returned 0 | server_exec=0s | send=0s | recv=0s | in=29B | out=4104B | pid=62 tid=62 | req_id=20
+DEBUG - DEBUG - Called: cudaMemcpy
+DEBUG - DEBUG - Received routine cudaFree [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaFree' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=0B | pid=62 tid=62 | req_id=21
+DEBUG - DEBUG - Called: cudaFree
+DEBUG - DEBUG - Received routine cudaFree [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaFree' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=0B | pid=62 tid=62 | req_id=22
+DEBUG - DEBUG - Called: cudaFree
+DEBUG - DEBUG - Received routine cudaFree [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaFree' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=0B | pid=62 tid=62 | req_id=23
+DEBUG - DEBUG - Called: cudaFree
+32,0.235953,0.168221,0.107571,0.156985,0.214571,0.883301
+DEBUG - DEBUG - Received routine cudaMalloc [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMalloc' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=8B | pid=62 tid=62 | req_id=24
+DEBUG - DEBUG - Called: cudaMalloc
+DEBUG - DEBUG - Received routine cudaMalloc [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMalloc' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=8B | pid=62 tid=62 | req_id=25
+DEBUG - DEBUG - Called: cudaMalloc
+DEBUG - DEBUG - Received routine cudaMalloc [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMalloc' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=8B | pid=62 tid=62 | req_id=26
+DEBUG - DEBUG - Called: cudaMalloc
+DEBUG - DEBUG - Received routine cudaMemcpy [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMemcpy' returned 0 | server_exec=0s | send=0s | recv=0s | in=16412B | out=0B | pid=62 tid=62 | req_id=27
+DEBUG - DEBUG - Called: cudaMemcpy
+DEBUG - DEBUG - Received routine cudaMemcpy [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMemcpy' returned 0 | server_exec=0s | send=0s | recv=0s | in=16412B | out=0B | pid=62 tid=62 | req_id=28
+DEBUG - DEBUG - Called: cudaMemcpy
+DEBUG - DEBUG - Received routine cublasSgemm_v2 [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cublasSgemm_v2' returned 0 | server_exec=0s | send=0s | recv=0s | in=88B | out=0B | pid=62 tid=62 | req_id=29
+DEBUG - DEBUG - Called: cublasSgemm_v2
+DEBUG - DEBUG - Received routine cudaMemcpy [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMemcpy' returned 0 | server_exec=0s | send=0s | recv=0s | in=29B | out=16392B | pid=62 tid=62 | req_id=30
+DEBUG - DEBUG - Called: cudaMemcpy
+DEBUG - DEBUG - Received routine cudaFree [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaFree' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=0B | pid=62 tid=62 | req_id=31
+DEBUG - DEBUG - Called: cudaFree
+DEBUG - DEBUG - Received routine cudaFree [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaFree' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=0B | pid=62 tid=62 | req_id=32
+DEBUG - DEBUG - Called: cudaFree
+DEBUG - DEBUG - Received routine cudaFree [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaFree' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=0B | pid=62 tid=62 | req_id=33
+DEBUG - DEBUG - Called: cudaFree
+64,0.210594,0.275721,0.10686,0.502551,0.228331,1.32406
+DEBUG - DEBUG - Received routine cudaMalloc [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMalloc' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=8B | pid=62 tid=62 | req_id=34
+DEBUG - DEBUG - Called: cudaMalloc
+DEBUG - DEBUG - Received routine cudaMalloc [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMalloc' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=8B | pid=62 tid=62 | req_id=35
+DEBUG - DEBUG - Called: cudaMalloc
+DEBUG - DEBUG - Received routine cudaMalloc [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMalloc' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=8B | pid=62 tid=62 | req_id=36
+DEBUG - DEBUG - Called: cudaMalloc
+DEBUG - DEBUG - Received routine cudaMemcpy [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMemcpy' returned 0 | server_exec=0s | send=0s | recv=0s | in=65564B | out=0B | pid=62 tid=62 | req_id=37
+DEBUG - DEBUG - Called: cudaMemcpy
+DEBUG - DEBUG - Received routine cudaMemcpy [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMemcpy' returned 0 | server_exec=0s | send=0s | recv=0s | in=65564B | out=0B | pid=62 tid=62 | req_id=38
+DEBUG - DEBUG - Called: cudaMemcpy
+DEBUG - DEBUG - Received routine cublasSgemm_v2 [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cublasSgemm_v2' returned 0 | server_exec=0s | send=0s | recv=0s | in=88B | out=0B | pid=62 tid=62 | req_id=39
+DEBUG - DEBUG - Called: cublasSgemm_v2
+DEBUG - DEBUG - Received routine cudaMemcpy [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMemcpy' returned 0 | server_exec=0s | send=0s | recv=0.001s | in=29B | out=65544B | pid=62 tid=62 | req_id=40
+DEBUG - DEBUG - Called: cudaMemcpy
+DEBUG - DEBUG - Received routine cudaFree [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaFree' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=0B | pid=62 tid=62 | req_id=41
+DEBUG - DEBUG - Called: cudaFree
+DEBUG - DEBUG - Received routine cudaFree [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaFree' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=0B | pid=62 tid=62 | req_id=42
+DEBUG - DEBUG - Called: cudaFree
+DEBUG - DEBUG - Received routine cudaFree [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaFree' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=0B | pid=62 tid=62 | req_id=43
+DEBUG - DEBUG - Called: cudaFree
+128,0.215451,0.418675,0.101261,1.26729,0.226639,2.22932
+DEBUG - DEBUG - Received routine cudaMalloc [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMalloc' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=8B | pid=62 tid=62 | req_id=44
+DEBUG - DEBUG - Called: cudaMalloc
+DEBUG - DEBUG - Received routine cudaMalloc [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMalloc' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=8B | pid=62 tid=62 | req_id=45
+DEBUG - DEBUG - Called: cudaMalloc
+DEBUG - DEBUG - Received routine cudaMalloc [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMalloc' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=8B | pid=62 tid=62 | req_id=46
+DEBUG - DEBUG - Called: cudaMalloc
+DEBUG - DEBUG - Received routine cudaMemcpy [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMemcpy' returned 0 | server_exec=0s | send=0s | recv=0s | in=262172B | out=0B | pid=62 tid=62 | req_id=47
+DEBUG - DEBUG - Called: cudaMemcpy
+DEBUG - DEBUG - Received routine cudaMemcpy [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMemcpy' returned 0 | server_exec=0s | send=0s | recv=0s | in=262172B | out=0B | pid=62 tid=62 | req_id=48
+DEBUG - DEBUG - Called: cudaMemcpy
+DEBUG - DEBUG - Received routine cublasSgemm_v2 [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cublasSgemm_v2' returned 0 | server_exec=0s | send=0s | recv=0s | in=88B | out=0B | pid=62 tid=62 | req_id=49
+DEBUG - DEBUG - Called: cublasSgemm_v2
+DEBUG - DEBUG - Received routine cudaMemcpy [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMemcpy' returned 0 | server_exec=0s | send=0s | recv=0.004s | in=29B | out=262152B | pid=62 tid=62 | req_id=50
+DEBUG - DEBUG - Called: cudaMemcpy
+DEBUG - DEBUG - Received routine cudaFree [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaFree' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=0B | pid=62 tid=62 | req_id=51
+DEBUG - DEBUG - Called: cudaFree
+DEBUG - DEBUG - Received routine cudaFree [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaFree' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=0B | pid=62 tid=62 | req_id=52
+DEBUG - DEBUG - Called: cudaFree
+DEBUG - DEBUG - Received routine cudaFree [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaFree' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=0B | pid=62 tid=62 | req_id=53
+DEBUG - DEBUG - Called: cudaFree
+256,0.219367,0.719155,0.110094,4.34743,0.236173,5.63222
+DEBUG - DEBUG - Received routine cudaMalloc [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMalloc' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=8B | pid=62 tid=62 | req_id=54
+DEBUG - DEBUG - Called: cudaMalloc
+DEBUG - DEBUG - Received routine cudaMalloc [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMalloc' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=8B | pid=62 tid=62 | req_id=55
+DEBUG - DEBUG - Called: cudaMalloc
+DEBUG - DEBUG - Received routine cudaMalloc [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMalloc' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=8B | pid=62 tid=62 | req_id=56
+DEBUG - DEBUG - Called: cudaMalloc
+DEBUG - DEBUG - Received routine cudaMemcpy [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMemcpy' returned 0 | server_exec=0s | send=0.001s | recv=0s | in=1048604B | out=0B | pid=62 tid=62 | req_id=57
+DEBUG - DEBUG - Called: cudaMemcpy
+DEBUG - DEBUG - Received routine cudaMemcpy [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMemcpy' returned 0 | server_exec=0s | send=0.001s | recv=0s | in=1048604B | out=0B | pid=62 tid=62 | req_id=58
+DEBUG - DEBUG - Called: cudaMemcpy
+DEBUG - DEBUG - Received routine cublasSgemm_v2 [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cublasSgemm_v2' returned 0 | server_exec=0s | send=0s | recv=0s | in=88B | out=0B | pid=62 tid=62 | req_id=59
+DEBUG - DEBUG - Called: cublasSgemm_v2
+DEBUG - DEBUG - Received routine cudaMemcpy [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMemcpy' returned 0 | server_exec=0s | send=0s | recv=0.017s | in=29B | out=1048584B | pid=62 tid=62 | req_id=60
+DEBUG - DEBUG - Called: cudaMemcpy
+DEBUG - DEBUG - Received routine cudaFree [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaFree' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=0B | pid=62 tid=62 | req_id=61
+DEBUG - DEBUG - Called: cudaFree
+DEBUG - DEBUG - Received routine cudaFree [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaFree' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=0B | pid=62 tid=62 | req_id=62
+DEBUG - DEBUG - Called: cudaFree
+DEBUG - DEBUG - Received routine cudaFree [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaFree' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=0B | pid=62 tid=62 | req_id=63
+DEBUG - DEBUG - Called: cudaFree
+512,0.34183,3.52326,0.126139,17.539,0.4214,21.9516
+DEBUG - DEBUG - Received routine cudaMalloc [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMalloc' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=8B | pid=62 tid=62 | req_id=64
+DEBUG - DEBUG - Called: cudaMalloc
+DEBUG - DEBUG - Received routine cudaMalloc [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMalloc' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=8B | pid=62 tid=62 | req_id=65
+DEBUG - DEBUG - Called: cudaMalloc
+DEBUG - DEBUG - Received routine cudaMalloc [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMalloc' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=8B | pid=62 tid=62 | req_id=66
+DEBUG - DEBUG - Called: cudaMalloc
+DEBUG - DEBUG - Received routine cudaMemcpy [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMemcpy' returned 0 | server_exec=0s | send=0.004s | recv=0s | in=4194332B | out=0B | pid=62 tid=62 | req_id=67
+DEBUG - DEBUG - Called: cudaMemcpy
+DEBUG - DEBUG - Received routine cudaMemcpy [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMemcpy' returned 0 | server_exec=0s | send=0.003s | recv=0s | in=4194332B | out=0B | pid=62 tid=62 | req_id=68
+DEBUG - DEBUG - Called: cudaMemcpy
+DEBUG - DEBUG - Received routine cublasSgemm_v2 [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cublasSgemm_v2' returned 0 | server_exec=0s | send=0s | recv=0s | in=88B | out=0B | pid=62 tid=62 | req_id=69
+DEBUG - DEBUG - Called: cublasSgemm_v2
+DEBUG - DEBUG - Received routine cudaMemcpy [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMemcpy' returned 0 | server_exec=0s | send=0s | recv=0.066s | in=29B | out=4194312B | pid=62 tid=62 | req_id=70
+DEBUG - DEBUG - Called: cudaMemcpy
+DEBUG - DEBUG - Received routine cudaFree [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaFree' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=0B | pid=62 tid=62 | req_id=71
+DEBUG - DEBUG - Called: cudaFree
+DEBUG - DEBUG - Received routine cudaFree [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaFree' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=0B | pid=62 tid=62 | req_id=72
+DEBUG - DEBUG - Called: cudaFree
+DEBUG - DEBUG - Received routine cudaFree [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaFree' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=0B | pid=62 tid=62 | req_id=73
+DEBUG - DEBUG - Called: cudaFree
+1024,0.56855,11.9414,0.144295,67.1483,0.804382,80.6069
+DEBUG - DEBUG - Received routine cudaMalloc [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMalloc' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=8B | pid=62 tid=62 | req_id=74
+DEBUG - DEBUG - Called: cudaMalloc
+DEBUG - DEBUG - Received routine cudaMalloc [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMalloc' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=8B | pid=62 tid=62 | req_id=75
+DEBUG - DEBUG - Called: cudaMalloc
+DEBUG - DEBUG - Received routine cudaMalloc [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMalloc' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=8B | pid=62 tid=62 | req_id=76
+DEBUG - DEBUG - Called: cudaMalloc
+DEBUG - DEBUG - Received routine cudaMemcpy [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMemcpy' returned 0 | server_exec=0s | send=0.017s | recv=0.008s | in=16777244B | out=0B | pid=62 tid=62 | req_id=77
+DEBUG - DEBUG - Called: cudaMemcpy
+DEBUG - DEBUG - Received routine cudaMemcpy [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMemcpy' returned 0 | server_exec=0s | send=0.02s | recv=0.002s | in=16777244B | out=0B | pid=62 tid=62 | req_id=78
+DEBUG - DEBUG - Called: cudaMemcpy
+DEBUG - DEBUG - Received routine cublasSgemm_v2 [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cublasSgemm_v2' returned 0 | server_exec=0s | send=0s | recv=0.001s | in=88B | out=0B | pid=62 tid=62 | req_id=79
+DEBUG - DEBUG - Called: cublasSgemm_v2
+DEBUG - DEBUG - Received routine cudaMemcpy [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMemcpy' returned 0 | server_exec=0s | send=0s | recv=0.271s | in=29B | out=16777224B | pid=62 tid=62 | req_id=80
+DEBUG - DEBUG - Called: cudaMemcpy
+DEBUG - DEBUG - Received routine cudaFree [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaFree' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=0B | pid=62 tid=62 | req_id=81
+DEBUG - DEBUG - Called: cudaFree
+DEBUG - DEBUG - Received routine cudaFree [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaFree' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=0B | pid=62 tid=62 | req_id=82
+DEBUG - DEBUG - Called: cudaFree
+DEBUG - DEBUG - Received routine cudaFree [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaFree' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=0B | pid=62 tid=62 | req_id=83
+DEBUG - DEBUG - Called: cudaFree
+2048,0.809709,58.2098,1.25215,272.414,1.21141,333.897
+DEBUG - DEBUG - Received routine cudaMalloc [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMalloc' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=8B | pid=62 tid=62 | req_id=84
+DEBUG - DEBUG - Called: cudaMalloc
+DEBUG - DEBUG - Received routine cudaMalloc [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMalloc' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=8B | pid=62 tid=62 | req_id=85
+DEBUG - DEBUG - Called: cudaMalloc
+DEBUG - DEBUG - Received routine cudaMalloc [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMalloc' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=8B | pid=62 tid=62 | req_id=86
+DEBUG - DEBUG - Called: cudaMalloc
+DEBUG - DEBUG - Received routine cudaMemcpy [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMemcpy' returned 0 | server_exec=0s | send=0.084s | recv=0.034s | in=67108892B | out=0B | pid=62 tid=62 | req_id=87
+DEBUG - DEBUG - Called: cudaMemcpy
+DEBUG - DEBUG - Received routine cudaMemcpy [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMemcpy' returned 0 | server_exec=0s | send=0.088s | recv=0.037s | in=67108892B | out=0B | pid=62 tid=62 | req_id=88
+DEBUG - DEBUG - Called: cudaMemcpy
+DEBUG - DEBUG - Received routine cublasSgemm_v2 [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cublasSgemm_v2' returned 0 | server_exec=0s | send=0s | recv=0.005s | in=88B | out=0B | pid=62 tid=62 | req_id=89
+DEBUG - DEBUG - Called: cublasSgemm_v2
+DEBUG - DEBUG - Received routine cudaMemcpy [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaMemcpy' returned 0 | server_exec=0s | send=0s | recv=1.181s | in=29B | out=67108872B | pid=62 tid=62 | req_id=90
+DEBUG - DEBUG - Called: cudaMemcpy
+DEBUG - DEBUG - Received routine cudaFree [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaFree' returned 0 | server_exec=0s | send=0s | recv=0.004s | in=8B | out=0B | pid=62 tid=62 | req_id=91
+DEBUG - DEBUG - Called: cudaFree
+DEBUG - DEBUG - Received routine cudaFree [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaFree' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=0B | pid=62 tid=62 | req_id=92
+DEBUG - DEBUG - Called: cudaFree
+DEBUG - DEBUG - Received routine cudaFree [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaFree' returned 0 | server_exec=0s | send=0s | recv=0.001s | in=8B | out=0B | pid=62 tid=62 | req_id=93
+DEBUG - DEBUG - Called: cudaFree
+4096,0.97731,285.231,5.56296,1185.4,7.02705,1484.19
+DEBUG - DEBUG - Received routine cublasDestroy_v2 [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cublasDestroy_v2' returned 0 | server_exec=0s | send=0s | recv=0s | in=8B | out=0B | pid=62 tid=62 | req_id=94
+DEBUG - DEBUG - Called: cublasDestroy_v2
+DEBUG - DEBUG - Received routine cudaUnregisterFatBinary [pid=62, tid=62]
+DEBUG - [UCX AM] Routine 'cudaUnregisterFatBinary' returned 0 | server_exec=0s | send=0s | recv=0s | in=31B | out=0B | pid=62 tid=62 | req_id=95
+DEBUG - DEBUG - Called: cudaUnregisterFatBinary

@@ -10,7 +10,7 @@ static double ms(clk::time_point a, clk::time_point b) {
     return std::chrono::duration<double, std::milli>(b - a).count();
 }
 
-void run_benchmark(cublasHandle_t handle, int N) {
+void run_benchmark(cublasHandle_t handle, int N, bool quiet = false) {
     size_t elems = (size_t)N * N;
     size_t bytes = elems * sizeof(float);
 
@@ -67,14 +67,16 @@ void run_benchmark(cublasHandle_t handle, int N) {
     double free_ms = ms(t_free_start, t_free_end);
     double total_ms = alloc_ms + h2d_ms + gemm_ms + d2h_ms + free_ms;
 
-    std::cout << N
-              << "," << alloc_ms
-              << "," << h2d_ms
-              << "," << gemm_ms
-              << "," << d2h_ms
-              << "," << free_ms
-              << "," << total_ms
-              << std::endl;
+    if (!quiet) {
+        std::cout << N
+                  << "," << alloc_ms
+                  << "," << h2d_ms
+                  << "," << gemm_ms
+                  << "," << d2h_ms
+                  << "," << free_ms
+                  << "," << total_ms
+                  << std::endl;
+    }
 
     delete[] h_A;
     delete[] h_B;
@@ -89,7 +91,9 @@ int main() {
     cublasCreate(&handle);
 
     // Warmup run
-    run_benchmark(handle, 32);
+    std::cerr << "Warmup..." << std::flush;
+    run_benchmark(handle, 32, true);
+    std::cerr << " done" << std::endl;
 
     // Print CSV header
     std::cout << "N,alloc_ms,h2d_ms,gemm_ms,d2h_ms,free_ms,total_ms" << std::endl;

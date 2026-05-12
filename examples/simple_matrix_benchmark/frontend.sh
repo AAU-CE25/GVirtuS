@@ -43,5 +43,11 @@ nvcc benchmark.cu -o benchmark \
     -lcuda -lcudart -lcublas
 
 # --- Run the benchmark ---
-echo "=== GVirtuS Matrix Multiplication Benchmark ==="
-./benchmark
+RESULTS_DIR="${GVIRTUS_HOME}/examples/results"
+mkdir -p "${RESULTS_DIR}"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+RESULT_FILE="${RESULTS_DIR}/benchmark_${TIMESTAMP}.csv"
+
+echo "=== GVirtuS Matrix Multiplication Benchmark ===" >&2
+./benchmark | tee "${RESULT_FILE}"
+echo "Results saved to ${RESULT_FILE}" >&2
