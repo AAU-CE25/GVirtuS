@@ -1,0 +1,25 @@
+## Dask + CuPy matrix multiplication — direct GPU (no GVirtuS)
+## Requires --runtime=nvidia at docker run time.
+##
+## Build:  make docker-build-dask-native
+## Run:    make run-dask-native
+
+FROM nvidia/cuda:12.6.3-cudnn-devel-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt /tmp/requirements.txt
+RUN pip3 install --no-cache-dir -r /tmp/requirements.txt && rm /tmp/requirements.txt
+
+WORKDIR /app
+
+# main.py mounted at runtime: -v ./examples/dask:/app
+
+ENV GVIRTUS_LOGLEVEL=20000
+
+ENTRYPOINT ["python3", "main.py"]

@@ -1,12 +1,14 @@
-.PHONY: docker-build-push-dev docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test run-spark-local-cpu run-spark-local-rapids docker-build-spark run-spark-docker-cpu run-spark-docker-rapids run-spark-gvirtus test-spark-gvirtus stop-spark-simple-matrix docker-build-frontend run-simple-matrix-frontend run-spark-frontend
+.PHONY: docker-build-push-dev docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test run-spark-local-cpu run-spark-local-rapids docker-build-spark run-spark-docker-cpu run-spark-docker-rapids run-spark-gvirtus test-spark-gvirtus stop-spark-simple-matrix docker-build-frontend run-simple-matrix-frontend run-spark-frontend docker-build-dask run-dask docker-build-dask-native run-dask-native
 USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
 DOCKER_HUB_USERNAME ?= aauce25
 
 GVIRTUS_LOG_LEVEL ?= 10000
+GVIRTUS_PROPERTIES ?= ./etc/properties.json
 
 DOCKER_REPO_DEV := $(DOCKER_HUB_USERNAME)/gvirtus-dev
 DOCKER_REPO_TEST := $(DOCKER_HUB_USERNAME)/gvirtus-test
 DOCKER_REPO_PROD := $(DOCKER_HUB_USERNAME)/gvirtus
+
 
 docker-build-push-dev:
 	docker buildx build \
@@ -237,3 +239,46 @@ run-spark-frontend:
 		--shm-size=8G \
 		$(DOCKER_SPARK_FRONTEND) \
 		gvirtus --mode rapids --overwrite yes --minimal
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Dask + CuPy example
+# ═══════════════════════════════════════════════════════════════════════════════
+
+DOCKER_DASK := gvirtus-dask
+DOCKER_DASK_NATIVE := gvirtus-dask-native
+DASK_SIZE ?= 4096
+DASK_CHUNKS ?= 1024
+
+# ── GVirtuS mode: CUDA calls forwarded over TCP, no local GPU required ──
+docker-build-dask:
+	docker build \
+		-f examples/dask/Dockerfile \
+		-t $(DOCKER_DASK) \
+		examples/dask
+
+run-dask:
+	docker run --rm \
+		--name dask-$(USER) \
+		--network host \
+		-v ./examples/dask:/app \
+		-v ./etc/properties.json:/opt/GVirtuS/etc/properties.json \
+		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
+		$(DOCKER_DASK) \
+		--size $(DASK_SIZE) --chunks $(DASK_CHUNKS)
+
+# ── Native mode: direct GPU access via --runtime=nvidia ──
+docker-build-dask-native:
+	docker build \
+		-f examples/dask/Dockerfile.native \
+		-t $(DOCKER_DASK_NATIVE) \
+		examples/dask
+
+run-dask-native:
+	docker run --rm \
+		--name dask-native-$(USER) \
+		--runtime=nvidia \
+		--network host \
+		-v ./examples/dask:/app \
+		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
+		$(DOCKER_DASK_NATIVE) \
+		--size $(DASK_SIZE) --chunks $(DASK_CHUNKS)
