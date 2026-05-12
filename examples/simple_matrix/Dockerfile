@@ -3,7 +3,8 @@ FROM nvidia/cuda:12.6.3-cudnn-devel-ubuntu22.04
 ENV DEBIAN_FRONTEND=noninteractive
 ENV GVIRTUS_HOME=/opt/GVirtuS
 
-RUN apt update && apt install -y --no-install-recommends \
+RUN apt-get -o Acquire::Check-Valid-Until=false update && \
+    apt-get install -y --no-install-recommends \
     build-essential \
     libxmu-dev \
     libxi-dev \
@@ -12,12 +13,20 @@ RUN apt update && apt install -y --no-install-recommends \
     liblog4cplus-dev \
     librdmacm-dev \
     libibverbs-dev \
-    libucx0 \
-    libucx-dev \
+    libmlx5-1 \
+    ibverbs-providers \
     libgtest-dev \
     liblz4-dev \
     cmake \
+    wget \
     && rm -rf /var/lib/apt/lists/*
+
+# Install UCX with mlx5 + CUDA support (install all UCX debs from the bundle)
+RUN wget -q https://github.com/openucx/ucx/releases/download/v1.20.0/ucx-1.20.0-ubuntu22.04-mofed5-cuda12-x86_64.tar.bz2 \
+    && tar xf ucx-1.20.0-ubuntu22.04-mofed5-cuda12-x86_64.tar.bz2 \
+    && dpkg -i ucx-*.deb \
+    && rm -rf ucx-1.20.0* \
+    && ldconfig
 
 WORKDIR /opt
 COPY . /opt/GVirtuS

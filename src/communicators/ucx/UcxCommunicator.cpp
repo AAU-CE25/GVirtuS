@@ -1,12 +1,12 @@
 #include "UcxCommunicator.h"
 
-#include <algorithm>
 #include <arpa/inet.h>
 #include <chrono>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <stdexcept>
@@ -17,9 +17,7 @@
 using gvirtus::communicators::UcxCommunicator;
 
 namespace {
-constexpr ucp_tag_t kGvirtusTag = 0x4746495254555301ULL;
-constexpr ucp_tag_t kGvirtusTagMask = UINT64_MAX;
-constexpr size_t kFrameHeaderSize = sizeof(uint64_t);
+constexpr unsigned kUcxAmId = 1;
 
 bool ucx_debug_enabled() {
     const char *lvl = std::getenv("GVIRTUS_LOGLEVEL");
@@ -41,6 +39,8 @@ void ucx_debug_log(const char *fmt, ...) {
     va_end(args);
     std::fprintf(stderr, "\n");
 }
+
+// Pure AM path: tag transport is intentionally removed.
 }
 
 UcxCommunicator::UcxCommunicator(const std::string &hostname, std::uint16_t port)
@@ -61,6 +61,52 @@ void UcxCommunicator::endpoint_error_handler(void *arg, ucp_ep_h ep, ucs_status_
         self->endpoint_failed_.store(true);
     }
     std::fprintf(stderr, "UCX endpoint error: %s\n", ucs_status_string(status));
+}
+
+// UCX AM receive callback: copy (or rendezvous-receive) the payload into the AM queue.
+ucs_status_t UcxCommunicator::am_recv_handler(void *arg, const void *header,
+                                              size_t header_length, void *data,
+                                              size_t length,
+                                              const ucp_am_recv_param_t *param) {
+    auto *self = static_cast<UcxCommunicator *>(arg);
+    (void)header;
+    (void)header_length;
+
+    if (self == nullptr) {
+        return UCS_OK;
+    }
+
+    if (length == 0) {
+        self->enqueue_am_message({});
+        return UCS_OK;
+    }
+
+    if ((param != nullptr) && (param->recv_attr & UCP_AM_RECV_ATTR_FLAG_RNDV)) {
+        std::vector<unsigned char> buffer(length);
+        ucp_request_param_t recv_param{};
+        recv_param.op_attr_mask = UCP_OP_ATTR_FIELD_DATATYPE;
+        recv_param.datatype = ucp_dt_make_contig(1);
+
+        void *request = ucp_am_recv_data_nbx(self->worker_, data, buffer.data(), length,
+                                             &recv_param);
+        if (request == nullptr) {
+            self->enqueue_am_message(std::move(buffer));
+            return UCS_OK;
+        }
+        if (UCS_PTR_IS_ERR(request)) {
+            return UCS_PTR_STATUS(request);
+        }
+
+        self->enqueue_am_rndv(request, std::move(buffer));
+        return UCS_INPROGRESS;
+    }
+
+    std::vector<unsigned char> buffer(length);
+    std::memcpy(buffer.data(), data, length);
+    self->enqueue_am_message(std::move(buffer));
+
+    // For DATA callbacks we copy and return UCS_OK; UCX releases the data.
+    return UCS_OK;
 }
 
 sockaddr_storage UcxCommunicator::make_sockaddr(const std::string &host, std::uint16_t port) {
@@ -85,9 +131,15 @@ sockaddr_storage UcxCommunicator::make_sockaddr(const std::string &host, std::ui
 void UcxCommunicator::init_ucx() {
     if (initialized_) return;
 
+    // Initialize UCX context/worker and register the AM receive callback.
+    am_id_ = kUcxAmId;
+    if (!am_state_) {
+        am_state_ = std::make_shared<AmState>();
+    }
+
     ucp_params_t ucp_params{};
     ucp_params.field_mask = UCP_PARAM_FIELD_FEATURES;
-    ucp_params.features = UCP_FEATURE_TAG;
+    ucp_params.features = UCP_FEATURE_AM;
 
     ucs_status_t status = ucp_init(&ucp_params, nullptr, &context_);
     if (status != UCS_OK) {
@@ -108,13 +160,31 @@ void UcxCommunicator::init_ucx() {
                                  std::string(ucs_status_string(status)));
     }
 
+    ucp_am_handler_param_t am_param{};
+    am_param.field_mask = UCP_AM_HANDLER_PARAM_FIELD_ID |
+                          UCP_AM_HANDLER_PARAM_FIELD_FLAGS |
+                          UCP_AM_HANDLER_PARAM_FIELD_CB |
+                          UCP_AM_HANDLER_PARAM_FIELD_ARG;
+    am_param.id = am_id_;
+    // Copying eager payloads in the callback, so no persistent data is needed.
+    am_param.flags = UCP_AM_FLAG_WHOLE_MSG;
+    am_param.cb = &UcxCommunicator::am_recv_handler;
+    am_param.arg = this;
+
+    status = ucp_worker_set_am_recv_handler(worker_, &am_param);
+    if (status != UCS_OK) {
+        throw std::runtime_error("UcxCommunicator: failed to set AM handler: " +
+                                 std::string(ucs_status_string(status)));
+    }
+
     initialized_ = true;
-    ucx_debug_log("init_ucx completed host=%s port=%u", hostname_.c_str(), port_);
+    ucx_debug_log("init_ucx completed host=%s port=%u mode=am", hostname_.c_str(), port_);
 }
 
 void UcxCommunicator::destroy_ucx() {
     if (!initialized_) return;
 
+    // Tear down UCX resources in reverse order of creation.
     ucx_debug_log("destroy_ucx begin endpoint=%p listener=%p worker=%p context=%p",
                   (void *)endpoint_, (void *)listener_, (void *)worker_, (void *)context_);
 
@@ -156,6 +226,7 @@ void UcxCommunicator::destroy_ucx() {
 }
 
 void UcxCommunicator::enqueue_connection(ucp_conn_request_h conn_request) {
+    // Queue incoming connection requests from the listener callback.
     std::lock_guard<std::mutex> lock(conn_mutex_);
     pending_conn_requests_.push(conn_request);
     ucx_debug_log("enqueue_connection request=%p queue_size=%zu", (void *)conn_request,
@@ -164,6 +235,7 @@ void UcxCommunicator::enqueue_connection(ucp_conn_request_h conn_request) {
 }
 
 ucp_conn_request_h UcxCommunicator::wait_for_connection_request() {
+    // Wait for a pending connection request while progressing the worker.
     std::unique_lock<std::mutex> lock(conn_mutex_);
     for (;;) {
         if (!running_) {
@@ -185,6 +257,7 @@ ucp_conn_request_h UcxCommunicator::wait_for_connection_request() {
 }
 
 void UcxCommunicator::wait_request_completion(void *request, const char *op_name) {
+    // Progress the worker until the request completes (no sleep for low latency).
     ucx_debug_log("%s: wait_request_completion request=%p", op_name, request);
 
     if (request == nullptr) {
@@ -204,6 +277,8 @@ void UcxCommunicator::wait_request_completion(void *request, const char *op_name
             ucp_worker_progress(worker_);
         }
 
+        progress_am_rndv();
+
         // If the endpoint has failed (for example, remote peer reset), cancel
         // the in-flight request so callers can unwind instead of hanging.
         if (!cancel_issued && endpoint_failed_.load() && worker_ != nullptr) {
@@ -211,7 +286,6 @@ void UcxCommunicator::wait_request_completion(void *request, const char *op_name
             cancel_issued = true;
         }
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
     const ucs_status_t final_status = ucp_request_check_status(request);
@@ -225,34 +299,51 @@ void UcxCommunicator::wait_request_completion(void *request, const char *op_name
     ucx_debug_log("%s: completed status=%s", op_name, ucs_status_string(final_status));
 }
 
-void UcxCommunicator::recv_message_exact(void *buffer, size_t size, const char *op_name) {
-    ucp_request_param_t request_param{};
-    request_param.op_attr_mask = UCP_OP_ATTR_FIELD_DATATYPE;
-    request_param.datatype = ucp_dt_make_contig(1);
-
-    if (size == 0) {
-        return;
+void UcxCommunicator::enqueue_am_message(std::vector<unsigned char> message) {
+    // Store a completed AM payload for stream-style Read().
+    {
+        std::lock_guard<std::mutex> lock(am_state_->mutex);
+        am_state_->queue.push_back(std::move(message));
     }
-
-    void *request =
-        ucp_tag_recv_nbx(worker_, buffer, size, kGvirtusTag, kGvirtusTagMask, &request_param);
-    wait_request_completion(request, op_name);
+    am_state_->cv.notify_one();
 }
 
-void UcxCommunicator::send_message_exact(const void *buffer, size_t size, const char *op_name) {
-    ucp_request_param_t request_param{};
-    request_param.op_attr_mask = UCP_OP_ATTR_FIELD_DATATYPE;
-    request_param.datatype = ucp_dt_make_contig(1);
+void UcxCommunicator::enqueue_am_rndv(void *request, std::vector<unsigned char> buffer) {
+    // Track a rendezvous receive until UCX reports completion.
+    std::lock_guard<std::mutex> lock(am_state_->mutex);
+    am_state_->rndv.push_back(PendingAmRecv{request, std::move(buffer)});
+}
 
-    if (size == 0) {
-        return;
+void UcxCommunicator::progress_am_rndv() {
+    // Check rendezvous receive requests and move completed payloads into the queue.
+    std::lock_guard<std::mutex> lock(am_state_->mutex);
+    for (auto it = am_state_->rndv.begin(); it != am_state_->rndv.end();) {
+        if (it->request == nullptr) {
+            am_state_->queue.push_back(std::move(it->buffer));
+            it = am_state_->rndv.erase(it);
+            continue;
+        }
+
+        const ucs_status_t status = ucp_request_check_status(it->request);
+        if (status == UCS_INPROGRESS) {
+            ++it;
+            continue;
+        }
+
+        ucp_request_free(it->request);
+        if (status == UCS_OK) {
+            am_state_->queue.push_back(std::move(it->buffer));
+            am_state_->cv.notify_one();
+        } else {
+            std::fprintf(stderr, "UCX AM rendezvous receive failed: %s\n",
+                         ucs_status_string(status));
+        }
+        it = am_state_->rndv.erase(it);
     }
-
-    void *request = ucp_tag_send_nbx(endpoint_, buffer, size, kGvirtusTag, &request_param);
-    wait_request_completion(request, op_name);
 }
 
 void UcxCommunicator::Serve() {
+    // Start server listener for UCX client connections.
     init_ucx();
 
     sockaddr_storage ss = make_sockaddr(hostname_, port_);
@@ -277,6 +368,7 @@ void UcxCommunicator::Serve() {
 }
 
 const gvirtus::communicators::Communicator *const UcxCommunicator::Accept() const {
+    // Accept a connection and create a UCX endpoint for the new client.
     auto *self = const_cast<UcxCommunicator *>(this);
     if (!self->running_ || self->listener_ == nullptr) {
         return nullptr;
@@ -295,6 +387,7 @@ const gvirtus::communicators::Communicator *const UcxCommunicator::Accept() cons
     accepted->owns_context_worker_listener_ = false;
     accepted->running_ = true;
     accepted->worker_mutex_ = self->worker_mutex_;
+    accepted->am_state_ = self->am_state_;
     accepted->endpoint_failed_.store(false);
 
     ucp_ep_params_t ep_params{};
@@ -318,6 +411,7 @@ const gvirtus::communicators::Communicator *const UcxCommunicator::Accept() cons
 }
 
 void UcxCommunicator::Connect() {
+    // Connect to the UCX server and create a client endpoint.
     init_ucx();
 
     sockaddr_storage ss = make_sockaddr(hostname_, port_);
@@ -348,62 +442,52 @@ size_t UcxCommunicator::Read(char *buffer, size_t size) {
     if (endpoint_ == nullptr || worker_ == nullptr) {
         throw std::runtime_error("UcxCommunicator: Read called without an active endpoint");
     }
-
-    std::lock_guard<std::mutex> worker_lock(*worker_mutex_);
     if (size == 0) {
         return 0;
     }
 
-    ucx_debug_log("Read begin bytes=%zu tag=0x%llx", size,
-                  static_cast<unsigned long long>(kGvirtusTag));
-
+    // Drain AM queue into the caller buffer, preserving stream semantics.
+    // Busy-poll to keep ucp_worker_progress() running continuously.
     size_t copied = 0;
     while (copied < size) {
-        const size_t available =
-            (pending_read_offset_ < pending_read_bytes_.size())
-                ? (pending_read_bytes_.size() - pending_read_offset_)
-                : 0;
-
-        if (available == 0) {
-            uint64_t frame_len = 0;
-
-            try {
-                recv_message_exact(&frame_len, kFrameHeaderSize, "tag_recv_header");
-            } catch (const std::exception &e) {
-                // Treat remote disconnect as EOF when no bytes have been copied yet.
-                // This keeps getstring() and reconnect loops from blocking forever.
-                if (endpoint_failed_.load() && copied == 0) {
-                    pending_read_bytes_.clear();
-                    pending_read_offset_ = 0;
-                    ucx_debug_log("Read EOF after endpoint failure: %s", e.what());
-                    return 0;
-                }
-                throw;
-            }
-
-            pending_read_bytes_.clear();
-            pending_read_offset_ = 0;
-
-            if (frame_len > 0) {
-                pending_read_bytes_.resize(static_cast<size_t>(frame_len));
-                recv_message_exact(pending_read_bytes_.data(), pending_read_bytes_.size(),
-                                   "tag_recv_payload");
+        if (pending_read_offset_ < pending_read_bytes_.size()) {
+            const size_t available = pending_read_bytes_.size() - pending_read_offset_;
+            const size_t to_copy = std::min(size - copied, available);
+            std::memcpy(buffer + copied,
+                        pending_read_bytes_.data() + pending_read_offset_,
+                        to_copy);
+            copied += to_copy;
+            pending_read_offset_ += to_copy;
+            if (pending_read_offset_ == pending_read_bytes_.size()) {
+                pending_read_bytes_.clear();
+                pending_read_offset_ = 0;
             }
             continue;
         }
 
-        const size_t to_copy = std::min(size - copied, available);
-        std::memcpy(buffer + copied, pending_read_bytes_.data() + pending_read_offset_, to_copy);
-        copied += to_copy;
-        pending_read_offset_ += to_copy;
-
-        if (pending_read_offset_ == pending_read_bytes_.size()) {
-            pending_read_bytes_.clear();
-            pending_read_offset_ = 0;
+        {
+            std::unique_lock<std::mutex> lock(am_state_->mutex);
+            if (!am_state_->queue.empty()) {
+                pending_read_bytes_ = std::move(am_state_->queue.front());
+                am_state_->queue.pop_front();
+                pending_read_offset_ = 0;
+                continue;
+            }
         }
+
+        if (worker_ != nullptr) {
+            std::lock_guard<std::mutex> worker_lock(*worker_mutex_);
+            ucp_worker_progress(worker_);
+        }
+
+        progress_am_rndv();
+
+        if (endpoint_failed_.load()) {
+            return copied == 0 ? 0 : copied;
+        }
+
     }
 
-    ucx_debug_log("Read done bytes=%zu", size);
     return size;
 }
 
@@ -412,18 +496,18 @@ size_t UcxCommunicator::Write(const char *buffer, size_t size) {
         throw std::runtime_error("UcxCommunicator: Write called without an active endpoint");
     }
 
+    // Send payload as a single UCX Active Message.
     std::lock_guard<std::mutex> worker_lock(*worker_mutex_);
+    ucx_debug_log("Write(AM) begin bytes=%zu", size);
 
-    ucx_debug_log("Write begin bytes=%zu tag=0x%llx", size,
-                  static_cast<unsigned long long>(kGvirtusTag));
+    ucp_request_param_t request_param{};
+    request_param.op_attr_mask = UCP_OP_ATTR_FIELD_DATATYPE;
+    request_param.datatype = ucp_dt_make_contig(1);
 
-    const uint64_t frame_len = static_cast<uint64_t>(size);
-    send_message_exact(&frame_len, kFrameHeaderSize, "tag_send_header");
-    if (size > 0) {
-        send_message_exact(buffer, size, "tag_send_payload");
-    }
-
-    ucx_debug_log("Write done bytes=%zu", size);
+    void *request = ucp_am_send_nbx(endpoint_, am_id_, nullptr, 0, buffer, size,
+                                    &request_param);
+    wait_request_completion(request, "am_send");
+    ucx_debug_log("Write(AM) done bytes=%zu", size);
     return size;
 }
 
@@ -432,15 +516,19 @@ void UcxCommunicator::Sync() {
         return;
     }
 
+    // Flush worker to complete any in-flight sends/receives.
     ucp_request_param_t request_param{};
     std::lock_guard<std::mutex> worker_lock(*worker_mutex_);
     ucx_debug_log("Sync begin (worker flush)");
     void *request = ucp_worker_flush_nbx(worker_, &request_param);
     wait_request_completion(request, "worker_flush");
     ucx_debug_log("Sync done");
+
+    progress_am_rndv();
 }
 
 void UcxCommunicator::Close() {
+    // Signal shutdown and release UCX resources.
     ucx_debug_log("Close called");
     running_ = false;
     conn_cv_.notify_all();
@@ -448,6 +536,7 @@ void UcxCommunicator::Close() {
 }
 
 void UcxCommunicator::run() {
+    // Placeholder for compatibility with Communicator interface.
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
 }
 
