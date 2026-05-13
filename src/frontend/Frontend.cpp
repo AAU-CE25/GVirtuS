@@ -285,23 +285,24 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
         req_header.routine_size = static_cast<std::uint64_t>(routine_size);
         req_header.payload_size = static_cast<std::uint64_t>(payload_size);
 
-        std::vector<unsigned char> request_frame(sizeof(req_header) + routine_size + payload_size);
-        std::size_t offset = 0;
-        std::memcpy(request_frame.data() + offset, &req_header, sizeof(req_header));
-        offset += sizeof(req_header);
-
+        // Send the request as three separate AMs: header, routine name and
+        // the input-buffer payload. Previously we concatenated everything
+        // into a single std::vector ("request_frame") and wrote it as one AM,
+        // which required allocating and zero-filling a buffer the size of
+        // the input data (tens of MB for cudaMemcpy H2D) only to memcpy the
+        // payload into it. Writing the payload directly from
+        // input_buffer->GetBuffer() eliminates that copy.
+        auto *comm = frontend->_communicator->obj_ptr().get();
+        comm->Write(reinterpret_cast<const char *>(&req_header), sizeof(req_header));
         if (routine_size > 0) {
-            std::memcpy(request_frame.data() + offset, routine, routine_size);
-            offset += routine_size;
+            comm->Write(routine, routine_size);
         }
-
         if (payload_size > 0) {
-            std::memcpy(request_frame.data() + offset, input_buffer->GetBuffer(), payload_size);
+            comm->Write(input_buffer->GetBuffer(), payload_size);
         }
-
+        // Sync() intentionally omitted; each Write() above is locally
+        // complete by the time it returns.
         frontend->mDataSent += payload_size;
-        frontend->_communicator->obj_ptr()->Write(reinterpret_cast<const char *>(request_frame.data()), request_frame.size());
-        frontend->_communicator->obj_ptr()->Sync();
 
         send_sec = duration_cast<milliseconds>(steady_clock::now() - start_send).count() / 1000.0;
 
@@ -309,7 +310,7 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
         auto start_recv = steady_clock::now();
 
         gvirtus::communicators::ucxam::EnvelopeHeader resp_header{};
-        if (!read_exact(frontend->_communicator->obj_ptr().get(), reinterpret_cast<char *>(&resp_header), sizeof(resp_header))) {
+        if (!read_exact(comm, reinterpret_cast<char *>(&resp_header), sizeof(resp_header))) {
             throw std::runtime_error("Frontend UCX AM: failed to read response header");
         }
 
@@ -323,36 +324,41 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
             throw std::runtime_error("Frontend UCX AM: response request_id mismatch");
         }
 
-        std::vector<unsigned char> resp_payload(static_cast<std::size_t>(resp_header.payload_size));
-        if (!resp_payload.empty() &&
-            !read_exact(frontend->_communicator->obj_ptr().get(), reinterpret_cast<char *>(resp_payload.data()), resp_payload.size())) {
-            throw std::runtime_error("Frontend UCX AM: failed to read response payload");
+        // Mirror the backend's three-part response layout: small prefix
+        // (server_exec_sec + out_buffer_size) followed by the bulk payload
+        // streamed directly into mpOutputBuffer. The previous implementation
+        // allocated a 64 MB-class std::vector for the entire bundled payload
+        // and then copied it byte-by-byte into mpOutputBuffer via
+        // Buffer::Add<char>, which scales quadratically due to
+        // BLOCK_SIZE-granular reallocations and dominates large-D2H latency.
+        constexpr std::size_t kPrefixSize = sizeof(double) + sizeof(size_t);
+        if (resp_header.payload_size < kPrefixSize) {
+            throw std::runtime_error("Frontend UCX AM: response payload too small");
+        }
+
+        if (!read_exact(comm, reinterpret_cast<char *>(&server_exec_sec), sizeof(double))) {
+            throw std::runtime_error("Frontend UCX AM: failed to read server_exec_sec");
+        }
+
+        size_t out_buffer_size = 0;
+        if (!read_exact(comm, reinterpret_cast<char *>(&out_buffer_size), sizeof(size_t))) {
+            throw std::runtime_error("Frontend UCX AM: failed to read out_buffer_size");
+        }
+
+        if (resp_header.payload_size != kPrefixSize + out_buffer_size) {
+            throw std::runtime_error("Frontend UCX AM: response payload size mismatch");
         }
 
         frontend->mExitCode = static_cast<int>(resp_header.status_code);
         exit_code = frontend->mExitCode;
 
-        const std::size_t fixed_prefix = sizeof(double) + sizeof(size_t);
-        if (resp_payload.size() < fixed_prefix) {
-            throw std::runtime_error("Frontend UCX AM: response payload too small");
+        if (out_buffer_size > 0) {
+            // Single bulk read straight into mpOutputBuffer; Buffer::Read<char>
+            // performs at most one realloc and one memcpy of out_buffer_size
+            // bytes regardless of payload size.
+            frontend->mpOutputBuffer->Read<char>(comm, out_buffer_size);
         }
-
-        std::size_t parse_off = 0;
-        std::memcpy(&server_exec_sec, resp_payload.data() + parse_off, sizeof(double));
-        parse_off += sizeof(double);
-
-        size_t out_buffer_size = 0;
-        std::memcpy(&out_buffer_size, resp_payload.data() + parse_off, sizeof(size_t));
-        parse_off += sizeof(size_t);
-
-        if (resp_payload.size() < parse_off + out_buffer_size) {
-            throw std::runtime_error("Frontend UCX AM: output payload size mismatch");
-        }
-
         frontend->mDataReceived += out_buffer_size;
-        for (size_t i = 0; i < out_buffer_size; ++i) {
-            frontend->mpOutputBuffer->Add<char>(static_cast<char>(resp_payload[parse_off + i]));
-        }
 
         recv_sec = duration_cast<milliseconds>(steady_clock::now() - start_recv).count() / 1000.0;
 
