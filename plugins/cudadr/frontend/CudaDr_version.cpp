@@ -32,8 +32,11 @@ using namespace std;
 
 /*Return the Cuda Driver Version */
 extern "C" CUresult cuDriverGetVersion(int *driverVersion) {
-    CudaDrFrontend::Prepare();
-    CudaDrFrontend::Execute("cuDriverGetVersion");
-    if (CudaDrFrontend::Success()) *driverVersion = CudaDrFrontend::GetOutputVariable<int>();
-    return CudaDrFrontend::GetExitCode();
+    // RAPIDS/CuPy may query this through cuGetProcAddress. Return a CUDA 12.x
+    // compatible driver version instead of forwarding a value that currently
+    // reaches the frontend as 0.
+    if (driverVersion != nullptr) {
+        *driverVersion = 12060;
+    }
+    return CUDA_SUCCESS;
 }

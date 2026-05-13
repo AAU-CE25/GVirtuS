@@ -915,3 +915,18 @@ CUDA_ROUTINE_HANDLER(HostUnregister) {
         return std::make_shared<Result>(cudaErrorHostMemoryNotRegistered);
     }
 }
+
+CUDA_ROUTINE_HANDLER(PointerGetAttributes) {
+    /* cudaError_t cudaPointerGetAttributes(cudaPointerAttributes *attributes, const void *ptr) */
+    try {
+        const void *ptr = input_buffer->Get<const void *>();
+        cudaPointerAttributes attrs = {};
+        cudaError_t exit_code = cudaPointerGetAttributes(&attrs, ptr);
+        std::shared_ptr<Buffer> output_buffer = std::make_shared<Buffer>();
+        output_buffer->Add(&attrs);
+        return std::make_shared<Result>(exit_code, output_buffer);
+    } catch (const std::exception &e) {
+        LOG4CPLUS_DEBUG(pThis->GetLogger(), "cudaPointerGetAttributes failed: " << e.what());
+        return std::make_shared<Result>(cudaErrorInvalidValue);
+    }
+}

@@ -27,3 +27,22 @@
 
 using gvirtus::communicators::Buffer;
 using gvirtus::communicators::Result;
+
+
+CUDA_DRIVER_HANDLER(GetErrorName) {
+    CUresult error = input_buffer->Get<CUresult>();
+    const char *name = NULL;
+    CUresult cs = cuGetErrorName(error, &name);
+    std::shared_ptr<Buffer> out = std::make_shared<Buffer>();
+    out->AddString(name ? name : "<unknown>");
+    return std::make_shared<Result>(cs, out);
+}
+
+CUDA_DRIVER_HANDLER(GetErrorString) {
+    CUresult error = input_buffer->Get<CUresult>();
+    const char *str = NULL;
+    CUresult cs = cuGetErrorString(error, &str);
+    std::shared_ptr<Buffer> out = std::make_shared<Buffer>();
+    out->AddString(str ? str : "<unknown error>");
+    return std::make_shared<Result>(cs, out);
+}

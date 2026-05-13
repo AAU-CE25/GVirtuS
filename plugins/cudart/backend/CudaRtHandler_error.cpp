@@ -53,3 +53,18 @@ CUDA_ROUTINE_HANDLER(GetLastError) {
     /* cudaError_t cudaGetLastError(void) */
     return std::make_shared<Result>(cudaGetLastError());
 }
+
+
+CUDA_ROUTINE_HANDLER(GetErrorName) {
+    /* const char* cudaGetErrorName(cudaError_t error) */
+    try {
+        cudaError_t error = input_buffer->Get<cudaError_t>();
+        const char *error_name = cudaGetErrorName(error);
+        std::shared_ptr<Buffer> output_buffer = std::make_shared<Buffer>();
+        output_buffer->AddString(error_name);
+        return std::make_shared<Result>(cudaSuccess, output_buffer);
+    } catch (const std::exception &e) {
+        cerr << e.what() << endl;
+        return std::make_shared<Result>(cudaErrorMemoryAllocation);
+    }
+}
