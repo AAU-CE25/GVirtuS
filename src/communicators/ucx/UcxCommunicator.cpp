@@ -82,7 +82,7 @@ ucs_status_t UcxCommunicator::am_recv_handler(void *arg, const void *header,
     }
 
     if ((param != nullptr) && (param->recv_attr & UCP_AM_RECV_ATTR_FLAG_RNDV)) {
-        std::vector<unsigned char> buffer(length);
+        ByteBuffer buffer(length);  // default-init: no zero-fill
         ucp_request_param_t recv_param{};
         recv_param.op_attr_mask = UCP_OP_ATTR_FIELD_DATATYPE;
         recv_param.datatype = ucp_dt_make_contig(1);
@@ -101,7 +101,7 @@ ucs_status_t UcxCommunicator::am_recv_handler(void *arg, const void *header,
         return UCS_INPROGRESS;
     }
 
-    std::vector<unsigned char> buffer(length);
+    ByteBuffer buffer(length);  // default-init: no zero-fill
     std::memcpy(buffer.data(), data, length);
     self->enqueue_am_message(std::move(buffer));
 
@@ -257,7 +257,10 @@ ucp_conn_request_h UcxCommunicator::wait_for_connection_request() {
 }
 
 void UcxCommunicator::wait_request_completion(void *request, const char *op_name) {
-    // Progress the worker until the request completes (no sleep for low latency).
+    // Progress the worker until the request completes. The worker_mutex_ is
+    // acquired only briefly around each progress call so that concurrent
+    // Read()/Write() callers (and the rendezvous-receive bookkeeping) are not
+    // blocked for the entire duration of a large transfer.
     ucx_debug_log("%s: wait_request_completion request=%p", op_name, request);
 
     if (request == nullptr) {
@@ -274,6 +277,7 @@ void UcxCommunicator::wait_request_completion(void *request, const char *op_name
     bool cancel_issued = false;
     while (ucp_request_check_status(request) == UCS_INPROGRESS) {
         if (worker_ != nullptr) {
+            std::lock_guard<std::mutex> worker_lock(*worker_mutex_);
             ucp_worker_progress(worker_);
         }
 
@@ -282,6 +286,7 @@ void UcxCommunicator::wait_request_completion(void *request, const char *op_name
         // If the endpoint has failed (for example, remote peer reset), cancel
         // the in-flight request so callers can unwind instead of hanging.
         if (!cancel_issued && endpoint_failed_.load() && worker_ != nullptr) {
+            std::lock_guard<std::mutex> worker_lock(*worker_mutex_);
             ucp_request_cancel(worker_, request);
             cancel_issued = true;
         }
@@ -299,7 +304,7 @@ void UcxCommunicator::wait_request_completion(void *request, const char *op_name
     ucx_debug_log("%s: completed status=%s", op_name, ucs_status_string(final_status));
 }
 
-void UcxCommunicator::enqueue_am_message(std::vector<unsigned char> message) {
+void UcxCommunicator::enqueue_am_message(ByteBuffer message) {
     // Store a completed AM payload for stream-style Read().
     {
         std::lock_guard<std::mutex> lock(am_state_->mutex);
@@ -308,7 +313,7 @@ void UcxCommunicator::enqueue_am_message(std::vector<unsigned char> message) {
     am_state_->cv.notify_one();
 }
 
-void UcxCommunicator::enqueue_am_rndv(void *request, std::vector<unsigned char> buffer) {
+void UcxCommunicator::enqueue_am_rndv(void *request, ByteBuffer buffer) {
     // Track a rendezvous receive until UCX reports completion.
     std::lock_guard<std::mutex> lock(am_state_->mutex);
     am_state_->rndv.push_back(PendingAmRecv{request, std::move(buffer)});
@@ -496,35 +501,33 @@ size_t UcxCommunicator::Write(const char *buffer, size_t size) {
         throw std::runtime_error("UcxCommunicator: Write called without an active endpoint");
     }
 
-    // Send payload as a single UCX Active Message.
-    std::lock_guard<std::mutex> worker_lock(*worker_mutex_);
+    // Send payload as a single UCX Active Message. The worker mutex is held
+    // only across the ucp_am_send_nbx call itself; wait_request_completion
+    // takes the lock briefly per progress tick so other threads (or the
+    // rendezvous-receive bookkeeping) can run concurrently with a large send.
     ucx_debug_log("Write(AM) begin bytes=%zu", size);
 
     ucp_request_param_t request_param{};
     request_param.op_attr_mask = UCP_OP_ATTR_FIELD_DATATYPE;
     request_param.datatype = ucp_dt_make_contig(1);
 
-    void *request = ucp_am_send_nbx(endpoint_, am_id_, nullptr, 0, buffer, size,
-                                    &request_param);
+    void *request;
+    {
+        std::lock_guard<std::mutex> worker_lock(*worker_mutex_);
+        request = ucp_am_send_nbx(endpoint_, am_id_, nullptr, 0, buffer, size,
+                                  &request_param);
+    }
     wait_request_completion(request, "am_send");
     ucx_debug_log("Write(AM) done bytes=%zu", size);
     return size;
 }
 
 void UcxCommunicator::Sync() {
-    if (worker_ == nullptr) {
-        return;
-    }
-
-    // Flush worker to complete any in-flight sends/receives.
-    ucp_request_param_t request_param{};
-    std::lock_guard<std::mutex> worker_lock(*worker_mutex_);
-    ucx_debug_log("Sync begin (worker flush)");
-    void *request = ucp_worker_flush_nbx(worker_, &request_param);
-    wait_request_completion(request, "worker_flush");
-    ucx_debug_log("Sync done");
-
-    progress_am_rndv();
+    // No-op: ucp_am_send_nbx + wait_request_completion already guarantees
+    // local completion of every Write(). A ucp_worker_flush_nbx() here would
+    // force the whole protocol stack to quiesce on every message, adding
+    // measurable per-call latency without changing semantics.
+    (void)worker_;
 }
 
 void UcxCommunicator::Close() {
