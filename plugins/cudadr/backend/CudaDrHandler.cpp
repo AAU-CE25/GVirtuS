@@ -218,9 +218,9 @@ void CudaDrHandler::Initialize() {
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(CtxEnablePeerAccess));
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(DeviceCanAccessPeer));
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(DevicePrimaryCtxGetState));
-    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(CtxDisablePeerAccess));
-    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(CtxEnablePeerAccess));
-    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(DeviceCanAccessPeer));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(DevicePrimaryCtxRetain));                                                                                                                                                                                                                
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(DevicePrimaryCtxRelease));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(DevicePrimaryCtxReset));
 
     /*CudaDrHandler_device*/
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(DeviceComputeCapability));
@@ -288,6 +288,8 @@ void CudaDrHandler::Initialize() {
 
     /*CudaDrHandler_version*/
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(DriverGetVersion));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(GetErrorName));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(GetErrorString));
 
     /*CudaDrHandler_stream*/
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(StreamCreate));

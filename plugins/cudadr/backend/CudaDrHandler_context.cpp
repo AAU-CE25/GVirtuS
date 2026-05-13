@@ -167,3 +167,24 @@ CUDA_DRIVER_HANDLER(CtxSetLimit) {
     CUresult exit_code = cuCtxSetLimit(limit, value);
     return std::make_shared<Result>((cudaError_t)exit_code);
 }
+
+CUDA_DRIVER_HANDLER(DevicePrimaryCtxRetain) {                                                                                                                                                                                                                                             
+    CUdevice dev = input_buffer->Get<CUdevice>();                                                                                                                                                                                                                                         
+    CUcontext pctx = nullptr;
+    CUresult exit_code = cuDevicePrimaryCtxRetain(&pctx, dev);                                                                                                                                                                                                                            
+    std::shared_ptr<Buffer> out = std::make_shared<Buffer>();
+    out->AddMarshal(pctx);                                                                                                                                                                                                                                                                
+    return std::make_shared<Result>((cudaError_t)exit_code, out);
+}                                                                                                                                                                                                                                                                                         
+                  
+CUDA_DRIVER_HANDLER(DevicePrimaryCtxRelease) {                                                                                                                                                                                                                                            
+    CUdevice dev = input_buffer->Get<CUdevice>();
+    CUresult exit_code = cuDevicePrimaryCtxRelease(dev);                                                                                                                                                                                                                                  
+    return std::make_shared<Result>((cudaError_t)exit_code);                                                                                                                                                                                                                              
+}
+                                                                                                                                                                                                                                                                                            
+CUDA_DRIVER_HANDLER(DevicePrimaryCtxReset) {                                                                                                                                                                                                                                              
+    CUdevice dev = input_buffer->Get<CUdevice>();
+    CUresult exit_code = cuDevicePrimaryCtxReset(dev);                                                                                                                                                                                                                                    
+    return std::make_shared<Result>((cudaError_t)exit_code);                                                                                                                                                                                                                              
+}

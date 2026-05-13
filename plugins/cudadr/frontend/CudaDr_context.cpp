@@ -162,7 +162,6 @@ extern "C" CUresult cuDeviceCanAccessPeer(int *canAccessPeer, CUdevice dev, CUde
 // TODO: test
 extern "C" CUresult cuDevicePrimaryCtxRetain(CUcontext *pctx, CUdevice dev) {
     CudaDrFrontend::Prepare();
-    CudaDrFrontend::AddHostPointerForArguments(pctx);
     CudaDrFrontend::AddVariableForArguments(dev);
     CudaDrFrontend::Execute("cuDevicePrimaryCtxRetain");
     if (CudaDrFrontend::Success()) {

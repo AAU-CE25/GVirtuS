@@ -53,6 +53,8 @@ CUDA_ROUTINE_HANDLER(GetLastError) {
     /* cudaError_t cudaGetLastError(void) */
     return std::make_shared<Result>(cudaGetLastError());
 }
+
+
 CUDA_ROUTINE_HANDLER(GetErrorName) {
     /* const char* cudaGetErrorName(cudaError_t error) */
     try {
@@ -66,4 +68,3 @@ CUDA_ROUTINE_HANDLER(GetErrorName) {
         return std::make_shared<Result>(cudaErrorMemoryAllocation);
     }
 }
-
