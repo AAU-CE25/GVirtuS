@@ -7,7 +7,7 @@ GVIRTUS_LOG_LEVEL ?= 10000
 GVIRTUS_UCX_DATAPATH ?= am
 UCX_TLS ?= tcp,self
 UCX_NET_DEVICES ?= ens1f1np1
-UCX_LOG_LEVEL ?= info
+UCX_LOG_LEVEL ?= debug
 UCX_SOCKADDR_TLS_PRIORITY ?= tcp
 UCX_IB_GID_INDEX ?= # empty by default; set to 3 for RoCEv2
 SIMPLE_MATRIX_GPU_FLAGS ?=
@@ -170,6 +170,29 @@ local-docker-build-simple-matrix:
 		-f examples/simple_matrix/Dockerfile \
 		-t $(DOCKER_REPO_DEV)/simple_matrix_gvirtus:cuda12.6 \
 		.
+
+run-simple-matrix-bench-ucx-rdma:
+	docker run --rm \
+		--name simple_matrix_bench_ucx_rdma_container-$(USER) \
+		$(SIMPLE_MATRIX_GPU_FLAGS) \
+		--network host \
+		--device /dev/infiniband \
+		--cap-add IPC_LOCK \
+		--ulimit memlock=-1 \
+		-e MODE_LABEL="ucx-rdma" \
+		-e VARIANT_LABEL="bench" \
+		-e GVIRTUS_CONFIG=/opt/GVirtuS/etc/properties_ucx.json \
+		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
+		-e UCX_TLS=rc_mlx5,ud_mlx5,self \
+		-e UCX_NET_DEVICES=mlx5_1:1 \
+		-e UCX_LOG_LEVEL=$(UCX_LOG_LEVEL) \
+		-e UCX_SOCKADDR_TLS_PRIORITY=rdmacm \
+		-e UCX_IB_GID_INDEX=3 \
+		-v ./examples/simple_matrix:/opt/GVirtuS/examples \
+		-v ./etc/properties_ucx.json:/opt/GVirtuS/etc/properties_ucx.json \
+		$(DOCKER_REPO_DEV)/simple_matrix_gvirtus:cuda12.6 \
+		bash /opt/GVirtuS/examples/benchmark.sh
+
 
 run-simple-matrix-test:
 	docker run --rm \
