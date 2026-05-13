@@ -1,15 +1,12 @@
 #pragma once
 
 #include <atomic>
-#include <chrono>
 #include <condition_variable>
 #include <cstdint>
-#include <deque>
 #include <memory>
 #include <mutex>
 #include <queue>
 #include <string>
-#include <vector>
 
 #include "gvirtus/communicators/Communicator.h"
 
@@ -17,6 +14,13 @@
 
 namespace gvirtus::communicators {
 
+/**
+ * UcxCommunicator implements the gVirtuS Communicator byte-stream contract on
+ * top of the UCP Stream API.  Because Stream maps 1:1 to Read/Write, the
+ * implementation is small: there is no AM dispatcher, no producer/consumer
+ * queue, no rendezvous bookkeeping.  RDMA is enabled transparently when UCX
+ * selects an RC/DC transport (e.g. rc_mlx5).
+ */
 class UcxCommunicator : public Communicator {
    public:
     UcxCommunicator() = default;
@@ -35,56 +39,72 @@ class UcxCommunicator : public Communicator {
     std::string to_string() override { return "ucxcommunicator"; }
 
    private:
+    // Per-process UCP context+worker shared by the listener and every
+    // accepted client.  Holding it via shared_ptr means it is destroyed only
+    // when the listener and all accepted endpoints are gone -- no dangling
+    // raw pointers.
+    struct UcxShared {
+        ucp_context_h context{nullptr};
+        ucp_worker_h worker{nullptr};
+        // Serializes every direct UCP call (send_nbx, recv_nbx, ep_close,
+        // request_cancel, worker_progress).  UCX_THREAD_MODE_SERIALIZED
+        // requires us to do this externally.
+        std::mutex worker_mutex;
+
+        UcxShared() = default;
+        ~UcxShared();
+        UcxShared(const UcxShared &) = delete;
+        UcxShared &operator=(const UcxShared &) = delete;
+    };
+
+    // State filled by the ucp_stream_recv_nbx callback so the waiter can
+    // recover the actual number of bytes received (status alone is not
+    // enough -- ucp_request_check_status does not report length).
+    struct StreamRecvState {
+        std::atomic<int> done{0};
+        ucs_status_t status{UCS_OK};
+        size_t length{0};
+    };
+
+    UcxCommunicator(std::shared_ptr<UcxShared> shared, std::string hostname,
+                    std::uint16_t port);
+
+    // Listener-side callback: a peer is asking to connect.  We just push the
+    // conn_request onto the queue; Accept() consumes it.
     static void listener_conn_handler(ucp_conn_request_h conn_request, void *arg);
     static void endpoint_error_handler(void *arg, ucp_ep_h ep, ucs_status_t status);
-    static ucs_status_t am_recv_handler(void *arg, const void *header, size_t header_length,
-                                        void *data, size_t length,
-                                        const ucp_am_recv_param_t *param);
 
-    void init_ucx();
-    void destroy_ucx();
-    void enqueue_connection(ucp_conn_request_h conn_request);
-    ucp_conn_request_h wait_for_connection_request();
-    void wait_request_completion(void *request, const char *op_name);
-    void enqueue_am_message(std::vector<unsigned char> message);
-    void enqueue_am_rndv(void *request, std::vector<unsigned char> buffer);
-    void progress_am_rndv();
-    static sockaddr_storage make_sockaddr(const std::string &host, std::uint16_t port);
+    // Recv callback used by ucp_stream_recv_nbx (immediate-completion path is
+    // handled separately by check_inline_completion).
+    static void stream_recv_callback(void *request, ucs_status_t status,
+                                     size_t length, void *user_data);
+    static void stream_send_callback(void *request, ucs_status_t status,
+                                     void *user_data);
 
-    struct PendingAmRecv {
-        void *request{nullptr};
-        std::vector<unsigned char> buffer;
-    };
+    void init_shared();
+    void wait_send_completion(void *request, std::atomic<int> *flag);
+    size_t wait_stream_recv_completion(void *request, StreamRecvState *state,
+                                       size_t inline_length);
+    ucp_conn_request_h wait_for_connection_request() const;
 
-    struct AmState {
-        std::mutex mutex;
-        std::condition_variable cv;
-        std::deque<std::vector<unsigned char>> queue;
-        std::vector<PendingAmRecv> rndv;
-    };
-
+    std::shared_ptr<UcxShared> shared_;
     std::string hostname_;
     std::uint16_t port_{};
-    ucp_context_h context_{nullptr};
-    ucp_worker_h worker_{nullptr};
+
+    // Listener-only state (server-side).
     ucp_listener_h listener_{nullptr};
-    ucp_ep_h endpoint_{nullptr};
-
-    std::atomic<bool> running_{false};
-    bool owns_context_worker_listener_{true};
-    bool initialized_{false};
-
     mutable std::mutex conn_mutex_;
     mutable std::condition_variable conn_cv_;
     mutable std::queue<ucp_conn_request_h> pending_conn_requests_;
-    std::shared_ptr<std::mutex> worker_mutex_{std::make_shared<std::mutex>()};
 
-    unsigned am_id_{1};
-    std::shared_ptr<AmState> am_state_{std::make_shared<AmState>()};
+    // Endpoint-only state (per accepted/connected stream).
+    ucp_ep_h endpoint_{nullptr};
+    mutable std::atomic<bool> endpoint_failed_{false};
 
-    std::vector<unsigned char> pending_read_bytes_;
-    size_t pending_read_offset_{0};
-    std::atomic<bool> endpoint_failed_{false};
+    // True for the top-level (listener) instance built directly from the
+    // factory.  False for instances minted by Accept().  Used to decide
+    // whether to destroy the listener in the destructor.
+    bool is_listener_{false};
 };
 
 }  // namespace gvirtus::communicators
