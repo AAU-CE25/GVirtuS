@@ -18,6 +18,8 @@ using gvirtus::communicators::UcxCommunicator;
 
 namespace {
 constexpr unsigned kUcxAmId = 1;
+constexpr size_t kDefaultScratchSizeBytes = 128ull * 1024 * 1024;  // 128 MB
+constexpr size_t kSendScratchMinBytes = 8 * 1024;                  // below this, skip copy
 
 bool ucx_debug_enabled() {
     const char *lvl = std::getenv("GVIRTUS_LOGLEVEL");
@@ -82,22 +84,56 @@ ucs_status_t UcxCommunicator::am_recv_handler(void *arg, const void *header,
     }
 
     if ((param != nullptr) && (param->recv_attr & UCP_AM_RECV_ATTR_FLAG_RNDV)) {
-        ByteBuffer buffer(length);  // default-init: no zero-fill
+        // Try to land the rendezvous receive in the pre-registered scratch.
+        // That keeps the destination VA stable across calls and lets the UCX
+        // registration cache hit, eliminating the per-AM memory pinning that
+        // was bottlenecking large RDMA transfers.
+        unsigned char *recv_buf = nullptr;
+        ByteBuffer delivery(length);  // final landing buffer, default-init
+        bool from_scratch = false;
+        {
+            std::lock_guard<std::mutex> lock(self->am_state_->mutex);
+            if (!self->am_state_->recv_scratch_in_use &&
+                length <= self->am_state_->recv_scratch.size() &&
+                self->am_state_->recv_memh != nullptr) {
+                self->am_state_->recv_scratch_in_use = true;
+                recv_buf = self->am_state_->recv_scratch.data();
+                from_scratch = true;
+            }
+        }
+        if (recv_buf == nullptr) {
+            // Either the scratch is busy with a previous (still in-flight)
+            // rendezvous receive or this payload is larger than the
+            // configured scratch. Fall back to a fresh per-call buffer (the
+            // pre-fix behaviour) so correctness is preserved.
+            recv_buf = delivery.data();
+        }
+
         ucp_request_param_t recv_param{};
         recv_param.op_attr_mask = UCP_OP_ATTR_FIELD_DATATYPE;
         recv_param.datatype = ucp_dt_make_contig(1);
 
-        void *request = ucp_am_recv_data_nbx(self->worker_, data, buffer.data(), length,
+        void *request = ucp_am_recv_data_nbx(self->worker_, data, recv_buf, length,
                                              &recv_param);
         if (request == nullptr) {
-            self->enqueue_am_message(std::move(buffer));
+            // Synchronous completion.
+            if (from_scratch) {
+                std::memcpy(delivery.data(), recv_buf, length);
+                std::lock_guard<std::mutex> lock(self->am_state_->mutex);
+                self->am_state_->recv_scratch_in_use = false;
+            }
+            self->enqueue_am_message(std::move(delivery));
             return UCS_OK;
         }
         if (UCS_PTR_IS_ERR(request)) {
+            if (from_scratch) {
+                std::lock_guard<std::mutex> lock(self->am_state_->mutex);
+                self->am_state_->recv_scratch_in_use = false;
+            }
             return UCS_PTR_STATUS(request);
         }
 
-        self->enqueue_am_rndv(request, std::move(buffer));
+        self->enqueue_am_rndv(request, std::move(delivery), from_scratch, length);
         return UCS_INPROGRESS;
     }
 
@@ -150,7 +186,10 @@ void UcxCommunicator::init_ucx() {
     // parameters for ucp_worker
     ucp_worker_params_t worker_params{};
     worker_params.field_mask = UCP_WORKER_PARAM_FIELD_THREAD_MODE;
-    worker_params.thread_mode = UCS_THREAD_MODE_MULTI;
+    // SERIALIZED: multiple OS threads may call into UCX, but we already
+    // serialize them via worker_mutex_, so UCX itself can skip its internal
+    // per-call locking (which was the case with UCS_THREAD_MODE_MULTI).
+    worker_params.thread_mode = UCS_THREAD_MODE_SERIALIZED;
 
     status = ucp_worker_create(context_, &worker_params, &worker_);
     if (status != UCS_OK) {
@@ -178,8 +217,112 @@ void UcxCommunicator::init_ucx() {
     }
 
     initialized_ = true;
+    // Allocate and pre-register the receive scratch (shared via AmState so
+    // both this listener/client and any accepted communicator see the same
+    // pinned region) and the per-endpoint send scratch.
+    allocate_recv_scratch();
+    allocate_send_scratch();
     ucx_debug_log("init_ucx completed host=%s port=%u mode=am", hostname_.c_str(), port_);
 }
+
+size_t UcxCommunicator::scratch_size_bytes() {
+    // Optional override via env var so workloads beyond size=4096 (64 MB
+    // matrices) can be supported without recompiling. Values are in MiB.
+    const char *env = std::getenv("GVIRTUS_UCX_SCRATCH_SIZE_MB");
+    if (env != nullptr) {
+        char *end = nullptr;
+        long mb = std::strtol(env, &end, 10);
+        if (end != env && mb > 0) {
+            return static_cast<size_t>(mb) * 1024 * 1024;
+        }
+    }
+    return kDefaultScratchSizeBytes;
+}
+
+void UcxCommunicator::allocate_recv_scratch() {
+    if (context_ == nullptr || !am_state_) return;
+    std::lock_guard<std::mutex> lock(am_state_->mutex);
+    if (am_state_->recv_memh != nullptr) {
+        // Some other communicator that shares this AmState (e.g. the listener
+        // when an accepted instance is being set up via init_ucx-style path)
+        // already pre-registered the recv scratch. Nothing to do.
+        return;
+    }
+    am_state_->recv_scratch.resize(scratch_size_bytes());
+
+    ucp_mem_map_params_t params{};
+    params.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS |
+                        UCP_MEM_MAP_PARAM_FIELD_LENGTH;
+    params.address = am_state_->recv_scratch.data();
+    params.length = am_state_->recv_scratch.size();
+
+    ucs_status_t status = ucp_mem_map(context_, &params, &am_state_->recv_memh);
+    if (status != UCS_OK) {
+        am_state_->recv_memh = nullptr;
+        std::fprintf(stderr,
+                     "UcxCommunicator: ucp_mem_map(recv_scratch, %zu B) failed: %s\n",
+                     am_state_->recv_scratch.size(), ucs_status_string(status));
+        am_state_->recv_scratch.clear();
+        am_state_->recv_scratch.shrink_to_fit();
+    } else {
+        ucx_debug_log("recv scratch mapped size=%zu memh=%p",
+                      am_state_->recv_scratch.size(),
+                      (void *)am_state_->recv_memh);
+    }
+}
+
+void UcxCommunicator::allocate_send_scratch() {
+    if (context_ == nullptr) return;
+    if (send_scratch_memh_ != nullptr) return;
+    send_scratch_.resize(scratch_size_bytes());
+
+    ucp_mem_map_params_t params{};
+    params.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS |
+                        UCP_MEM_MAP_PARAM_FIELD_LENGTH;
+    params.address = send_scratch_.data();
+    params.length = send_scratch_.size();
+
+    ucs_status_t status = ucp_mem_map(context_, &params, &send_scratch_memh_);
+    if (status != UCS_OK) {
+        send_scratch_memh_ = nullptr;
+        std::fprintf(stderr,
+                     "UcxCommunicator: ucp_mem_map(send_scratch, %zu B) failed: %s\n",
+                     send_scratch_.size(), ucs_status_string(status));
+        send_scratch_.clear();
+        send_scratch_.shrink_to_fit();
+    } else {
+        ucx_debug_log("send scratch mapped size=%zu memh=%p",
+                      send_scratch_.size(), (void *)send_scratch_memh_);
+    }
+}
+
+void UcxCommunicator::release_recv_scratch() {
+    if (context_ == nullptr || !am_state_) return;
+    std::lock_guard<std::mutex> lock(am_state_->mutex);
+    if (am_state_->recv_memh != nullptr) {
+        ucp_mem_unmap(context_, am_state_->recv_memh);
+        am_state_->recv_memh = nullptr;
+    }
+    am_state_->recv_scratch.clear();
+    am_state_->recv_scratch.shrink_to_fit();
+    am_state_->recv_scratch_in_use = false;
+}
+
+void UcxCommunicator::release_send_scratch() {
+    if (context_ == nullptr) {
+        send_scratch_memh_ = nullptr;
+        send_scratch_.clear();
+        send_scratch_.shrink_to_fit();
+        return;
+    }
+    if (send_scratch_memh_ != nullptr) {
+        ucp_mem_unmap(context_, send_scratch_memh_);
+        send_scratch_memh_ = nullptr;
+    }
+    send_scratch_.clear();
+    send_scratch_.shrink_to_fit();
+}
+
 
 void UcxCommunicator::destroy_ucx() {
     if (!initialized_) return;
@@ -216,6 +359,15 @@ void UcxCommunicator::destroy_ucx() {
     if (owns_context_worker_listener_ && listener_ != nullptr) {
         ucp_listener_destroy(listener_);
         listener_ = nullptr;
+    }
+
+    // Release scratches before destroying the worker/context. Send scratch
+    // is per-endpoint and always owned by this instance; recv scratch lives
+    // in the shared AmState and only the context owner is allowed to unmap
+    // it (other accepted communicators share it via shared_ptr).
+    release_send_scratch();
+    if (owns_context_worker_listener_) {
+        release_recv_scratch();
     }
 
     if (owns_context_worker_listener_ && worker_ != nullptr) {
@@ -321,10 +473,12 @@ void UcxCommunicator::enqueue_am_message(ByteBuffer message) {
     am_state_->cv.notify_one();
 }
 
-void UcxCommunicator::enqueue_am_rndv(void *request, ByteBuffer buffer) {
+void UcxCommunicator::enqueue_am_rndv(void *request, ByteBuffer buffer,
+                                      bool from_scratch, size_t scratch_len) {
     // Track a rendezvous receive until UCX reports completion.
     std::lock_guard<std::mutex> lock(am_state_->mutex);
-    am_state_->rndv.push_back(PendingAmRecv{request, std::move(buffer)});
+    am_state_->rndv.push_back(
+        PendingAmRecv{request, std::move(buffer), from_scratch, scratch_len});
 }
 
 void UcxCommunicator::progress_am_rndv() {
@@ -332,6 +486,11 @@ void UcxCommunicator::progress_am_rndv() {
     std::lock_guard<std::mutex> lock(am_state_->mutex);
     for (auto it = am_state_->rndv.begin(); it != am_state_->rndv.end();) {
         if (it->request == nullptr) {
+            if (it->from_scratch) {
+                std::memcpy(it->buffer.data(), am_state_->recv_scratch.data(),
+                            it->scratch_len);
+                am_state_->recv_scratch_in_use = false;
+            }
             am_state_->queue.push_back(std::move(it->buffer));
             it = am_state_->rndv.erase(it);
             continue;
@@ -345,9 +504,17 @@ void UcxCommunicator::progress_am_rndv() {
 
         ucp_request_free(it->request);
         if (status == UCS_OK) {
+            if (it->from_scratch) {
+                std::memcpy(it->buffer.data(), am_state_->recv_scratch.data(),
+                            it->scratch_len);
+                am_state_->recv_scratch_in_use = false;
+            }
             am_state_->queue.push_back(std::move(it->buffer));
             am_state_->cv.notify_one();
         } else {
+            if (it->from_scratch) {
+                am_state_->recv_scratch_in_use = false;
+            }
             std::fprintf(stderr, "UCX AM rendezvous receive failed: %s\n",
                          ucs_status_string(status));
         }
@@ -402,6 +569,12 @@ const gvirtus::communicators::Communicator *const UcxCommunicator::Accept() cons
     accepted->worker_mutex_ = self->worker_mutex_;
     accepted->am_state_ = self->am_state_;
     accepted->endpoint_failed_.store(false);
+    // The accepted communicator shares context_/worker_ with the listener,
+    // so the recv scratch (kept in the shared AmState) is already pinned.
+    // It does still need its own pre-registered send scratch so Write()
+    // payloads originate from a stable VA that UCX can keep in its
+    // registration cache across calls.
+    accepted->allocate_send_scratch();
 
     ucp_ep_params_t ep_params{};
     ep_params.field_mask = UCP_EP_PARAM_FIELD_CONN_REQUEST |
@@ -530,6 +703,20 @@ size_t UcxCommunicator::Write(const char *buffer, size_t size) {
     // rendezvous-receive bookkeeping) can run concurrently with a large send.
     ucx_debug_log("Write(AM) begin bytes=%zu", size);
 
+    // For messages large enough to take UCX's rendezvous path, copy the
+    // payload through the pre-registered send scratch so the wire transfer
+    // always issues from the same VA. That keeps the UCX registration cache
+    // hot and avoids the per-call KSM/MR registration that was costing tens
+    // of ms per 16 MB send. Below the small-message threshold UCX bounces
+    // through its own internal eager buffer anyway, so the copy would just
+    // add latency.
+    const char *send_ptr = buffer;
+    if (size >= kSendScratchMinBytes && size <= send_scratch_.size() &&
+        send_scratch_memh_ != nullptr) {
+        std::memcpy(send_scratch_.data(), buffer, size);
+        send_ptr = reinterpret_cast<const char *>(send_scratch_.data());
+    }
+
     ucp_request_param_t request_param{};
     request_param.op_attr_mask = UCP_OP_ATTR_FIELD_DATATYPE;
     request_param.datatype = ucp_dt_make_contig(1);
@@ -537,7 +724,7 @@ size_t UcxCommunicator::Write(const char *buffer, size_t size) {
     void *request;
     {
         std::lock_guard<std::mutex> worker_lock(*worker_mutex_);
-        request = ucp_am_send_nbx(endpoint_, am_id_, nullptr, 0, buffer, size,
+        request = ucp_am_send_nbx(endpoint_, am_id_, nullptr, 0, send_ptr, size,
                                   &request_param);
     }
     wait_request_completion(request, "am_send");

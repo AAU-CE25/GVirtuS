@@ -83,13 +83,26 @@ class UcxCommunicator : public Communicator {
     ucp_conn_request_h wait_for_connection_request();
     void wait_request_completion(void *request, const char *op_name);
     void enqueue_am_message(ByteBuffer message);
-    void enqueue_am_rndv(void *request, ByteBuffer buffer);
+    void enqueue_am_rndv(void *request, ByteBuffer buffer,
+                         bool from_scratch, size_t scratch_len);
     void progress_am_rndv();
+    void allocate_recv_scratch();
+    void allocate_send_scratch();
+    void release_recv_scratch();
+    void release_send_scratch();
+    static size_t scratch_size_bytes();
     static sockaddr_storage make_sockaddr(const std::string &host, std::uint16_t port);
 
     struct PendingAmRecv {
         void *request{nullptr};
         ByteBuffer buffer;
+        // When `from_scratch` is true, the receive landed in the shared
+        // pre-registered scratch buffer instead of `buffer`. The completion
+        // path must memcpy `scratch_len` bytes from the scratch buffer into
+        // `buffer` before enqueueing it, and clear the busy flag so the
+        // next rendezvous receive may reuse the scratch.
+        bool from_scratch{false};
+        size_t scratch_len{0};
     };
 
     struct AmState {
@@ -97,6 +110,11 @@ class UcxCommunicator : public Communicator {
         std::condition_variable cv;
         std::deque<ByteBuffer> queue;
         std::vector<PendingAmRecv> rndv;
+        // Pre-registered receive scratch shared across all clients on the
+        // same UCX worker. Protected by `mutex`.
+        ByteBuffer recv_scratch;
+        ucp_mem_h recv_memh{nullptr};
+        bool recv_scratch_in_use{false};
     };
 
     std::string hostname_;
@@ -121,6 +139,13 @@ class UcxCommunicator : public Communicator {
     ByteBuffer pending_read_bytes_;
     size_t pending_read_offset_{0};
     std::atomic<bool> endpoint_failed_{false};
+
+    // Per-endpoint send scratch. Used by Write() so that the user-visible
+    // sequence of large active-message sends always reuses the same VA, which
+    // lets the UCX registration cache hit instead of re-pinning fresh pages
+    // for every RDMA RNDV transfer.
+    ByteBuffer send_scratch_;
+    ucp_mem_h send_scratch_memh_{nullptr};
 };
 
 }  // namespace gvirtus::communicators
