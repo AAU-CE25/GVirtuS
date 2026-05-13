@@ -1,6 +1,6 @@
 #! /bin/bash
 export GVIRTUS_LOGLEVEL=${GVIRTUS_LOGLEVEL:-20000}  # default to INFO if not set
-export UCX_DIAG=${UCX_DIAG:-0}
+export UCX_DIAG=${UCX_DIAG:-1}
 
 if [[ "${UCX_DIAG}" == "1" ]]; then
 	if command -v ucx_info >/dev/null 2>&1; then
