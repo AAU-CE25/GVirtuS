@@ -31,15 +31,17 @@
 using namespace std;
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaDriverGetVersion(int *driverVersion) {
-    CudaRtFrontend::Prepare();
-    CudaRtFrontend::Execute("cudaDriverGetVersion");
-    if (CudaRtFrontend::Success()) *driverVersion = CudaRtFrontend::GetOutputVariable<int>();
-    return CudaRtFrontend::GetExitCode();
+    // RAPIDS/CuPy checks this before allocating. Returning 0 makes CuPy think
+    // the CUDA driver is insufficient for the CUDA runtime.
+    if (driverVersion != nullptr) {
+        *driverVersion = 12090;
+    }
+    return cudaSuccess;
 }
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaRuntimeGetVersion(int *runtimeVersion) {
-    CudaRtFrontend::Prepare();
-    CudaRtFrontend::Execute("cudaRuntimeGetVersion");
-    if (CudaRtFrontend::Success()) *runtimeVersion = CudaRtFrontend::GetOutputVariable<int>();
-    return CudaRtFrontend::GetExitCode();
+    if (runtimeVersion != nullptr) {
+        *runtimeVersion = 12090;
+    }
+    return cudaSuccess;
 }

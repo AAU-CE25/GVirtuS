@@ -85,6 +85,7 @@ class Frontend {
      * @param input_buffer the buffer containing the parameters of the routine.
      */
     void Execute(const char *routine, const communicators::Buffer *input_buffer = NULL);
+    void ExecuteAsync(const char *routine, const communicators::Buffer *input_buffer = NULL);
 
     /**
      * Prepares the Frontend for the execution. This method _must_ be called
@@ -237,5 +238,10 @@ class Frontend {
     double mSendingTime = 0.0;
     double mReceivingTime = 0.0;
     double mRoutineExecutionTime = 0.0;
+
+    void ExecuteInternal(const char *routine,
+                         const communicators::Buffer *input_buffer,
+                         bool force_fire_and_forget);
+
 };
 }  // namespace gvirtus::frontend

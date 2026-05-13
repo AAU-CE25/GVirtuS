@@ -12,6 +12,7 @@
 #include "Endpoint_Hybrid.h"
 #include "Endpoint_Rdma.h"
 #include "Endpoint_Tcp.h"
+#include "Endpoint_Ucx.h"
 
 // #define DEBUG
 
@@ -77,6 +78,12 @@ class EndpointFactory {
 #endif
             auto end = common::JSON<Endpoint_Hybrid>(json_path).parser();
             ptr = std::make_shared<Endpoint_Hybrid>(end);
+        } else if ("ucx" == j["communicator"][ind_endpoint]["endpoint"].at("suite")) {
+#ifdef DEBUG
+            std::cout << "EndpointFactory::get_endpoint() found ucx endpoint" << std::endl;
+#endif
+            auto end = common::JSON<Endpoint_Ucx>(json_path).parser();
+            ptr = std::make_shared<Endpoint_Ucx>(end);
         } else {
             throw std::runtime_error(
                 "EndpointFactory::get_endpoint(): Your suite is not compatible!");

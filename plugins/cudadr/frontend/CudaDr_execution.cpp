@@ -26,6 +26,7 @@
  *             Department of Computer Science, University College Dublin
  */
 
+#include <cstdint>
 #include <dirent.h>
 #include <errno.h>
 
@@ -183,8 +184,29 @@ extern "C" CUresult cuLaunchKernel(CUfunction f, unsigned int gridDimX, unsigned
     CudaDrFrontend::AddVariableForArguments(blockDimZ);
     CudaDrFrontend::AddVariableForArguments(sharedMemBytes);
     CudaDrFrontend::AddDevicePointerForArguments((void*)hstream);
-    CudaDrFrontend::AddDevicePointerForArguments(kernelParams);
-    CudaDrFrontend::AddHostPointerForArguments(&extra);
+
+    // GVirtuS interop: parse CUDA "extra" parameter mechanism to marshal kernel
+    // args as a contiguous buffer with known size. CuPy was patched to always
+    // pass args via this mechanism (extra[] = BUFFER_POINTER, ptr, BUFFER_SIZE,
+    // &size, END).
+    size_t _param_size = 0;
+    const char *_param_buf = nullptr;
+    if (extra != nullptr) {
+        for (int i = 0; ; i += 2) {
+            uintptr_t tag = (uintptr_t)extra[i];
+            if (tag == 0) break;  // CU_LAUNCH_PARAM_END
+            if (tag == 1) {       // CU_LAUNCH_PARAM_BUFFER_POINTER
+                _param_buf = (const char *)extra[i + 1];
+            } else if (tag == 2) { // CU_LAUNCH_PARAM_BUFFER_SIZE
+                _param_size = *(size_t *)extra[i + 1];
+            }
+        }
+    }
+    CudaDrFrontend::AddVariableForArguments(_param_size);
+    if (_param_size > 0 && _param_buf != nullptr) {
+        CudaDrFrontend::AddHostPointerForArguments((char *)_param_buf, _param_size);
+    }
+
     CudaDrFrontend::Execute("cuLaunchKernel");
     return CudaDrFrontend::GetExitCode();
 }

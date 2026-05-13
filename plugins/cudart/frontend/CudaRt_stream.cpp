@@ -129,6 +129,7 @@ extern "C" __host__ cudaError_t CUDARTAPI   cudaStreamIsCapturing(cudaStream_t s
     return CudaRtFrontend::GetExitCode();
 }
 // cudaStreamGetId
+#if 0
 extern "C" __host__ cudaError_t CUDARTAPI cudaStreamGetCaptureInfo(cudaStream_t stream, 
                                                                 cudaStreamCaptureStatus* captureStatus_out, 
                                                                 unsigned long long* id_out, 
@@ -181,6 +182,7 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaStreamGetCaptureInfo(cudaStream_t 
         
     return CudaRtFrontend::GetExitCode();
 }
+#endif
 
 
 // TODO: needs testing

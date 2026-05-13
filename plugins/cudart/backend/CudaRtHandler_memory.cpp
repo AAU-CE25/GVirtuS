@@ -851,6 +851,20 @@ CUDA_ROUTINE_HANDLER(Memset) {
         return std::make_shared<Result>(cudaErrorMemoryAllocation);
     }
 }
+CUDA_ROUTINE_HANDLER(MemsetAsync) {
+    try {
+        void *devPtr = (void *)input_buffer->Get<gvirtus::common::pointer_t>();
+        int value = input_buffer->Get<int>();
+        size_t count = input_buffer->Get<size_t>();
+        cudaStream_t stream = (cudaStream_t)input_buffer->Get<gvirtus::common::pointer_t>();
+
+        cudaError_t exit_code = cudaMemsetAsync(devPtr, value, count, stream);
+        return std::make_shared<Result>(exit_code);
+    } catch (const std::exception& e) {
+        cerr << e.what() << endl;
+        return std::make_shared<Result>(cudaErrorMemoryAllocation);
+    }
+}
 
 CUDA_ROUTINE_HANDLER(Memset2D) {
     try {
@@ -899,5 +913,20 @@ CUDA_ROUTINE_HANDLER(HostUnregister) {
     } catch (const std::out_of_range &e) {
         cerr << e.what() << endl;
         return std::make_shared<Result>(cudaErrorHostMemoryNotRegistered);
+    }
+}
+
+CUDA_ROUTINE_HANDLER(PointerGetAttributes) {
+    /* cudaError_t cudaPointerGetAttributes(cudaPointerAttributes *attributes, const void *ptr) */
+    try {
+        const void *ptr = input_buffer->Get<const void *>();
+        cudaPointerAttributes attrs = {};
+        cudaError_t exit_code = cudaPointerGetAttributes(&attrs, ptr);
+        std::shared_ptr<Buffer> output_buffer = std::make_shared<Buffer>();
+        output_buffer->Add(&attrs);
+        return std::make_shared<Result>(exit_code, output_buffer);
+    } catch (const std::exception &e) {
+        LOG4CPLUS_DEBUG(pThis->GetLogger(), "cudaPointerGetAttributes failed: " << e.what());
+        return std::make_shared<Result>(cudaErrorInvalidValue);
     }
 }

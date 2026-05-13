@@ -20,5 +20,6 @@ target_link_libraries(${PROJECT_NAME}
 )
 
 gvirtus_add_frontend(cufft ${CUFFT_VERSION}
+    frontend/Cufft_stubs_compat.cpp
     frontend/Cufft.cpp
     frontend/CufftFrontend.cpp)

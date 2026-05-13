@@ -43,11 +43,15 @@
 #include <unistd.h>
 
 #include <chrono>
+#include <cstring>
 #include <filesystem>
 #include <iostream>
 #include <mutex>
+#include <atomic>
+#include <vector>
 
 #include "communicators/hybrid/HybridCommunicator.h"
+#include "gvirtus/communicators/UcxAmProtocol.h"
 #include "log4cplus/configurator.h"
 #include "log4cplus/logger.h"
 #include "log4cplus/loggingmacros.h"
@@ -66,11 +70,28 @@ using gvirtus::communicators::EndpointFactory;
 using gvirtus::frontend::Frontend;
 
 static Frontend msFrontend;
+static std::mutex sExecuteMutex;  // single-user backend: serialize Execute()
+
 std::mutex gFrontendMutex;
 map<pthread_t, Frontend *> *Frontend::mpFrontends = NULL;
 static bool initialized = false;
+static std::atomic<std::uint64_t> gUcxAmRequestId{1};
 
 Logger logger;
+
+namespace {
+bool read_exact(gvirtus::communicators::Communicator *c, char *buffer, size_t size) {
+    size_t copied = 0;
+    while (copied < size) {
+        size_t n = c->Read(buffer + copied, size - copied);
+        if (n == 0) {
+            return false;
+        }
+        copied += n;
+    }
+    return true;
+}
+}
 
 std::string getEnvVar(std::string const &key) {
     char *env_var = getenv(key.c_str());
@@ -190,36 +211,56 @@ Frontend::~Frontend() {
 }
 
 Frontend *Frontend::GetFrontend(Communicator *c) {
-    {
-        std::lock_guard<std::mutex> lock(gFrontendMutex);
-        if (mpFrontends == nullptr) mpFrontends = new map<pthread_t, Frontend *>();
-    }
-
-    pid_t tid = syscall(SYS_gettid);  // getting frontend's tid
-
-    {
-        std::lock_guard<std::mutex> lock(gFrontendMutex);
-        auto it = mpFrontends->find(tid);
-        if (it != mpFrontends->end()) return it->second;
-    }
-
-    Frontend *f = new Frontend();
-    try {
-        f->Init(c);
+    // SINGLETON: backend is single-user; share one Frontend across all threads.
+    // Init() registers a new Frontend at the calling thread's tid in mpFrontends and
+    // configures its _communicator. We pick that up as the singleton, so all
+    // subsequent threads return the SAME Frontend (the one with a live UCX connection).
+    static std::once_flag s_init_once;
+    static Frontend *s_singleton = nullptr;
+    std::call_once(s_init_once, [&]() {
         {
             std::lock_guard<std::mutex> lock(gFrontendMutex);
-            mpFrontends->insert(make_pair(tid, f));
+            if (mpFrontends == nullptr) mpFrontends = new map<pthread_t, Frontend *>();
         }
-    } catch (const std::exception &e) {
-        LOG4CPLUS_ERROR(logger, "Error initializing Frontend: " << e.what());
-        delete f;  // Clean up on failure
-        return nullptr;
-    }
+        Frontend *bootstrap = new Frontend();
+        try {
+            bootstrap->Init(c);
+        } catch (const std::exception &e) {
+            std::cerr << "[GVIRTUS] Frontend Init failed: " << e.what() << std::endl;
+            std::abort();
+        }
+        pid_t init_tid = syscall(SYS_gettid);
+        std::lock_guard<std::mutex> lock(gFrontendMutex);
+        auto it = mpFrontends->find(init_tid);
+        if (it == mpFrontends->end()) {
+            mpFrontends->insert(make_pair(init_tid, bootstrap));
+            s_singleton = bootstrap;
+        } else {
+            s_singleton = it->second;
+        }
+    });
 
-    return f;
+    // Map THIS calling thread's tid -> singleton, so other code that looks up by tid finds it.
+    pid_t tid = syscall(SYS_gettid);
+    std::lock_guard<std::mutex> lock(gFrontendMutex);
+    if (mpFrontends->find(tid) == mpFrontends->end()) {
+        mpFrontends->insert(make_pair(tid, s_singleton));
+    }
+    return s_singleton;
+}
+void Frontend::Execute(const char *routine, const communicators::Buffer *input_buffer) {
+    std::lock_guard<std::mutex> lock(sExecuteMutex);
+    ExecuteInternal(routine, input_buffer, false);
 }
 
-void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
+void Frontend::ExecuteAsync(const char *routine, const communicators::Buffer *input_buffer) {
+    std::lock_guard<std::mutex> lock(sExecuteMutex);
+    ExecuteInternal(routine, input_buffer, true);
+}
+
+void Frontend::ExecuteInternal(const char *routine, 
+                               const Buffer *input_buffer, 
+                               bool force_fire_and_forget) {
     if (input_buffer == nullptr) input_buffer = mpInputBuffer.get();
 
     pid_t tid = syscall(SYS_gettid);
@@ -245,6 +286,127 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
                                                         << ", tid=" << tid << "]");
 
     frontend->mRoutinesExecuted++;
+
+    const bool ucx_am_mode = frontend->_communicator->obj_ptr()->to_string() == "ucxcommunicator";
+    const bool fire_and_forget = force_fire_and_forget;
+
+    if (ucx_am_mode) {
+        auto start_send = steady_clock::now();
+
+        const std::uint64_t request_id = gUcxAmRequestId.fetch_add(1);
+        const std::size_t routine_size = std::strlen(routine);
+        const std::size_t payload_size = input_buffer->GetBufferSize();
+
+        gvirtus::communicators::ucxam::EnvelopeHeader req_header{};
+        req_header.magic = gvirtus::communicators::ucxam::kEnvelopeMagic;
+        req_header.version = gvirtus::communicators::ucxam::kEnvelopeVersion;
+        req_header.message_type = static_cast<std::uint16_t>(gvirtus::communicators::ucxam::MessageType::Request);
+        req_header.header_size = static_cast<std::uint16_t>(sizeof(gvirtus::communicators::ucxam::EnvelopeHeader));
+        req_header.reserved0 = fire_and_forget ? gvirtus::communicators::ucxam::kEnvelopeFlagNoResponse : 0;
+        req_header.status_code = 0;
+        req_header.request_id = request_id;
+        req_header.routine_size = static_cast<std::uint64_t>(routine_size);
+        req_header.payload_size = static_cast<std::uint64_t>(payload_size);
+
+        std::vector<unsigned char> request_frame(sizeof(req_header) + routine_size + payload_size);
+        std::size_t offset = 0;
+        std::memcpy(request_frame.data() + offset, &req_header, sizeof(req_header));
+        offset += sizeof(req_header);
+
+        if (routine_size > 0) {
+            std::memcpy(request_frame.data() + offset, routine, routine_size);
+            offset += routine_size;
+        }
+
+        if (payload_size > 0) {
+            std::memcpy(request_frame.data() + offset, input_buffer->GetBuffer(), payload_size);
+        }
+
+        frontend->mDataSent += payload_size;
+        frontend->_communicator->obj_ptr()->Write(reinterpret_cast<const char *>(request_frame.data()), request_frame.size());
+        frontend->_communicator->obj_ptr()->Sync();
+
+        send_sec = duration_cast<milliseconds>(steady_clock::now() - start_send).count() / 1000.0;
+
+        if (fire_and_forget) {
+            frontend->mExitCode = 0;
+            frontend->mSendingTime += send_sec;
+            frontend->mpOutputBuffer->Reset();
+
+            LOG4CPLUS_DEBUG(logger,
+                            "[UCX AM] Fire-and-forget: skipping response wait for '"
+                                << routine << "' [req_id=" << request_id << "]");
+
+            return;
+        }
+
+        frontend->mpOutputBuffer->Reset();
+        auto start_recv = steady_clock::now();
+
+        gvirtus::communicators::ucxam::EnvelopeHeader resp_header{};
+        if (!read_exact(frontend->_communicator->obj_ptr().get(), reinterpret_cast<char *>(&resp_header), sizeof(resp_header))) {
+            throw std::runtime_error("Frontend UCX AM: failed to read response header");
+        }
+
+        if (resp_header.magic != gvirtus::communicators::ucxam::kEnvelopeMagic ||
+            resp_header.version != gvirtus::communicators::ucxam::kEnvelopeVersion ||
+            resp_header.header_size != sizeof(gvirtus::communicators::ucxam::EnvelopeHeader)) {
+            throw std::runtime_error("Frontend UCX AM: invalid response header");
+        }
+
+        if (resp_header.request_id != request_id) {
+            throw std::runtime_error("Frontend UCX AM: response request_id mismatch");
+        }
+
+        std::vector<unsigned char> resp_payload(static_cast<std::size_t>(resp_header.payload_size));
+        if (!resp_payload.empty() &&
+            !read_exact(frontend->_communicator->obj_ptr().get(), reinterpret_cast<char *>(resp_payload.data()), resp_payload.size())) {
+            throw std::runtime_error("Frontend UCX AM: failed to read response payload");
+        }
+
+        frontend->mExitCode = static_cast<int>(resp_header.status_code);
+        exit_code = frontend->mExitCode;
+
+        const std::size_t fixed_prefix = sizeof(double) + sizeof(size_t);
+        if (resp_payload.size() < fixed_prefix) {
+            throw std::runtime_error("Frontend UCX AM: response payload too small");
+        }
+
+        std::size_t parse_off = 0;
+        std::memcpy(&server_exec_sec, resp_payload.data() + parse_off, sizeof(double));
+        parse_off += sizeof(double);
+
+        size_t out_buffer_size = 0;
+        std::memcpy(&out_buffer_size, resp_payload.data() + parse_off, sizeof(size_t));
+        parse_off += sizeof(size_t);
+
+        if (resp_payload.size() < parse_off + out_buffer_size) {
+            throw std::runtime_error("Frontend UCX AM: output payload size mismatch");
+        }
+
+        frontend->mDataReceived += out_buffer_size;
+        for (size_t i = 0; i < out_buffer_size; ++i) {
+            frontend->mpOutputBuffer->Add<char>(static_cast<char>(resp_payload[parse_off + i]));
+        }
+
+        recv_sec = duration_cast<milliseconds>(steady_clock::now() - start_recv).count() / 1000.0;
+
+        frontend->mRoutineExecutionTime += server_exec_sec;
+        frontend->mSendingTime += send_sec;
+        frontend->mReceivingTime += recv_sec;
+
+        LOG4CPLUS_DEBUG(logger, "[UCX AM] Routine '" << routine << "' returned " << exit_code
+                                                      << " | server_exec=" << server_exec_sec
+                                                      << "s"
+                                                      << " | send=" << send_sec << "s"
+                                                      << " | recv=" << recv_sec << "s"
+                                                      << " | in=" << in_size << "B"
+                                                      << " | out=" << out_buffer_size << "B"
+                                                      << " | pid=" << pid << " tid=" << tid
+                                                      << " | req_id=" << request_id);
+        LOG4CPLUS_DEBUG(logger, "DEBUG - Called: " << routine);
+        return;
+    }
 
     // ===== send routine info first（under TCP）=====
     auto start_send = steady_clock::now();
