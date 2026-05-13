@@ -1,0 +1,119 @@
+# syntax=docker/dockerfile:1
+#
+# Dockerfile.cudf — RAPIDS cuDF on top of the GVirtuS-aware base image.
+#
+# Same approach we used for CuPy 13 (CUPY_DYNAMIC_CUDART patch) applied to
+# cuDF: pin the NVIDIA wheels that cuDF depends on to **CUDA 12.6** (so the
+# bundled libcudart/libcublas/etc. match our GVirtuS frontend driver), then
+# redirect the bundled .so files inside `nvidia/<lib>/lib/` to symlinks that
+# point at our GVirtuS frontends (`/opt/GVirtuS/lib/frontend/...`). The
+# GVirtuS frontends are not present at *build* time (they come from a host
+# bind-mount at run time), so the symlinks are dangling until the container
+# is run with `-v ~/GVirtuS:/opt/GVirtuS:ro`. dlopen resolves them then.
+#
+# Build:
+#   docker build -f docker/dev/RAPIDS/Dockerfile.cudf \
+#                -t ll33pq/cudf_gvirtus:cuda12.6 .
+#
+# Run (interactive, see ./run-cudf-shell.sh wrapper):
+#   docker run --rm -it --network host --device /dev/infiniband \
+#       --cap-add IPC_LOCK --ulimit memlock=-1 \
+#       -v ~/GVirtuS:/opt/GVirtuS:ro \
+#       ll33pq/cudf_gvirtus:cuda12.6
+
+ARG BASE_IMAGE=ll33pq/rapids_matrix_gvirtus:cuda12.6
+FROM ${BASE_IMAGE}
+
+ARG CUDF_VERSION=25.02.*
+ARG CUDA_PKG=12.6.*
+ARG CUDA_PYTHON=12.6.*
+# Bust cache when this Dockerfile is edited:
+ARG CACHE_BUSTER=2026-05-11-g
+
+# --- 1. Install cuDF and the matching CUDA 12.6 wheels --------------------
+# Need bash so we get `set -o pipefail`; otherwise a pip failure masked by
+# the pipe to `tail` returns exit 0 and the build silently "succeeds" with
+# nothing installed.
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# Pin every CUDA-flavoured wheel to 12.6 so the bundled libcudart/libcublas
+# /libnvrtc etc match what our GVirtuS frontends report. Pinning
+# nvidia-*-cu12 alone is NOT enough — cuda-python also ships its own
+# libcudart bundle, so we pin that too.
+RUN echo "[build] cache_buster=${CACHE_BUSTER}" \
+ && pip install --no-cache-dir --no-input \
+        "cudf-cu12==${CUDF_VERSION}" \
+        "cuda-python==${CUDA_PYTHON}" \
+        "nvidia-cuda-runtime-cu12==${CUDA_PKG}" \
+        "nvidia-cuda-nvrtc-cu12==${CUDA_PKG}" \
+        "nvidia-cuda-cupti-cu12==${CUDA_PKG}" \
+        "nvidia-cublas-cu12==${CUDA_PKG}" \
+ && pip show cudf-cu12 cuda-python | grep -E "^(Name|Version):" \
+ && echo "[build] installed nvidia/cuda wheels:" \
+ && pip list | grep -iE "^(cuda|nvidia)"
+
+# --- 2. Redirect bundled NVIDIA libs to GVirtuS frontends ----------------
+# (Still bash — SHELL above already set it; redundant but explicit.)
+
+# For each `lib<NAME>.so.<MAJOR>` shipped under nvidia-*-cu12, replace it
+# with a symlink to `/opt/GVirtuS/lib/frontend/lib<NAME>.so.<MAJOR>`. The
+# target doesn't exist at build time (host mount appears at run time).
+# This trick is the cuDF analogue of CUPY_DYNAMIC_CUDART: it forces cuda-
+# python's `ctypes.CDLL("libcudart.so.12")` (which dlopens by SONAME and
+# may bypass LD_PRELOAD when libs are pre-resolved by package metadata)
+# to hit our GVirtuS frontend on every call.
+RUN GVS=/opt/GVirtuS/lib/frontend \
+ && set +e; replaced=0; \
+    # Redirect both pip-wheel bundled libs (under nvidia/*/lib/) AND the
+    # system CUDA libs under /usr/local/cuda/lib64. CuPy's prebuilt
+    # wheel (cupy-cuda12x) has its .so backends RPATH'd at the latter,
+    # so without redirecting there CuPy bypasses LD_PRELOAD entirely
+    # and opens a SECOND connection to the single-user GVirtuS backend.
+    for ROOT in /usr/local/lib/python3.10/dist-packages/nvidia \
+                /usr/local/cuda-12.6/targets/x86_64-linux/lib \
+                /usr/local/cuda/lib64; do \
+        [[ -d "$ROOT" || -L "$ROOT" ]] || continue; \
+        while IFS= read -r src_file; do \
+            bn=$(basename "$src_file"); \
+            case "$bn" in \
+                libcudart.so.*|libcublas*.so.*|libcurand.so.*|libcusparse.so.*|\
+                libcusolver.so.*|libcufft.so.*|libnvrtc.so.*|libcuda.so.*) \
+                    target="$GVS/$bn"; \
+                    [[ -L "$src_file" || -f "$src_file" ]] || continue; \
+                    rm -f "$src_file"; \
+                    ln -s "$target" "$src_file"; \
+                    echo "  REDIRECT  $src_file -> $target"; \
+                    replaced=$((replaced+1));; \
+                *) ;; \
+            esac; \
+        done < <(find -L "$ROOT" -maxdepth 4 -name "lib*.so.*" 2>/dev/null); \
+    done; \
+    echo "[Dockerfile.cudf] redirected $replaced bundled libs to GVirtuS"
+
+# --- 3. Default environment for cuDF + GVirtuS ----------------------------
+# These are picked up automatically — you can still override with
+# `docker run -e ...` if you want to tweak (e.g. LOGLEVEL=0 to silence).
+ENV GVIRTUS_HOME=/opt/GVirtuS \
+    GVIRTUS_CONFIG=/opt/GVirtuS/etc/properties_ucx.json \
+    GVIRTUS_LOGLEVEL=10000 \
+    GVIRTUS_UCX_DATAPATH=rdma \
+    LD_LIBRARY_PATH=/opt/GVirtuS/lib/frontend:/opt/GVirtuS/lib:/opt/GVirtuS/build:/usr/local/cuda/lib64 \
+    LD_PRELOAD=libcuda.so.1:libcudart.so.12:libcublas.so.12:libcurand.so.10:libcusparse.so.12:libcusolver.so.11:libcufft.so.11:libnvrtc.so.12
+
+# --- 4. Tiny welcome banner so the user knows what they got --------------
+RUN printf '%s\n' \
+    '----------------------------------------------------------' \
+    '  cuDF on virtualized L40S via GVirtuS' \
+    '  Try:' \
+    '    python3 /opt/GVirtuS/examples/rapids_matrix/cudf_smoke.py' \
+    '  Or interactively:' \
+    '    python3 -u' \
+    '    >>> import rmm; rmm.reinitialize(pool_allocator=False)' \
+    '    >>> import cudf' \
+    '    >>> cudf.DataFrame({"k":[1,2,3]}).merge(...)' \
+    '----------------------------------------------------------' \
+    > /etc/motd
+
+# Drop into a shell by default — user runs `python3 …` themselves so they
+# can see output line-by-line in the terminal.
+ENTRYPOINT ["/bin/bash", "-c", "cat /etc/motd; exec bash"]

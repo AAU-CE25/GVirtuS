@@ -184,6 +184,7 @@ CUDA_ROUTINE_HANDLER(DeviceGetStreamPriorityRange);
 
 /* CudaRtHandler_error */
 CUDA_ROUTINE_HANDLER(GetErrorString);
+CUDA_ROUTINE_HANDLER(GetErrorName);
 CUDA_ROUTINE_HANDLER(GetLastError);
 CUDA_ROUTINE_HANDLER(PeekAtLastError);
 
@@ -246,6 +247,7 @@ CUDA_ROUTINE_HANDLER(Malloc3DArray);
 CUDA_ROUTINE_HANDLER(MemcpyPeerAsync);
 CUDA_ROUTINE_HANDLER(HostRegister);
 CUDA_ROUTINE_HANDLER(HostUnregister);
+CUDA_ROUTINE_HANDLER(PointerGetAttributes);
 
 /* CudaRtHandler_opengl */
 CUDA_ROUTINE_HANDLER(GLSetGLDevice);
@@ -298,5 +300,6 @@ CUDA_ROUTINE_HANDLER(OccupancyMaxActiveBlocksPerMultiprocessorWithFlags);
 
 /* CudaRtHandler_api */
 CUDA_ROUTINE_HANDLER(FuncSetAttribute);
+
 
 #endif /* _CUDARTHANDLER_H */

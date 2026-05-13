@@ -55,3 +55,10 @@ extern "C" nvrtcResult nvrtcVersion(int *major, int *minor) {
     NvrtcFrontend::Execute("nvrtcVersion");
     return NvrtcFrontend::GetExitCode();
 }
+
+// GVirtuS interop: NVIDIA-canonical name is nvrtcGetVersion (CuPy and cuDF
+// call this one). Provide a thin alias that forwards to nvrtcVersion.
+extern "C" nvrtcResult nvrtcGetVersion(int *major, int *minor) {
+    return nvrtcVersion(major, minor);
+}
+

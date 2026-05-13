@@ -21,6 +21,7 @@ target_link_libraries(${PROJECT_NAME}
 )
 
 gvirtus_add_frontend(cublas ${CUBLAS_VERSION}
+    frontend/Cublas_stubs_compat.cpp
     frontend/Cublas_extension.cpp
     frontend/Cublas_helper.cpp
     frontend/Cublas_level1.cpp

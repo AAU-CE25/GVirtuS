@@ -164,12 +164,27 @@ CUDA_DRIVER_HANDLER(LaunchKernel) {
     unsigned int sharedMemBytes = input_buffer->Get<unsigned int>();
     CUstream hstream = input_buffer->Get<CUstream>();
 
-    void *kernelParams = input_buffer->Get<void *>();
-    void *extra = input_buffer->Get<void *>();
-    LOG4CPLUS_DEBUG(pThis->GetLogger(), "LaunchKernel: all parameters read");
+    // GVirtuS interop: frontend sends kernel args as [size_t param_size, marker, data]
+    size_t param_size = input_buffer->Get<size_t>();
+    char *param_buf = nullptr;
+    if (param_size > 0) {
+        param_buf = input_buffer->Assign<char>(param_size);
+    }
+    LOG4CPLUS_DEBUG(pThis->GetLogger(), "LaunchKernel: param_size=" << param_size);
+
+    void *kextra[5];
+    kextra[0] = (void *)(uintptr_t)1;        // CU_LAUNCH_PARAM_BUFFER_POINTER
+    kextra[1] = (void *)param_buf;
+    kextra[2] = (void *)(uintptr_t)2;        // CU_LAUNCH_PARAM_BUFFER_SIZE
+    kextra[3] = (void *)&param_size;
+    kextra[4] = (void *)(uintptr_t)0;        // CU_LAUNCH_PARAM_END
+
     CUresult exit_code =
-        cuLaunchKernel((CUfunction)f, gridDimX, gridDimY, gridDimZ, blockDimX, blockDimY, blockDimZ,
-                       sharedMemBytes, hstream, NULL, (void **)&extra);
-    LOG4CPLUS_DEBUG(pThis->GetLogger(), "End LaunchKernel");
+        cuLaunchKernel(f, gridDimX, gridDimY, gridDimZ,
+                       blockDimX, blockDimY, blockDimZ,
+                       sharedMemBytes, hstream,
+                       NULL,
+                       (param_size > 0) ? kextra : NULL);
+    LOG4CPLUS_DEBUG(pThis->GetLogger(), "End LaunchKernel exit=" << exit_code);
     return std::make_shared<Result>((cudaError_t)exit_code);
 }

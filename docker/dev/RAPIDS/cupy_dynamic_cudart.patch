@@ -1,0 +1,29 @@
+Subject: Allow forcing dynamic libcudart via CUPY_DYNAMIC_CUDART=1
+
+By default CuPy links libcudart_static.a into every backend .so,
+preventing GVirtuS LD_PRELOAD interception. Setting CUPY_DYNAMIC_CUDART=1
+at build time replaces cudart_static with -lcudart in every module.
+
+--- a/install/cupy_builder/cupy_setup_build.py
++++ b/install/cupy_builder/cupy_setup_build.py
+@@ -375,10 +375,16 @@
+ 
+         s = copy.deepcopy(settings)
+         if not no_cuda:
+-            s['libraries'] = module.libraries
+-            s['extra_objects'] = [
+-                _find_static_library(name) for name in module.static_libraries
+-            ]
++            s['libraries'] = list(module.libraries)
++            _extra = []
++            for _name in module.static_libraries:
++                if (_name == 'cudart_static'
++                        and os.environ.get('CUPY_DYNAMIC_CUDART') == '1'):
++                    if 'cudart' not in s['libraries']:
++                        s['libraries'].append('cudart')
++                else:
++                    _extra.append(_find_static_library(_name))
++            s['extra_objects'] = _extra
+ 
+         compile_args = s.setdefault('extra_compile_args', [])
+         link_args = s.setdefault('extra_link_args', [])

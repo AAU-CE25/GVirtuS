@@ -39,7 +39,12 @@ cudaMemcpyKind inferMemcpyKind(void *dst, const void *src) {
     } else if (!CudaRtFrontend::isDevicePointer(dst) && CudaRtFrontend::isDevicePointer(src)) {
         return cudaMemcpyDeviceToHost;
     } else {
-        return cudaMemcpyHostToHost;
+        // Ambos desconocidos para el registry. Tus workloads reservan device con
+        // cudaMalloc (registrado -> ramas de arriba), así que no llegan aquí con un
+        // host-host Default. CuPy reserva device por driver-API (no registrado) ->
+        // ambos extremos son device -> D2D, no HostToHost (que haría memmove de
+        // direcciones device en espacio host -> SIGSEGV).
+        return cudaMemcpyDeviceToDevice;
     }
 }
 
@@ -293,22 +298,34 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpy3D(const cudaMemcpy3DParms *
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpy(void *dst, const void *src, size_t count,
                                                      cudaMemcpyKind kind) {
+    if (count == 0) return cudaSuccess;
+    if (dst == nullptr || src == nullptr) {
+        cerr << "[GVirtuS WARN] cudaMemcpy: NULL pointer (dst=" << dst
+             << ", src=" << src << ", count=" << count << ", kind=" << kind << ")" << endl;
+        return cudaErrorInvalidValue;
+    }
     if (kind == cudaMemcpyDefault) {
         kind = inferMemcpyKind(dst, src);
+    }
+    // RAPIDS interop GATEADO: reclasifica D2H->D2D SOLO si NINGUNO es device registrado
+    // (= punteros driver-API de CuPy) y comparten arena. Tus D2H (src device registrado)
+    // NUNCA entran aquí -> Fase 4 intacta.
+    if (kind == cudaMemcpyDeviceToHost &&
+        !CudaRtFrontend::isDevicePointer(dst) && !CudaRtFrontend::isDevicePointer(src)) {
+        uintptr_t _dst_hi = reinterpret_cast<uintptr_t>(dst) >> 32;
+        uintptr_t _src_hi = reinterpret_cast<uintptr_t>(src) >> 32;
+        if (_dst_hi == _src_hi && _dst_hi >= 0x7f00ULL) kind = cudaMemcpyDeviceToDevice;
     }
 
     CudaRtFrontend::Prepare();
 
     switch (kind) {
         case cudaMemcpyHostToHost:
-            /* NOTE: no communication is performed, because it's just overhead
-             * here */
             if (memmove(dst, src, count) == NULL) return cudaErrorInvalidValue;
             break;
         case cudaMemcpyHostToDevice:
             CudaRtFrontend::AddDevicePointerForArguments(dst);
-            // Fase 5: skip the 64MB memcpy into mpInputBuffer; the user src
-            // pointer is spliced directly into the WriteIov iov by Execute().
+            // Fase 5
             CudaRtFrontend::AddHostPointerForArgumentsDirect<char>(
                 static_cast<const char *>(src), count);
             CudaRtFrontend::AddVariableForArguments(count);
@@ -316,17 +333,14 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpy(void *dst, const void *src,
             CudaRtFrontend::Execute("cudaMemcpy");
             break;
         case cudaMemcpyDeviceToHost:
-            /* NOTE: adding a fake host pointer */
             CudaRtFrontend::AddHostPointerForArguments("");
             CudaRtFrontend::AddDevicePointerForArguments(src);
             CudaRtFrontend::AddVariableForArguments(count);
             CudaRtFrontend::AddVariableForArguments(kind);
-            // Fase 4: pre-register dst so the response handler writes the
-            // big payload directly there. Avoids one 64MB memcpy.
+            // Fase 4
             CudaRtFrontend::SetOutputDestination(dst, count);
             CudaRtFrontend::Execute("cudaMemcpy");
             if (CudaRtFrontend::Success() && !CudaRtFrontend::DirectOutputConsumed()) {
-                // Fallback path (size mismatch, non-frame transport, etc.).
                 memmove(dst, CudaRtFrontend::GetOutputHostPointer<char>(count), count);
             }
             CudaRtFrontend::ClearOutputDestination();
@@ -339,7 +353,6 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpy(void *dst, const void *src,
             CudaRtFrontend::Execute("cudaMemcpy");
             break;
     }
-
     return CudaRtFrontend::GetExitCode();
 }
 
@@ -544,8 +557,21 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpy3DAsync(const cudaMemcpy3DPa
 extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpyAsync(void *dst, const void *src, size_t count,
                                                           cudaMemcpyKind kind,
                                                           cudaStream_t stream) {
+    if (count == 0) return cudaSuccess;
+    if (dst == nullptr || src == nullptr) {
+        cerr << "[GVirtuS WARN] cudaMemcpyAsync: NULL pointer (dst=" << dst
+             << ", src=" << src << ", count=" << count << ", kind=" << kind << ")" << endl;
+        return cudaErrorInvalidValue;
+    }
     if (kind == cudaMemcpyDefault) {
         kind = inferMemcpyKind(dst, src);
+    }
+    // Mismo gate que cudaMemcpy: no toca los D2H de tus workloads (src device registrado).
+    if (kind == cudaMemcpyDeviceToHost &&
+        !CudaRtFrontend::isDevicePointer(dst) && !CudaRtFrontend::isDevicePointer(src)) {
+        uintptr_t _dst_hi = reinterpret_cast<uintptr_t>(dst) >> 32;
+        uintptr_t _src_hi = reinterpret_cast<uintptr_t>(src) >> 32;
+        if (_dst_hi == _src_hi && _dst_hi >= 0x7f00ULL) kind = cudaMemcpyDeviceToDevice;
     }
 
     CudaRtFrontend::Prepare();
@@ -934,12 +960,10 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaHostUnregister(void *ptr) {
 // TODO: needs testing
 extern "C" __host__ cudaError_t CUDARTAPI
 cudaPointerGetAttributes(cudaPointerAttributes *attributes, const void *ptr) {
-    cout << "cudaPointerGetAttributes frontend" << endl;
     CudaRtFrontend::Prepare();
-    CudaRtFrontend::AddHostPointerForArguments(attributes);
-    CudaRtFrontend::AddHostPointerForArguments(ptr);
+    CudaRtFrontend::AddVariableForArguments(ptr);
     CudaRtFrontend::Execute("cudaPointerGetAttributes");
-    if (CudaRtFrontend::Success()) {
+    if (CudaRtFrontend::Success() && attributes != nullptr) {
         *attributes = *(CudaRtFrontend::GetOutputHostPointer<cudaPointerAttributes>());
     }
     return CudaRtFrontend::GetExitCode();
