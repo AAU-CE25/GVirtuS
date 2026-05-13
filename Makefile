@@ -6,7 +6,8 @@
 	docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test \
 	docker-build-simple-matrix local-docker-build-simple-matrix \
 	run-simple-matrix-test run-simple-matrix-reconnect-test stop-simple-matrix-test \
-	run-gvirtus-backend-async-dev run-async-memset-test
+	run-gvirtus-backend-async-dev run-async-memset-test \
+	docker-build-rapids-matrix run-rapids-matrix-test stop-rapids-matrix-test
 
 USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
 DOCKER_HUB_USERNAME ?= ll33pq # change username for local dev!
@@ -315,3 +316,46 @@ run-async-memset-test:
 			ldd ./test_async_memset | grep -Ei "libcudart|libgvirtus"; \
 			./test_async_memset; \
 		'
+
+
+RAPIDS_MATRIX_IMAGE ?= $(DOCKER_HUB_USERNAME)/rapids_matrix_gvirtus:cuda12.6
+RAPIDS_MATRIX_CONTAINER_NAME ?= rapids_matrix_test_container-$(USER)
+
+docker-build-rapids-matrix:
+	docker buildx build \
+		--platform linux/amd64 \
+		--load \
+		-f docker/dev/RAPIDS/Dockerfile \
+		-t $(RAPIDS_MATRIX_IMAGE) \
+		.
+
+run-rapids-matrix-test:
+	docker run --rm \
+		--name $(RAPIDS_MATRIX_CONTAINER_NAME) \
+		--network host \
+		--device /dev/infiniband \
+		--cap-add IPC_LOCK \
+		--ulimit memlock=-1 \
+		--entrypoint bash \
+		-e GVIRTUS_HOME=/opt/GVirtuS \
+		-e GVIRTUS_CONFIG=/opt/GVirtuS/etc/properties_ucx.json \
+		-e GVIRTUS_UCX_DATAPATH=$(GVIRTUS_UCX_DATAPATH) \
+		-e UCX_TLS=$(UCX_TLS) \
+		-e UCX_NET_DEVICES=$(UCX_NET_DEVICES) \
+		-e UCX_LOG_LEVEL=$(UCX_LOG_LEVEL) \
+		-e UCX_SOCKADDR_TLS_PRIORITY=$(UCX_SOCKADDR_TLS_PRIORITY) \
+		$(if $(UCX_IB_GID_INDEX),-e UCX_IB_GID_INDEX=$(UCX_IB_GID_INDEX)) \
+		-v ./etc/properties_ucx.json:/opt/GVirtuS/etc/properties_ucx.json \
+		-v ./lib:/opt/GVirtuS/lib \
+		-v ./build:/opt/GVirtuS/build \
+		-v ./examples/rapids_matrix:/opt/GVirtuS/examples/rapids_matrix \
+		$(RAPIDS_MATRIX_IMAGE) \
+		-lc '\
+			export GVIRTUS_HOME=/opt/GVirtuS; \
+			export LD_LIBRARY_PATH=/opt/GVirtuS/lib/frontend:/opt/GVirtuS/build/plugins/cudadr:/opt/GVirtuS/build/plugins/cudart:/opt/GVirtuS/build/plugins/cublas:/opt/GVirtuS/lib:/opt/GVirtuS/build:/usr/local/cuda/lib64:$$LD_LIBRARY_PATH; \
+			export LD_PRELOAD=/opt/GVirtuS/lib/frontend/libcuda.so.1:/opt/GVirtuS/lib/frontend/libcudart.so.12; \
+			python3 /opt/GVirtuS/examples/rapids_matrix/rapids_matrix.py \
+		'
+
+stop-rapids-matrix-test:
+	docker stop $(RAPIDS_MATRIX_CONTAINER_NAME) || true

@@ -21,5 +21,6 @@ target_link_libraries(${PROJECT_NAME}
 )
 
 gvirtus_add_frontend(curand ${CURAND_VERSION}
-    frontend/Curand.cpp
+    frontend/Curand_compat.cpp
+	frontend/Curand.cpp
     frontend/CurandFrontend.cpp)

@@ -55,6 +55,7 @@ gvirtus_add_frontend(cudart ${CUDA_VERSION}
         frontend/CudaRt_texture.cpp
         frontend/CudaRt_thread.cpp
         frontend/CudaRt_version.cpp
+        frontend/CudaRt_stubs_compat.cpp
         util/CudaUtil.cpp
 )
 

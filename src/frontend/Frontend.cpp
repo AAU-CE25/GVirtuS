@@ -70,6 +70,8 @@ using gvirtus::communicators::EndpointFactory;
 using gvirtus::frontend::Frontend;
 
 static Frontend msFrontend;
+static std::mutex sExecuteMutex;  // single-user backend: serialize Execute()
+
 std::mutex gFrontendMutex;
 map<pthread_t, Frontend *> *Frontend::mpFrontends = NULL;
 static bool initialized = false;
@@ -209,39 +211,50 @@ Frontend::~Frontend() {
 }
 
 Frontend *Frontend::GetFrontend(Communicator *c) {
-    {
-        std::lock_guard<std::mutex> lock(gFrontendMutex);
-        if (mpFrontends == nullptr) mpFrontends = new map<pthread_t, Frontend *>();
-    }
-
-    pid_t tid = syscall(SYS_gettid);  // getting frontend's tid
-
-    {
-        std::lock_guard<std::mutex> lock(gFrontendMutex);
-        auto it = mpFrontends->find(tid);
-        if (it != mpFrontends->end()) return it->second;
-    }
-
-    Frontend *f = new Frontend();
-    try {
-        f->Init(c);
+    // SINGLETON: backend is single-user; share one Frontend across all threads.
+    // Init() registers a new Frontend at the calling thread's tid in mpFrontends and
+    // configures its _communicator. We pick that up as the singleton, so all
+    // subsequent threads return the SAME Frontend (the one with a live UCX connection).
+    static std::once_flag s_init_once;
+    static Frontend *s_singleton = nullptr;
+    std::call_once(s_init_once, [&]() {
         {
             std::lock_guard<std::mutex> lock(gFrontendMutex);
-            mpFrontends->insert(make_pair(tid, f));
+            if (mpFrontends == nullptr) mpFrontends = new map<pthread_t, Frontend *>();
         }
-    } catch (const std::exception &e) {
-        LOG4CPLUS_ERROR(logger, "Error initializing Frontend: " << e.what());
-        delete f;  // Clean up on failure
-        return nullptr;
-    }
+        Frontend *bootstrap = new Frontend();
+        try {
+            bootstrap->Init(c);
+        } catch (const std::exception &e) {
+            std::cerr << "[GVIRTUS] Frontend Init failed: " << e.what() << std::endl;
+            std::abort();
+        }
+        pid_t init_tid = syscall(SYS_gettid);
+        std::lock_guard<std::mutex> lock(gFrontendMutex);
+        auto it = mpFrontends->find(init_tid);
+        if (it == mpFrontends->end()) {
+            mpFrontends->insert(make_pair(init_tid, bootstrap));
+            s_singleton = bootstrap;
+        } else {
+            s_singleton = it->second;
+        }
+    });
 
-    return f;
+    // Map THIS calling thread's tid -> singleton, so other code that looks up by tid finds it.
+    pid_t tid = syscall(SYS_gettid);
+    std::lock_guard<std::mutex> lock(gFrontendMutex);
+    if (mpFrontends->find(tid) == mpFrontends->end()) {
+        mpFrontends->insert(make_pair(tid, s_singleton));
+    }
+    return s_singleton;
 }
 void Frontend::Execute(const char *routine, const communicators::Buffer *input_buffer) {
+    std::lock_guard<std::mutex> lock(sExecuteMutex);
     ExecuteInternal(routine, input_buffer, false);
 }
 
 void Frontend::ExecuteAsync(const char *routine, const communicators::Buffer *input_buffer) {
+    std::lock_guard<std::mutex> lock(sExecuteMutex);
     ExecuteInternal(routine, input_buffer, true);
 }
 

@@ -22,13 +22,12 @@ target_link_libraries(${PROJECT_NAME}
 )
 
 gvirtus_add_frontend(nvrtc ${NVRTC_VERSION}
-	frontend/Nvrtc_compilation.cpp
-	frontend/Nvrtc_error.cpp
-	frontend/Nvrtc_giq.cpp
-	frontend/Nvrtc_host.cpp
-	frontend/Nvrtc_pch.cpp
+	frontend/Nvrtc_passthrough.cpp
 	frontend/NvrtcFrontend.cpp
 )
+
+# Link against -ldl so dlopen/dlsym work in Nvrtc_passthrough.cpp
+target_link_libraries(nvrtc dl)
 
 target_compile_definitions(nvrtc
 	PUBLIC NVRTC_VERSION=${NVRTC_VERSION}

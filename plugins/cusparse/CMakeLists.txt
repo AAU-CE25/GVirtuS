@@ -19,6 +19,7 @@ target_link_libraries(${PROJECT_NAME}
 )
 
 gvirtus_add_frontend(cusparse ${CUSPARSE_VERSION}
+	frontend/Cusparse_stubs_compat.cpp
 	frontend/Cusparse.cpp
 	frontend/Cusparse_helper.cpp
 	frontend/CusparseFrontend.cpp

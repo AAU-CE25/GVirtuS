@@ -20,6 +20,7 @@ target_link_libraries(${PROJECT_NAME}
 )
 
 gvirtus_add_frontend(cusolver ${CUSOLVER_VERSION}
+    frontend/Cusolver_stubs_compat.cpp
     frontend/Cusolver.cpp
     frontend/CusolverFrontend.cpp
     frontend/Cusolver_helper.cpp

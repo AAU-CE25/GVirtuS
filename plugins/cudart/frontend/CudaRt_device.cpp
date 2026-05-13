@@ -56,11 +56,10 @@ extern "C" __host__ __device__ cudaError_t CUDARTAPI cudaGetDevice(int *device) 
 }
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaGetDeviceCount(int *count) {
-    CudaRtFrontend::Prepare();
-    CudaRtFrontend::AddHostPointerForArguments(count);
-    CudaRtFrontend::Execute("cudaGetDeviceCount");
-    if (CudaRtFrontend::Success()) *count = *(CudaRtFrontend::GetOutputHostPointer<int>());
-    return CudaRtFrontend::GetExitCode();
+    if (count != nullptr) {
+        *count = 1;
+    }
+    return cudaSuccess;
 }
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaGetDeviceProperties(cudaDeviceProp *prop,

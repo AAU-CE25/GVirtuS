@@ -39,7 +39,11 @@ cudaMemcpyKind inferMemcpyKind(void *dst, const void *src) {
     } else if (!CudaRtFrontend::isDevicePointer(dst) && CudaRtFrontend::isDevicePointer(src)) {
         return cudaMemcpyDeviceToHost;
     } else {
-        return cudaMemcpyHostToHost;
+        // GVirtuS interop: when both pointers are unknown to our cudart registry,
+        // they were likely allocated via the driver API (cuMemAlloc) by CuPy or
+        // similar. Treat as DeviceToDevice rather than HostToHost (which would
+        // memmove() device addresses in host space and SIGSEGV).
+        return cudaMemcpyDeviceToDevice;
     }
 }
 
@@ -293,6 +297,13 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpy3D(const cudaMemcpy3DParms *
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpy(void *dst, const void *src, size_t count,
                                                      cudaMemcpyKind kind) {
+    // GVirtuS guards: NULL/zero-count protection
+    if (count == 0) return cudaSuccess;
+    if (dst == nullptr || src == nullptr) {
+        cerr << "[GVirtuS WARN] cudaMemcpy: NULL pointer (dst=" << dst
+             << ", src=" << src << ", count=" << count << ", kind=" << kind << ")" << endl;
+        return cudaErrorInvalidValue;
+    }
     if (kind == cudaMemcpyDefault) {
         kind = inferMemcpyKind(dst, src);
     }
@@ -537,14 +548,27 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpy3DAsync(const cudaMemcpy3DPa
 extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpyAsync(void *dst, const void *src, size_t count,
                                                           cudaMemcpyKind kind,
                                                           cudaStream_t stream) {
+    // GVirtuS guards: NULL/zero-count protection. CUDA spec: count==0 is a valid no-op.
+    if (count == 0) return cudaSuccess;
+    if (dst == nullptr || src == nullptr) {
+        cerr << "[GVirtuS WARN] cudaMemcpyAsync: NULL pointer (dst=" << dst
+             << ", src=" << src << ", count=" << count << ", kind=" << kind << ")" << endl;
+        return cudaErrorInvalidValue;
+    }
     if (kind == cudaMemcpyDefault) {
         kind = inferMemcpyKind(dst, src);
     }
+    // GVirtuS interop: CuPy passes kind=DeviceToHost with dst that is actually device
+    // memory (its memory pool allocates via driver API; pointers are not in our cudart
+    // registry). Heuristic: if dst and src share the same upper 32-bit prefix in the
+    // mmap range, they came from the same device allocation pool; treat as D2D.
+    uintptr_t _dst_hi = reinterpret_cast<uintptr_t>(dst) >> 32;
+    uintptr_t _src_hi = reinterpret_cast<uintptr_t>(src) >> 32;
+    if (kind == cudaMemcpyDeviceToHost && _dst_hi == _src_hi && _dst_hi >= 0x7f00ULL) {
+        kind = cudaMemcpyDeviceToDevice;
+    }
 
     CudaRtFrontend::Prepare();
-    // cout << "cudaMemcpyAsync frontend: "
-    //      << "dst: " << dst << ", src: " << src << ", count: " << count
-    //      << ", kind: " << kind << ", stream: " << stream << endl;
 
     switch (kind) {
         case cudaMemcpyHostToHost:
@@ -925,15 +949,12 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaHostUnregister(void *ptr) {
     return CudaRtFrontend::GetExitCode();
 }
 
-// TODO: needs testing
 extern "C" __host__ cudaError_t CUDARTAPI
 cudaPointerGetAttributes(cudaPointerAttributes *attributes, const void *ptr) {
-    cout << "cudaPointerGetAttributes frontend" << endl;
     CudaRtFrontend::Prepare();
-    CudaRtFrontend::AddHostPointerForArguments(attributes);
-    CudaRtFrontend::AddHostPointerForArguments(ptr);
+    CudaRtFrontend::AddVariableForArguments(ptr);
     CudaRtFrontend::Execute("cudaPointerGetAttributes");
-    if (CudaRtFrontend::Success()) {
+    if (CudaRtFrontend::Success() && attributes != nullptr) {
         *attributes = *(CudaRtFrontend::GetOutputHostPointer<cudaPointerAttributes>());
     }
     return CudaRtFrontend::GetExitCode();
