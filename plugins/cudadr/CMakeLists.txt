@@ -84,7 +84,10 @@ function(configure_cudadr_plugin)
         frontend/CudaDr_version.cpp
         frontend/CudaDr_virtmemory.cpp
         frontend/CudaDrFrontend.cpp
+        frontend/CudaDr_compat_stubs.cpp
     )
+    # Link dl so cuGetExportTable can dlopen real libcuda (NVRTC-style passthrough).
+    target_link_libraries(cuda dl)
 
 endfunction()
 

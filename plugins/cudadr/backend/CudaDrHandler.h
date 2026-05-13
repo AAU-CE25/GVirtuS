@@ -164,6 +164,9 @@ CUDA_DRIVER_HANDLER(DeviceGetCount);
 CUDA_DRIVER_HANDLER(DeviceGetName);
 CUDA_DRIVER_HANDLER(DeviceGetProperties);
 CUDA_DRIVER_HANDLER(DeviceTotalMem);
+CUDA_DRIVER_HANDLER(DevicePrimaryCtxRetain);                                                                                                                                                                                                                                              
+CUDA_DRIVER_HANDLER(DevicePrimaryCtxRelease);                                                                                                                                                                                                                                             
+CUDA_DRIVER_HANDLER(DevicePrimaryCtxReset);    
 
 /*CudaDrHandler_driver_entry_point*/
 CUDA_DRIVER_HANDLER(GetProcAddress);
@@ -220,6 +223,8 @@ CUDA_DRIVER_HANDLER(ModuleGetTexRef);
 
 /*CudaDrHandler_version*/
 CUDA_DRIVER_HANDLER(DriverGetVersion);
+CUDA_DRIVER_HANDLER(GetErrorName);
+CUDA_DRIVER_HANDLER(GetErrorString);
 
 /*CudaDrHandler_stream*/
 CUDA_DRIVER_HANDLER(StreamCreate);
