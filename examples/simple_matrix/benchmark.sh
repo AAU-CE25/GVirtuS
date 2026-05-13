@@ -129,8 +129,9 @@ for MODE in $MODES; do
         echo "    warmup $w/${WARMUP_RUNS}: ${ELAPSED_MS:-N/A}ms (discarded)"
         # Log warmup runs flagged so they can be filtered out in analysis
         TIMESTAMP=$(date --iso-8601=seconds)
-        echo "$MODE,$WARMUP_N,$w,true,${ELAPSED_MS:-N/A},${?},\
-${TLS:-none},${DEV:-none},,,,,,,,$TIMESTAMP" >> "$OUTPUT"
+        printf '%s\n' \
+          "${MODE},4096,${w},true,${ELAPSED_MS:-N/A},0,\"${TLS:-none}\",\"${DEV:-none}\",,,,,,,,,${TIMESTAMP}" \
+          >> "$OUTPUT"
         sleep 1
     done
 
@@ -186,12 +187,9 @@ malloc=${T_MALLOC}ms cudamalloc=${T_CUDAMALLOC}ms \
 h2d=${T_H2D}ms create=${T_CREATE}ms \
 gemm=${T_GEMM}ms d2h=${T_D2H}ms"
 
-            echo "$MODE,$ACTUAL_N,$i,false,\
-$ELAPSED_MS,$EXIT_CODE,\
-${TLS:-none},${DEV:-none},\
-${T_MALLOC},${T_CUDAMALLOC},${T_H2D},${T_CREATE},${T_GEMM},${T_D2H},${T_CLEANUP},\
-${T_CHECK},\
-$TIMESTAMP" >> "$OUTPUT"
+            printf '%s\n' \
+              "${MODE},${ACTUAL_N:-$N},${i},false,${ELAPSED_MS:-N/A},${EXIT_CODE},\"${TLS:-none}\",\"${DEV:-none}\",${T_MALLOC},${T_CUDAMALLOC},${T_H2D},${T_CREATE},${T_GEMM},${T_D2H},${T_CLEANUP},\"${T_CHECK}\",${TIMESTAMP}" \
+              >> "$OUTPUT"
 
             [[ "$ELAPSED_MS" =~ ^[0-9]+(\.[0-9]+)?$ ]] && TIMES+=("$ELAPSED_MS")
 
