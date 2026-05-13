@@ -137,17 +137,15 @@ bool write_ucx_am_response(Communicator *client_comm,
         out_data = output_buffer->GetBuffer();
     }
 
-    const size_t payload_size = sizeof(double) + sizeof(size_t) + out_size;
-    std::vector<unsigned char> payload(payload_size);
-
-    size_t off = 0;
-    std::memcpy(payload.data() + off, &server_exec_sec, sizeof(double));
-    off += sizeof(double);
-    std::memcpy(payload.data() + off, &out_size, sizeof(size_t));
-    off += sizeof(size_t);
-    if (out_size > 0 && out_data != nullptr) {
-        std::memcpy(payload.data() + off, out_data, out_size);
-    }
+    // Wire layout (preserved for backwards compatibility with the frontend):
+    //   [EnvelopeHeader][prefix: double server_exec_sec][prefix: size_t out_size][bulk out_data]
+    // Previously these three regions were concatenated into a single
+    // std::vector and written as one AM, which forced a zero-fill + memcpy
+    // of the entire output (up to tens of MB for cudaMemcpy D2H). We now
+    // emit the small prefix and the bulk payload as separate AMs so the
+    // bulk payload can be sent directly from `out_data` with no copy.
+    constexpr size_t kPrefixSize = sizeof(double) + sizeof(size_t);
+    const size_t total_payload = kPrefixSize + out_size;
 
     gvirtus::communicators::ucxam::EnvelopeHeader response_header{};
     response_header.magic = gvirtus::communicators::ucxam::kEnvelopeMagic;
@@ -158,14 +156,21 @@ bool write_ucx_am_response(Communicator *client_comm,
     response_header.status_code = static_cast<uint32_t>(exit_code);
     response_header.request_id = request_header.request_id;
     response_header.routine_size = 0;
-    response_header.payload_size = static_cast<uint64_t>(payload_size);
+    response_header.payload_size = static_cast<uint64_t>(total_payload);
+
+    unsigned char prefix[kPrefixSize];
+    std::memcpy(prefix, &server_exec_sec, sizeof(double));
+    std::memcpy(prefix + sizeof(double), &out_size, sizeof(size_t));
 
     try {
         client_comm->Write(reinterpret_cast<const char *>(&response_header), sizeof(response_header));
-        if (!payload.empty()) {
-            client_comm->Write(reinterpret_cast<const char *>(payload.data()), payload.size());
+        client_comm->Write(reinterpret_cast<const char *>(prefix), sizeof(prefix));
+        if (out_size > 0 && out_data != nullptr) {
+            client_comm->Write(out_data, out_size);
         }
-        client_comm->Sync();
+        // Sync() intentionally omitted: each Write() above completes locally
+        // via wait_request_completion inside the UCX communicator, so an
+        // additional ucp_worker_flush_nbx would just add latency.
     } catch (const std::exception &e) {
         error = e.what();
         return false;
