@@ -7,8 +7,11 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <new>
 #include <queue>
 #include <string>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "gvirtus/communicators/Communicator.h"
@@ -16,6 +19,39 @@
 #include <ucp/api/ucp.h>
 
 namespace gvirtus::communicators {
+
+// Allocator that default-initializes elements instead of value-initializing
+// them, so std::vector<unsigned char, default_init_allocator<unsigned char>>(N)
+// does NOT zero-fill its storage. Critical for the AM receive path, where we
+// allocate buffers the size of a CUDA D2H/H2D payload (tens of MB) on every
+// call and immediately overwrite them.
+template <typename T, typename A = std::allocator<T>>
+class default_init_allocator : public A {
+    using a_t = std::allocator_traits<A>;
+
+   public:
+    template <typename U>
+    struct rebind {
+        using other =
+            default_init_allocator<U, typename a_t::template rebind_alloc<U>>;
+    };
+
+    using A::A;
+
+    template <typename U>
+    void construct(U *ptr) noexcept(
+        std::is_nothrow_default_constructible<U>::value) {
+        ::new (static_cast<void *>(ptr)) U;  // default-init: no zero-fill
+    }
+    template <typename U, typename... Args>
+    void construct(U *ptr, Args &&...args) {
+        a_t::construct(static_cast<A &>(*this), ptr,
+                       std::forward<Args>(args)...);
+    }
+};
+
+using ByteBuffer =
+    std::vector<unsigned char, default_init_allocator<unsigned char>>;
 
 class UcxCommunicator : public Communicator {
    public:
@@ -46,20 +82,20 @@ class UcxCommunicator : public Communicator {
     void enqueue_connection(ucp_conn_request_h conn_request);
     ucp_conn_request_h wait_for_connection_request();
     void wait_request_completion(void *request, const char *op_name);
-    void enqueue_am_message(std::vector<unsigned char> message);
-    void enqueue_am_rndv(void *request, std::vector<unsigned char> buffer);
+    void enqueue_am_message(ByteBuffer message);
+    void enqueue_am_rndv(void *request, ByteBuffer buffer);
     void progress_am_rndv();
     static sockaddr_storage make_sockaddr(const std::string &host, std::uint16_t port);
 
     struct PendingAmRecv {
         void *request{nullptr};
-        std::vector<unsigned char> buffer;
+        ByteBuffer buffer;
     };
 
     struct AmState {
         std::mutex mutex;
         std::condition_variable cv;
-        std::deque<std::vector<unsigned char>> queue;
+        std::deque<ByteBuffer> queue;
         std::vector<PendingAmRecv> rndv;
     };
 
@@ -82,7 +118,7 @@ class UcxCommunicator : public Communicator {
     unsigned am_id_{1};
     std::shared_ptr<AmState> am_state_{std::make_shared<AmState>()};
 
-    std::vector<unsigned char> pending_read_bytes_;
+    ByteBuffer pending_read_bytes_;
     size_t pending_read_offset_{0};
     std::atomic<bool> endpoint_failed_{false};
 };
