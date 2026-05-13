@@ -189,17 +189,25 @@ void UcxCommunicator::destroy_ucx() {
                   (void *)endpoint_, (void *)listener_, (void *)worker_, (void *)context_);
 
     if (endpoint_ != nullptr) {
-        std::lock_guard<std::mutex> worker_lock(*worker_mutex_);
-
         ucp_request_param_t close_params{};
         close_params.op_attr_mask = UCP_OP_ATTR_FIELD_FLAGS;
-        close_params.flags = endpoint_failed_.load() ? UCP_EP_CLOSE_FLAG_FORCE : 0;
+        // Always use FORCE close. The previous graceful path would block
+        // indefinitely (especially on the frontend at process exit) when the
+        // peer doesn't actively drain the remaining protocol handshake, which
+        // is exactly what happened between simple_matrix iterations. The
+        // counter-party will still notice the close because we configured
+        // UCP_ERR_HANDLING_MODE_PEER on both endpoints.
+        close_params.flags = UCP_EP_CLOSE_FLAG_FORCE;
 
-        void *close_req = ucp_ep_close_nbx(endpoint_, &close_params);
+        void *close_req;
+        {
+            std::lock_guard<std::mutex> worker_lock(*worker_mutex_);
+            close_req = ucp_ep_close_nbx(endpoint_, &close_params);
+        }
         if (UCS_PTR_IS_ERR(close_req)) {
             std::fprintf(stderr, "UCX endpoint close failed: %s\n",
                          ucs_status_string(UCS_PTR_STATUS(close_req)));
-        } else {
+        } else if (close_req != nullptr) {
             wait_request_completion(close_req, "ep_close");
         }
         endpoint_ = nullptr;
@@ -397,10 +405,18 @@ const gvirtus::communicators::Communicator *const UcxCommunicator::Accept() cons
 
     ucp_ep_params_t ep_params{};
     ep_params.field_mask = UCP_EP_PARAM_FIELD_CONN_REQUEST |
-                           UCP_EP_PARAM_FIELD_ERR_HANDLER;
+                           UCP_EP_PARAM_FIELD_ERR_HANDLER |
+                           UCP_EP_PARAM_FIELD_ERR_HANDLING_MODE;
     ep_params.conn_request = req;
     ep_params.err_handler.cb = &UcxCommunicator::endpoint_error_handler;
     ep_params.err_handler.arg = accepted;
+    // PEER mode is required for the error handler to fire when the remote
+    // side closes its endpoint. With the default NONE mode, peer disconnect
+    // is invisible to us: the read loop blocks forever in
+    // ucp_worker_progress() and the per-client thread never exits, which
+    // also prevents subsequent simple_matrix benchmark iterations from
+    // re-connecting.
+    ep_params.err_mode = UCP_ERR_HANDLING_MODE_PEER;
 
     ucs_status_t status = ucp_ep_create(accepted->worker_, &ep_params, &accepted->endpoint_);
     if (status != UCS_OK) {
@@ -424,12 +440,19 @@ void UcxCommunicator::Connect() {
     ucp_ep_params_t ep_params{};
     ep_params.field_mask = UCP_EP_PARAM_FIELD_FLAGS |
                            UCP_EP_PARAM_FIELD_SOCK_ADDR |
-                           UCP_EP_PARAM_FIELD_ERR_HANDLER;
+                           UCP_EP_PARAM_FIELD_ERR_HANDLER |
+                           UCP_EP_PARAM_FIELD_ERR_HANDLING_MODE;
     ep_params.flags = UCP_EP_PARAMS_FLAGS_CLIENT_SERVER;
     ep_params.sockaddr.addr = reinterpret_cast<const struct sockaddr *>(&ss);
     ep_params.sockaddr.addrlen = sizeof(sockaddr_in);
     ep_params.err_handler.cb = &UcxCommunicator::endpoint_error_handler;
     ep_params.err_handler.arg = this;
+    // PEER mode lets ucp_ep_close_nbx complete promptly on the client side
+    // and ensures the server's error handler fires when we go away (or vice
+    // versa). With NONE mode (the UCX default) a graceful close can block
+    // indefinitely waiting for a peer-side acknowledgment that NONE mode
+    // does not produce.
+    ep_params.err_mode = UCP_ERR_HANDLING_MODE_PEER;
 
     ucs_status_t status = ucp_ep_create(worker_, &ep_params, &endpoint_);
     if (status != UCS_OK) {
