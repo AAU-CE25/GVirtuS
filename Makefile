@@ -1,4 +1,4 @@
-.PHONY: docker-build-push-dev docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test
+.PHONY: docker-build-push-dev docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-backend-ucx run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test
 USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
 DOCKER_HUB_USERNAME ?= aauce25
 
@@ -69,6 +69,33 @@ run-gvirtus-backend-dev:
 
 attach-gvirtus-bash:
 		docker exec -it gvirtus-$(USER) bash
+
+run-gvirtus-backend-ucx:
+	docker run \
+		--rm \
+		-it \
+		--network host \
+		--privileged \
+		-v ./cmake:/gvirtus/cmake/ \
+		-v ./etc:/gvirtus/etc/ \
+		-v ./include:/gvirtus/include/ \
+		-v ./plugins:/gvirtus/plugins/ \
+		-v ./src:/gvirtus/src/ \
+		-v ./tools:/gvirtus/tools/ \
+		-v ./tests:/gvirtus/tests/ \
+		-v ./CMakeLists.txt:/gvirtus/CMakeLists.txt \
+		-v ./docker/dev/entrypoint.sh:/entrypoint.sh \
+		-v ./examples:/gvirtus/examples/ \
+		--entrypoint /entrypoint.sh \
+		--name gvirtus-ucx-$(USER) \
+		--runtime=nvidia \
+		--shm-size=8G \
+		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
+		-e GVIRTUS_CONFIG=/gvirtus/etc/properties_ucx.json \
+		-e UCX_TLS=rc_x,tcp \
+		-e UCX_NET_DEVICES=all \
+		-e UCX_RNDV_THRESH=8192 \
+		$(DOCKER_REPO_DEV):cuda12.6.3-cudnn-ubuntu22.04
 
 run-gvirtus-tests:
 	docker exec \

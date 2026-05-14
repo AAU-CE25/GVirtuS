@@ -75,6 +75,7 @@ add_library(gvirtus-communicators SHARED
     src/communicators/Endpoint_Tcp.cpp
     src/communicators/Endpoint_Rdma.cpp
     src/communicators/Endpoint_Hybrid.cpp
+    src/communicators/Endpoint_Ucx.cpp
     src/communicators/EndpointFactory.cpp
     src/communicators/rdma/ktmrdma.cpp
     src/communicators/Result.cpp
@@ -110,6 +111,42 @@ target_link_libraries(gvirtus-communicators-hybrid
     gvirtus-communicators-ib
 )
 gvirtus_install_target(gvirtus-communicators-hybrid)
+
+## UCX COMMUNICATOR
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(UCX QUIET ucx)
+endif()
+if(NOT UCX_FOUND)
+    # Fallback: find UCX headers and library directly
+    find_path(UCX_INCLUDE_DIRS ucp/api/ucp.h HINTS /usr/include /usr/local/include)
+    find_library(UCX_UCP_LIB ucp HINTS /usr/lib /usr/lib/x86_64-linux-gnu /usr/local/lib)
+    find_library(UCX_UCS_LIB ucs HINTS /usr/lib /usr/lib/x86_64-linux-gnu /usr/local/lib)
+    find_library(UCX_UCT_LIB uct HINTS /usr/lib /usr/lib/x86_64-linux-gnu /usr/local/lib)
+    if(UCX_INCLUDE_DIRS AND UCX_UCP_LIB AND UCX_UCS_LIB AND UCX_UCT_LIB)
+        set(UCX_FOUND TRUE)
+        set(UCX_LIBRARIES ${UCX_UCP_LIB} ${UCX_UCS_LIB} ${UCX_UCT_LIB})
+        set(UCX_LIBRARY_DIRS "")
+    else()
+        message(FATAL_ERROR "UCX (libucp) not found. Install libucx-dev.")
+    endif()
+endif()
+add_library(gvirtus-communicators-ucx SHARED
+    src/communicators/ucx/UcxCommunicator.cpp
+)
+target_include_directories(gvirtus-communicators-ucx
+    PRIVATE
+        ${UCX_INCLUDE_DIRS}
+        ${PROJECT_SOURCE_DIR}/src
+)
+target_link_libraries(gvirtus-communicators-ucx
+    gvirtus-communicators
+    ${UCX_LIBRARIES}
+)
+if(UCX_LIBRARY_DIRS)
+    target_link_directories(gvirtus-communicators-ucx PRIVATE ${UCX_LIBRARY_DIRS})
+endif()
+gvirtus_install_target(gvirtus-communicators-ucx)
 
 # ===== FRONTEND =====
 add_library(gvirtus-frontend SHARED
