@@ -194,7 +194,8 @@ static void run_client(const std::string &host, uint16_t port, size_t n_bytes, i
 
 namespace ucx_transport {
 
-static constexpr ucp_tag_t TAG_DATA = 0x100;
+static constexpr ucp_tag_t TAG_HANDSHAKE = 0x100;
+static constexpr ucp_tag_t TAG_DATA     = 0x200;
 static constexpr ucp_tag_t TAG_MASK = 0xFFFFFFFFFFFFFFFF;
 
 // Timestamp helper for debug logs
@@ -261,13 +262,14 @@ static void wait_request(ucp_worker_h worker, void *request, const char *op_name
     ucp_request_free(request);
 }
 
-static void ucx_send(ucp_worker_h worker, ucp_ep_h ep, const void *buf, size_t len) {
-    std::cerr << ts() << "ucx_send: len=" << len << std::endl;
+static void ucx_send(ucp_worker_h worker, ucp_ep_h ep, const void *buf, size_t len,
+                     ucp_tag_t tag = TAG_DATA) {
+    std::cerr << ts() << "ucx_send: len=" << len << " tag=0x" << std::hex << tag << std::dec << std::endl;
     ucp_request_param_t param{};
     param.op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK | UCP_OP_ATTR_FIELD_DATATYPE;
     param.datatype = ucp_dt_make_contig(1);
     param.cb.send = send_cb;
-    void *req = ucp_tag_send_nbx(ep, buf, len, TAG_DATA, &param);
+    void *req = ucp_tag_send_nbx(ep, buf, len, tag, &param);
     wait_request(worker, req, "send");
 }
 
@@ -280,13 +282,14 @@ static void ucx_flush(ucp_worker_h worker, ucp_ep_h ep) {
     wait_request(worker, req, "flush");
 }
 
-static void ucx_recv(ucp_worker_h worker, void *buf, size_t len) {
-    std::cerr << ts() << "ucx_recv: len=" << len << std::endl;
+static void ucx_recv(ucp_worker_h worker, void *buf, size_t len,
+                     ucp_tag_t tag = TAG_DATA) {
+    std::cerr << ts() << "ucx_recv: len=" << len << " tag=0x" << std::hex << tag << std::dec << std::endl;
     ucp_request_param_t param{};
     param.op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK | UCP_OP_ATTR_FIELD_DATATYPE;
     param.datatype = ucp_dt_make_contig(1);
     param.cb.recv = recv_cb;
-    void *req = ucp_tag_recv_nbx(worker, buf, len, TAG_DATA, TAG_MASK, &param);
+    void *req = ucp_tag_recv_nbx(worker, buf, len, tag, TAG_MASK, &param);
     wait_request(worker, req, "recv");
 }
 
@@ -378,11 +381,11 @@ static void run_server(uint16_t port) {
         // This ensures both sides have fully established the connection.
         char ack = 'A';
         try {
-            ucx_send(ctx.worker, ep, &ack, 1);
+            ucx_send(ctx.worker, ep, &ack, 1, TAG_HANDSHAKE);
             ucx_flush(ctx.worker, ep);
             std::cerr << "[UCX server] ACK sent, waiting for client READY..." << std::endl;
             char ready = 0;
-            ucx_recv(ctx.worker, &ready, 1);
+            ucx_recv(ctx.worker, &ready, 1, TAG_HANDSHAKE);
             if (ready != 'R') {
                 std::cerr << "[UCX server] Invalid READY byte: " << (int)ready << std::endl;
                 continue;
@@ -403,6 +406,7 @@ static void run_server(uint16_t port) {
                 break;
             }
 
+            std::cerr << ts() << "[UCX server] payload_size=" << payload_size << std::endl;
             if (payload_size == 0) break;  // client signals done
 
             std::vector<char> buf(payload_size);
@@ -454,12 +458,12 @@ static void run_client(const std::string &host, uint16_t port, size_t n_bytes, i
     // Wireup: wait for the server's ACK to confirm connection is established
     std::cerr << "[UCX client] Waiting for server wireup ACK..." << std::endl;
     char ack = 0;
-    ucx_recv(ctx.worker, &ack, 1);
+    ucx_recv(ctx.worker, &ack, 1, TAG_HANDSHAKE);
     if (ack != 'A') throw std::runtime_error("Invalid wireup ACK");
 
     // Send READY back so server knows we're synchronized
     char ready = 'R';
-    ucx_send(ctx.worker, ep, &ready, 1);
+    ucx_send(ctx.worker, ep, &ready, 1, TAG_HANDSHAKE);
     ucx_flush(ctx.worker, ep);
     std::cerr << "[UCX client] Wireup complete" << std::endl;
 
@@ -467,10 +471,12 @@ static void run_client(const std::string &host, uint16_t port, size_t n_bytes, i
     std::vector<char> recv_buf(n_bytes);
     for (size_t i = 0; i < n_bytes; i++) send_buf[i] = static_cast<char>(i & 0xFF);
 
-    // Warmup
+    // Warmup — flush after header to ensure ordering
     uint64_t size_header = n_bytes;
     ucx_send(ctx.worker, ep, &size_header, sizeof(size_header));
+    ucx_flush(ctx.worker, ep);
     ucx_send(ctx.worker, ep, send_buf.data(), n_bytes);
+    ucx_flush(ctx.worker, ep);
     ucx_recv(ctx.worker, recv_buf.data(), n_bytes);
 
     // CSV header
@@ -480,7 +486,9 @@ static void run_client(const std::string &host, uint16_t port, size_t n_bytes, i
         auto t0 = std::chrono::high_resolution_clock::now();
 
         ucx_send(ctx.worker, ep, &size_header, sizeof(size_header));
+        ucx_flush(ctx.worker, ep);
         ucx_send(ctx.worker, ep, send_buf.data(), n_bytes);
+        ucx_flush(ctx.worker, ep);
 
         auto t1 = std::chrono::high_resolution_clock::now();
 
