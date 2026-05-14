@@ -98,3 +98,63 @@ run-simple-matrix-test:
 		-v ./etc/properties_ucx.json:/opt/GVirtuS/etc/properties_ucx.json \
 		$(DOCKER_REPO_DEV)/simple_matrix_gvirtus:cuda12.6 \
 		bash /opt/GVirtuS/examples/frontend.sh
+
+bench-gvs-tcp:
+	docker run --rm \
+		--name simple_matrix_bench_ucx_rdma_container-$(USER) \
+		$(SIMPLE_MATRIX_GPU_FLAGS) \
+		--network host \
+		--device /dev/infiniband \
+		--cap-add IPC_LOCK \
+		--ulimit memlock=-1 \
+		-e MODE_LABEL="gvs-tcp" \
+		-e VARIANT_LABEL="bench" \
+		-e GVIRTUS_CONFIG=/opt/GVirtuS/etc/properties.json \
+		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
+		-v ./examples/simple_matrix:/opt/GVirtuS/examples \
+		-v ./etc/properties.json:/opt/GVirtuS/etc/properties.json \
+		$(DOCKER_REPO_DEV)/simple_matrix_gvirtus:cuda12.6 \
+		bash /opt/GVirtuS/examples/benchmark.sh
+
+bench-ucx-tcp:
+	docker run --rm \
+		--name simple_matrix_bench_ucx_rdma_container-$(USER) \
+		$(SIMPLE_MATRIX_GPU_FLAGS) \
+		--network host \
+		--device /dev/infiniband \
+		--cap-add IPC_LOCK \
+		--ulimit memlock=-1 \
+		-e MODE_LABEL="ucx-tcp" \
+		-e VARIANT_LABEL="bench" \
+		-e GVIRTUS_CONFIG=/opt/GVirtuS/etc/properties_ucx.json \
+		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
+		-e UCX_LOG_LEVEL=$(UCX_LOG_LEVEL) \
+		-e UCX_TLS=tcp,self \
+		-e UCX_NET_DEVICES=ens1f1np1 \
+		-e UCX_SOCKADDR_TLS_PRIORITY=tcp \
+		-v ./examples/simple_matrix:/opt/GVirtuS/examples \
+		-v ./etc/properties_ucx.json:/opt/GVirtuS/etc/properties_ucx.json \
+		$(DOCKER_REPO_DEV)/simple_matrix_gvirtus:cuda12.6 \
+		bash /opt/GVirtuS/examples/benchmark.sh
+
+bench-ucx-rdma:
+	docker run --rm \
+		--name simple_matrix_bench_ucx_rdma_container-$(USER) \
+		$(SIMPLE_MATRIX_GPU_FLAGS) \
+		--network host \
+		--device /dev/infiniband \
+		--cap-add IPC_LOCK \
+		--ulimit memlock=-1 \
+		-e MODE_LABEL="ucx-rdma" \
+		-e VARIANT_LABEL="bench" \
+		-e GVIRTUS_CONFIG=/opt/GVirtuS/etc/properties_ucx.json \
+		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
+		-e UCX_TLS=rc_mlx5,ud_mlx5,self,cuda_copy \
+		-e UCX_NET_DEVICES=mlx5_1:1 \
+		-e UCX_LOG_LEVEL=$(UCX_LOG_LEVEL) \
+		-e UCX_SOCKADDR_TLS_PRIORITY=rdmacm \
+		-e UCX_IB_GID_INDEX=3 \
+		-v ./examples/simple_matrix:/opt/GVirtuS/examples \
+		-v ./etc/properties_ucx.json:/opt/GVirtuS/etc/properties_ucx.json \
+		$(DOCKER_REPO_DEV)/simple_matrix_gvirtus:cuda12.6 \
+		bash /opt/GVirtuS/examples/benchmark.sh
