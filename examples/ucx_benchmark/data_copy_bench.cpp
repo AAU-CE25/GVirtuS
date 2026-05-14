@@ -274,6 +274,7 @@ static void ucx_stream_send(ucp_worker_h worker, ucp_ep_h ep, const void *buf, s
 static void ucx_stream_recv_all(ucp_worker_h worker, ucp_ep_h ep, void *buf, size_t len) {
     char *p = static_cast<char *>(buf);
     size_t remaining = len;
+    uint64_t idle_spins = 0;
     while (remaining > 0) {
         ucp_request_param_t param{};
         param.op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK | UCP_OP_ATTR_FIELD_DATATYPE |
@@ -285,9 +286,19 @@ static void ucx_stream_recv_all(ucp_worker_h worker, ucp_ep_h ep, void *buf, siz
         void *req = ucp_stream_recv_nbx(ep, p, remaining, &length, &param);
         if (req == nullptr) {
             // immediate completion — `length` is set
-            if (length == 0) throw std::runtime_error("stream_recv: 0 bytes (peer closed?)");
+            if (length == 0) {
+                // No data ready yet, progress and retry
+                ucp_worker_progress(worker);
+                idle_spins++;
+                if (idle_spins % 50000000 == 0) {
+                    std::cerr << ts() << "stream_recv: idle (spins=" << idle_spins
+                              << ", remaining=" << remaining << ")" << std::endl;
+                }
+                continue;
+            }
             p += length;
             remaining -= length;
+            idle_spins = 0;
         } else if (UCS_PTR_IS_ERR(req)) {
             throw std::runtime_error(std::string("stream_recv failed: ") +
                                      ucs_status_string(UCS_PTR_STATUS(req)));
@@ -310,9 +321,13 @@ static void ucx_stream_recv_all(ucp_worker_h worker, ucp_ep_h ep, void *buf, siz
             }
             size_t got = r->length;
             ucp_request_free(req);
-            if (got == 0) throw std::runtime_error("stream_recv: 0 bytes (peer closed?)");
+            if (got == 0) {
+                // Connection closed by peer
+                throw std::runtime_error("stream_recv: 0 bytes after wait (peer closed)");
+            }
             p += got;
             remaining -= got;
+            idle_spins = 0;
         }
     }
 }
