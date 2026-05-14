@@ -195,7 +195,8 @@ static void run_client(const std::string &host, uint16_t port, size_t n_bytes, i
 namespace ucx_transport {
 
 static constexpr ucp_tag_t TAG_HANDSHAKE = 0x100;
-static constexpr ucp_tag_t TAG_DATA     = 0x200;
+static constexpr ucp_tag_t TAG_HEADER   = 0x200;
+static constexpr ucp_tag_t TAG_DATA     = 0x300;
 static constexpr ucp_tag_t TAG_MASK = 0xFFFFFFFFFFFFFFFF;
 
 // Timestamp helper for debug logs
@@ -396,11 +397,11 @@ static void run_server(uint16_t port) {
         }
         std::cerr << "[UCX server] Wireup complete, starting echo loop" << std::endl;
 
-        // Echo loop: recv size header, recv payload, send payload back
+        // Echo loop: recv size header (TAG_HEADER), recv payload (TAG_DATA), send payload back
         while (true) {
             uint64_t payload_size = 0;
             try {
-                ucx_recv(ctx.worker, &payload_size, sizeof(payload_size));
+                ucx_recv(ctx.worker, &payload_size, sizeof(payload_size), TAG_HEADER);
             } catch (const std::exception &e) {
                 std::cerr << "[UCX server] recv error: " << e.what() << std::endl;
                 break;
@@ -410,8 +411,8 @@ static void run_server(uint16_t port) {
             if (payload_size == 0) break;  // client signals done
 
             std::vector<char> buf(payload_size);
-            ucx_recv(ctx.worker, buf.data(), payload_size);
-            ucx_send(ctx.worker, ep, buf.data(), payload_size);
+            ucx_recv(ctx.worker, buf.data(), payload_size, TAG_DATA);
+            ucx_send(ctx.worker, ep, buf.data(), payload_size, TAG_DATA);
             ucx_flush(ctx.worker, ep);
         }
 
@@ -473,11 +474,11 @@ static void run_client(const std::string &host, uint16_t port, size_t n_bytes, i
 
     // Warmup — flush after header to ensure ordering
     uint64_t size_header = n_bytes;
-    ucx_send(ctx.worker, ep, &size_header, sizeof(size_header));
+    ucx_send(ctx.worker, ep, &size_header, sizeof(size_header), TAG_HEADER);
     ucx_flush(ctx.worker, ep);
-    ucx_send(ctx.worker, ep, send_buf.data(), n_bytes);
+    ucx_send(ctx.worker, ep, send_buf.data(), n_bytes, TAG_DATA);
     ucx_flush(ctx.worker, ep);
-    ucx_recv(ctx.worker, recv_buf.data(), n_bytes);
+    ucx_recv(ctx.worker, recv_buf.data(), n_bytes, TAG_DATA);
 
     // CSV header
     std::cout << "run,n_bytes,send_us,recv_us,roundtrip_us" << std::endl;
@@ -485,14 +486,14 @@ static void run_client(const std::string &host, uint16_t port, size_t n_bytes, i
     for (int run = 0; run < num_runs; run++) {
         auto t0 = std::chrono::high_resolution_clock::now();
 
-        ucx_send(ctx.worker, ep, &size_header, sizeof(size_header));
+        ucx_send(ctx.worker, ep, &size_header, sizeof(size_header), TAG_HEADER);
         ucx_flush(ctx.worker, ep);
-        ucx_send(ctx.worker, ep, send_buf.data(), n_bytes);
+        ucx_send(ctx.worker, ep, send_buf.data(), n_bytes, TAG_DATA);
         ucx_flush(ctx.worker, ep);
 
         auto t1 = std::chrono::high_resolution_clock::now();
 
-        ucx_recv(ctx.worker, recv_buf.data(), n_bytes);
+        ucx_recv(ctx.worker, recv_buf.data(), n_bytes, TAG_DATA);
 
         auto t2 = std::chrono::high_resolution_clock::now();
 
@@ -511,7 +512,8 @@ static void run_client(const std::string &host, uint16_t port, size_t n_bytes, i
 
     // Signal done
     uint64_t zero = 0;
-    ucx_send(ctx.worker, ep, &zero, sizeof(zero));
+    ucx_send(ctx.worker, ep, &zero, sizeof(zero), TAG_HEADER);
+    ucx_flush(ctx.worker, ep);
 
     // Close
     ucp_request_param_t close_param{};
