@@ -1,1 +1,0 @@
-add the Run server and run client (run server needss to pull froin gh first and bulid and then run the data)
