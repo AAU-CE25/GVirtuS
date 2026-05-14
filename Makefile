@@ -1,4 +1,4 @@
-.PHONY: docker-build-push-dev docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-backend-ucx run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test
+.PHONY: docker-build-push-dev docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-backend-ucx run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test docker-build-ucx-benchmark run-ucx-benchmark-server-tcp run-ucx-benchmark-server-ucx run-ucx-benchmark-tcp run-ucx-benchmark-ucx stop-ucx-benchmark
 USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
 DOCKER_HUB_USERNAME ?= aauce25
 
@@ -177,3 +177,86 @@ run-simple-matrix-test:
 
 stop-simple-matrix-test:
 	docker stop simple_matrix_test_container-$(USER) || true
+
+# ===== UCX Benchmark =====
+
+# Benchmark configuration (override on command line)
+BENCH_TEST ?= all
+BENCH_RUNS ?= 10
+BENCH_DATA_SIZES ?= 1024,8192,65536,262144,1048576,4194304,16777216
+BENCH_MATRIX_NS ?= 64,128,256,512,1024,2048
+BENCH_SERVER ?= 24.24.24.1
+BENCH_PORT ?= 5555
+
+docker-build-ucx-benchmark:
+	docker buildx build \
+		--platform linux/amd64 \
+		--push \
+		--no-cache \
+		-f examples/ucx_benchmark/Dockerfile \
+		-t $(DOCKER_HUB_USERNAME)/ucx_benchmark_gvirtus:cuda12.6 \
+		examples/ucx_benchmark
+
+# Start the data_copy echo server (run on the backend/GPU node)
+run-ucx-benchmark-server-tcp:
+	docker run --rm \
+		--name ucx_bench_server_tcp-$(USER) \
+		--network host \
+		$(DOCKER_HUB_USERNAME)/ucx_benchmark_gvirtus:cuda12.6 \
+		bash -c "g++ -O2 -o /tmp/data_copy_bench /opt/GVirtuS/examples/ucx_benchmark/data_copy_bench.cpp -lpthread && /tmp/data_copy_bench server tcp $(BENCH_PORT)"
+
+run-ucx-benchmark-server-ucx:
+	docker run --rm \
+		--name ucx_bench_server_ucx-$(USER) \
+		--network host \
+		-e UCX_TLS=rc_x,tcp \
+		-e UCX_NET_DEVICES=all \
+		-e UCX_RNDV_THRESH=8192 \
+		$(DOCKER_HUB_USERNAME)/ucx_benchmark_gvirtus:cuda12.6 \
+		bash -c "g++ -O2 -DUSE_UCX -o /tmp/data_copy_bench /opt/GVirtuS/examples/ucx_benchmark/data_copy_bench.cpp -lucp -lucs -lpthread && /tmp/data_copy_bench server ucx $(BENCH_PORT)"
+
+# Run benchmarks as client (data_copy uses its own transport, matrix_mul uses GVirtuS)
+run-ucx-benchmark-tcp:
+	docker run --rm \
+		--name ucx_benchmark_tcp-$(USER) \
+		--network host \
+		-v ./examples/ucx_benchmark/results:/opt/GVirtuS/examples/ucx_benchmark/results \
+		-v ./examples/ucx_benchmark/properties_tcp.json:/opt/GVirtuS/etc/properties.json \
+		-e BENCH_TEST=$(BENCH_TEST) \
+		-e BENCH_RUNS=$(BENCH_RUNS) \
+		-e BENCH_DATA_SIZES=$(BENCH_DATA_SIZES) \
+		-e BENCH_MATRIX_NS=$(BENCH_MATRIX_NS) \
+		-e BENCH_TAG=tcp \
+		-e BENCH_TRANSPORT=tcp \
+		-e BENCH_SERVER=$(BENCH_SERVER) \
+		-e BENCH_PORT=$(BENCH_PORT) \
+		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
+		$(DOCKER_HUB_USERNAME)/ucx_benchmark_gvirtus:cuda12.6 \
+		bash /opt/GVirtuS/examples/ucx_benchmark/frontend.sh
+
+run-ucx-benchmark-ucx:
+	docker run --rm \
+		--name ucx_benchmark_ucx-$(USER) \
+		--network host \
+		-v ./examples/ucx_benchmark/results:/opt/GVirtuS/examples/ucx_benchmark/results \
+		-v ./examples/ucx_benchmark/properties_ucx.json:/opt/GVirtuS/etc/properties.json \
+		-e BENCH_TEST=$(BENCH_TEST) \
+		-e BENCH_RUNS=$(BENCH_RUNS) \
+		-e BENCH_DATA_SIZES=$(BENCH_DATA_SIZES) \
+		-e BENCH_MATRIX_NS=$(BENCH_MATRIX_NS) \
+		-e BENCH_TAG=ucx \
+		-e BENCH_TRANSPORT=ucx \
+		-e BENCH_SERVER=$(BENCH_SERVER) \
+		-e BENCH_PORT=$(BENCH_PORT) \
+		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
+		-e UCX_TLS=rc_x,tcp \
+		-e UCX_NET_DEVICES=all \
+		-e UCX_RNDV_THRESH=8192 \
+		$(DOCKER_HUB_USERNAME)/ucx_benchmark_gvirtus:cuda12.6 \
+		bash /opt/GVirtuS/examples/ucx_benchmark/frontend.sh
+
+stop-ucx-benchmark:
+	docker stop ucx_bench_server_tcp-$(USER) || true
+	docker stop ucx_bench_server_ucx-$(USER) || true
+	docker stop ucx_benchmark_tcp-$(USER) || true
+	docker stop ucx_benchmark_ucx-$(USER) || true
