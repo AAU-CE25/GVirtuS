@@ -3,6 +3,7 @@
 #include <ucp/api/ucp.h>
 
 #include <atomic>
+#include <cstddef>
 #include <string>
 
 #include "gvirtus/communicators/Communicator.h"
@@ -26,11 +27,17 @@ namespace gvirtus::communicators {
  *  - 1-byte wireup handshake right after EP creation: forces UCX wireup
  *    messages to flow before the first real transfer, eliminating
  *    first-transfer hangs on large initial payloads.
- *  - Zero-copy relies on the UCX registration cache (default-on) hitting
- *    when GVirtuS reuses Buffer storage across calls. No staging memcpy.
+ *  - Pre-registered staging buffer for large transfers: avoids per-call
+ *    ibv_reg_mr overhead that would otherwise dominate large RDMA sends
+ *    from dynamically-allocated GVirtuS Buffers (see data_copy_bench for
+ *    the pinned-buffer pattern).
  */
 class UcxCommunicator : public Communicator {
    public:
+    /// Minimum transfer size (bytes) that routes through the pre-registered
+    /// staging buffer. Below this, UCX eager sends work without registration.
+    static constexpr size_t kStagingThreshold = 65536;  // 64 KiB
+
     UcxCommunicator() = default;
 
     /// Client constructor: will connect to hostname:port
@@ -91,6 +98,18 @@ class UcxCommunicator : public Communicator {
     // real Read/Write does not block on UCX wireup.
     void wireupServer(ucp_ep_h ep);
     void wireupClient(ucp_ep_h ep);
+
+    // Pre-registered staging buffer for large transfers. Allocated lazily on
+    // first use, kept alive for the lifetime of the communicator to ensure
+    // every subsequent send/recv hits the UCX memory registration cache.
+    char *mStagingBuf = nullptr;
+    size_t mStagingSize = 0;
+    ucp_mem_h mStagingMemh = nullptr;
+
+    /// Ensure mStagingBuf is at least `needed` bytes and registered.
+    void ensureStaging(size_t needed);
+    /// Free and deregister the staging buffer.
+    void freeStaging();
 };
 
 }  // namespace gvirtus::communicators

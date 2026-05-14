@@ -4,6 +4,7 @@
 #include <netdb.h>
 #include <sys/resource.h>
 
+#include <algorithm>
 #include <cstring>
 #include <stdexcept>
 
@@ -174,6 +175,71 @@ UcxCommunicator::UcxCommunicator(ucp_context_h ctx, ucp_worker_h worker, ucp_ep_
     : mContext(ctx), mWorker(worker), mEndpoint(ep), mOwnsContext(false) {}
 
 UcxCommunicator::~UcxCommunicator() { Close(); }
+
+// ============================================================================
+// Pre-registered staging buffer management
+// ============================================================================
+
+void UcxCommunicator::ensureStaging(size_t needed) {
+    if (mStagingBuf && mStagingSize >= needed) return;
+
+    // Deregister old buffer if growing.
+    freeStaging();
+
+    // Round up to next power-of-two multiple of 1 MiB for amortization.
+    constexpr size_t kMinStaging = 4ULL * 1024 * 1024;  // 4 MiB minimum
+    size_t alloc_size = std::max(needed, kMinStaging);
+    // Round up to next power of two.
+    alloc_size--;
+    alloc_size |= alloc_size >> 1;
+    alloc_size |= alloc_size >> 2;
+    alloc_size |= alloc_size >> 4;
+    alloc_size |= alloc_size >> 8;
+    alloc_size |= alloc_size >> 16;
+    alloc_size |= alloc_size >> 32;
+    alloc_size++;
+
+    // Allocate via UCX so the memory is pre-registered for RDMA zero-copy.
+    ucp_mem_map_params_t mparams{};
+    mparams.field_mask = UCP_MEM_MAP_PARAM_FIELD_LENGTH |
+                         UCP_MEM_MAP_PARAM_FIELD_FLAGS;
+    mparams.length = alloc_size;
+    mparams.flags = UCP_MEM_MAP_NONBLOCK;  // don't block on page faults
+
+    ucs_status_t st = ucp_mem_map(mContext, &mparams, &mStagingMemh);
+    if (st != UCS_OK) {
+        LOG4CPLUS_WARN(logger, "ucp_mem_map failed for staging buffer ("
+                                   << alloc_size << " bytes): "
+                                   << ucs_status_string(st)
+                                   << " — falling back to malloc");
+        mStagingBuf = static_cast<char *>(malloc(alloc_size));
+        if (!mStagingBuf) throw std::runtime_error("OOM allocating staging buffer");
+        mStagingMemh = nullptr;
+    } else {
+        // Retrieve the allocated address.
+        ucp_mem_attr_t attr{};
+        attr.field_mask = UCP_MEM_ATTR_FIELD_ADDRESS | UCP_MEM_ATTR_FIELD_LENGTH;
+        ucp_mem_query(mStagingMemh, &attr);
+        mStagingBuf = static_cast<char *>(attr.address);
+        alloc_size = attr.length;
+    }
+    mStagingSize = alloc_size;
+    LOG4CPLUS_DEBUG(logger, "Staging buffer: " << (mStagingSize / 1024 / 1024)
+                                               << " MiB at " << (void *)mStagingBuf
+                                               << (mStagingMemh ? " (registered)" : " (fallback)"));
+}
+
+void UcxCommunicator::freeStaging() {
+    if (mStagingMemh && mContext) {
+        ucp_mem_unmap(mContext, mStagingMemh);
+        mStagingMemh = nullptr;
+        mStagingBuf = nullptr;
+    } else if (mStagingBuf) {
+        free(mStagingBuf);
+        mStagingBuf = nullptr;
+    }
+    mStagingSize = 0;
+}
 
 // ============================================================================
 // Context & Worker initialization
@@ -414,17 +480,16 @@ void UcxCommunicator::Connect() {
 
 size_t UcxCommunicator::Read(char *buffer, size_t size) {
     LOG4CPLUS_TRACE(logger, "Read() size=" << size);
-    // Treat a previously-flagged peer disconnect as EOF so the backend's
-    // per-client thread can exit its loop cleanly. Without this, the next
-    // Read after disconnect would throw inside a detached std::thread and
-    // call std::terminate(), killing the whole Process child.
     if (mPeerClosed.load()) return 0;
     try {
+        if (size >= kStagingThreshold && mContext) {
+            ensureStaging(size);
+            size_t got = stream_recv_all(mWorker, mEndpoint, mStagingBuf, size);
+            memcpy(buffer, mStagingBuf, got);
+            return got;
+        }
         return stream_recv_all(mWorker, mEndpoint, buffer, size);
     } catch (const std::exception &e) {
-        // Convert peer-disconnect errors into EOF (0 bytes). Any other UCX
-        // failure mode also surfaces here; logging at INFO keeps the backend
-        // log readable on normal client teardown.
         mPeerClosed.store(true);
         LOG4CPLUS_INFO(logger, "Read() EOF: " << e.what());
         return 0;
@@ -435,6 +500,11 @@ size_t UcxCommunicator::Write(const char *buffer, size_t size) {
     LOG4CPLUS_TRACE(logger, "Write() size=" << size);
     if (mPeerClosed.load()) return 0;
     try {
+        if (size >= kStagingThreshold && mContext) {
+            ensureStaging(size);
+            memcpy(mStagingBuf, buffer, size);
+            return stream_send(mWorker, mEndpoint, mStagingBuf, size);
+        }
         return stream_send(mWorker, mEndpoint, buffer, size);
     } catch (const std::exception &e) {
         mPeerClosed.store(true);
@@ -471,6 +541,9 @@ void UcxCommunicator::Close() {
         }
         mEndpoint = nullptr;
     }
+
+    // Free staging buffer before destroying the context it's registered with.
+    freeStaging();
 
     if (mListener) {
         ucp_listener_destroy(mListener);
