@@ -233,6 +233,14 @@ static void ucx_send(ucp_worker_h worker, ucp_ep_h ep, const void *buf, size_t l
     wait_request(worker, req);
 }
 
+static void ucx_flush(ucp_worker_h worker, ucp_ep_h ep) {
+    ucp_request_param_t param{};
+    param.op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK;
+    param.cb.send = send_cb;
+    void *req = ucp_ep_flush_nbx(ep, &param);
+    wait_request(worker, req);
+}
+
 static void ucx_recv(ucp_worker_h worker, void *buf, size_t len) {
     ucp_request_param_t param{};
     param.op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK | UCP_OP_ATTR_FIELD_DATATYPE;
@@ -326,11 +334,19 @@ static void run_server(uint16_t port) {
 
         std::cerr << "[UCX server] Client connected" << std::endl;
 
-        // Wireup handshake: send a 1-byte ACK to the client so both sides
-        // know the connection is fully established before data exchange.
+        // Wireup handshake: server sends ACK, flushes, then waits for client READY.
+        // This ensures both sides have fully established the connection.
         char ack = 'A';
         try {
             ucx_send(ctx.worker, ep, &ack, 1);
+            ucx_flush(ctx.worker, ep);
+            std::cerr << "[UCX server] ACK sent, waiting for client READY..." << std::endl;
+            char ready = 0;
+            ucx_recv(ctx.worker, &ready, 1);
+            if (ready != 'R') {
+                std::cerr << "[UCX server] Invalid READY byte: " << (int)ready << std::endl;
+                continue;
+            }
         } catch (const std::exception &e) {
             std::cerr << "[UCX server] Wireup handshake failed: " << e.what() << std::endl;
             continue;
@@ -352,6 +368,7 @@ static void run_server(uint16_t port) {
             std::vector<char> buf(payload_size);
             ucx_recv(ctx.worker, buf.data(), payload_size);
             ucx_send(ctx.worker, ep, buf.data(), payload_size);
+            ucx_flush(ctx.worker, ep);
         }
 
         // Close endpoint
@@ -399,6 +416,11 @@ static void run_client(const std::string &host, uint16_t port, size_t n_bytes, i
     char ack = 0;
     ucx_recv(ctx.worker, &ack, 1);
     if (ack != 'A') throw std::runtime_error("Invalid wireup ACK");
+
+    // Send READY back so server knows we're synchronized
+    char ready = 'R';
+    ucx_send(ctx.worker, ep, &ready, 1);
+    ucx_flush(ctx.worker, ep);
     std::cerr << "[UCX client] Wireup complete" << std::endl;
 
     std::vector<char> send_buf(n_bytes);
