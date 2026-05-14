@@ -19,8 +19,8 @@ RUN apt update && apt install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt
-RUN git clone https://github.com/ecn-aau/GVirtuS.git && \
-    cd GVirtuS && mkdir build && cd build && \
+COPY . /opt/GVirtuS
+RUN cd GVirtuS && mkdir build && cd build && \
     cmake -DCMAKE_INSTALL_PREFIX=${GVIRTUS_HOME} .. && \
     make -j$(nproc) && make install
 
