@@ -220,54 +220,66 @@ static void request_init(void *request) {
     req->length = 0;
 }
 
-static void send_cb(void *request, ucs_status_t status, void *) {
-    auto *req = static_cast<UcxRequest *>(request);
-    req->status = status;
-    req->complete.store(true);
+// Per-call state passed via UCP_OP_ATTR_FIELD_USER_DATA.
+// Stack-allocated, fresh each call, so no stale-pool issues.
+struct OpState {
+    std::atomic<bool> complete{false};
+    ucs_status_t status{UCS_OK};
+    size_t length{0};
+};
+
+static void send_cb(void *request, ucs_status_t status, void *user_data) {
+    auto *s = static_cast<OpState *>(user_data);
+    s->status = status;
+    s->complete.store(true);
 }
 
-static void stream_recv_cb(void *request, ucs_status_t status, size_t length, void *) {
-    auto *req = static_cast<UcxRequest *>(request);
-    req->status = status;
-    req->length = length;
-    req->complete.store(true);
+static void stream_recv_cb(void *request, ucs_status_t status, size_t length, void *user_data) {
+    auto *s = static_cast<OpState *>(user_data);
+    s->status = status;
+    s->length = length;
+    s->complete.store(true);
 }
 
-static void wait_request(ucp_worker_h worker, void *request, const char *op_name = "op") {
+static void wait_op(ucp_worker_h worker, void *request, OpState &state, const char *op_name) {
     if (request == nullptr) {
-        return;  // immediate completion
+        // Already completed — state was NOT updated by callback in this case
+        // (the ...nbx call returned immediate success without scheduling cb)
+        state.complete.store(true);
+        state.status = UCS_OK;
+        return;
     }
     if (UCS_PTR_IS_ERR(request)) {
-        std::string err = std::string(op_name) + " failed: " +
-                          ucs_status_string(UCS_PTR_STATUS(request));
-        throw std::runtime_error(err);
+        throw std::runtime_error(std::string(op_name) + " failed: " +
+                                 ucs_status_string(UCS_PTR_STATUS(request)));
     }
-    auto *req = static_cast<UcxRequest *>(request);
     uint64_t spins = 0;
-    while (!req->complete.load()) {
+    while (!state.complete.load()) {
         ucp_worker_progress(worker);
         spins++;
         if (spins % 50000000 == 0) {
             std::cerr << ts() << op_name << ": still waiting (spins=" << spins << ")" << std::endl;
         }
     }
-    if (req->status != UCS_OK) {
-        std::string err = std::string(op_name) + " completed with error: " +
-                          ucs_status_string(req->status);
-        ucp_request_free(request);
-        throw std::runtime_error(err);
-    }
+    ucs_status_t st = state.status;
     ucp_request_free(request);
+    if (st != UCS_OK) {
+        throw std::runtime_error(std::string(op_name) + " completed with error: " +
+                                 ucs_status_string(st));
+    }
 }
 
 // Stream send — blocks until all bytes sent
 static void ucx_stream_send(ucp_worker_h worker, ucp_ep_h ep, const void *buf, size_t len) {
+    OpState state;
     ucp_request_param_t param{};
-    param.op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK | UCP_OP_ATTR_FIELD_DATATYPE;
+    param.op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK | UCP_OP_ATTR_FIELD_DATATYPE |
+                         UCP_OP_ATTR_FIELD_USER_DATA;
     param.datatype = ucp_dt_make_contig(1);
     param.cb.send = send_cb;
+    param.user_data = &state;
     void *req = ucp_stream_send_nbx(ep, buf, len, &param);
-    wait_request(worker, req, "stream_send");
+    wait_op(worker, req, state, "stream_send");
 }
 
 // Stream recv — blocks until exactly `len` bytes received (loops if partial)
@@ -276,18 +288,19 @@ static void ucx_stream_recv_all(ucp_worker_h worker, ucp_ep_h ep, void *buf, siz
     size_t remaining = len;
     uint64_t idle_spins = 0;
     while (remaining > 0) {
+        OpState state;
         ucp_request_param_t param{};
         param.op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK | UCP_OP_ATTR_FIELD_DATATYPE |
-                             UCP_OP_ATTR_FIELD_FLAGS;
+                             UCP_OP_ATTR_FIELD_USER_DATA | UCP_OP_ATTR_FIELD_FLAGS;
         param.datatype = ucp_dt_make_contig(1);
         param.cb.recv_stream = stream_recv_cb;
+        param.user_data = &state;
         param.flags = UCP_STREAM_RECV_FLAG_WAITALL;
         size_t length = 0;
         void *req = ucp_stream_recv_nbx(ep, p, remaining, &length, &param);
         if (req == nullptr) {
-            // immediate completion — `length` is set
+            // Immediate completion — `length` returned by call (callback NOT fired)
             if (length == 0) {
-                // No data ready yet, progress and retry
                 ucp_worker_progress(worker);
                 idle_spins++;
                 if (idle_spins % 50000000 == 0) {
@@ -303,9 +316,9 @@ static void ucx_stream_recv_all(ucp_worker_h worker, ucp_ep_h ep, void *buf, siz
             throw std::runtime_error(std::string("stream_recv failed: ") +
                                      ucs_status_string(UCS_PTR_STATUS(req)));
         } else {
-            auto *r = static_cast<UcxRequest *>(req);
+            // Async — wait for callback to fire on `state`
             uint64_t spins = 0;
-            while (!r->complete.load()) {
+            while (!state.complete.load()) {
                 ucp_worker_progress(worker);
                 spins++;
                 if (spins % 50000000 == 0) {
@@ -313,16 +326,14 @@ static void ucx_stream_recv_all(ucp_worker_h worker, ucp_ep_h ep, void *buf, siz
                               << ", remaining=" << remaining << ")" << std::endl;
                 }
             }
-            if (r->status != UCS_OK) {
-                std::string err = "stream_recv error: " +
-                                  std::string(ucs_status_string(r->status));
-                ucp_request_free(req);
-                throw std::runtime_error(err);
-            }
-            size_t got = r->length;
+            ucs_status_t st = state.status;
+            size_t got = state.length;
             ucp_request_free(req);
+            if (st != UCS_OK) {
+                throw std::runtime_error(std::string("stream_recv error: ") +
+                                         ucs_status_string(st));
+            }
             if (got == 0) {
-                // Connection closed by peer
                 throw std::runtime_error("stream_recv: 0 bytes after wait (peer closed)");
             }
             p += got;
@@ -333,11 +344,13 @@ static void ucx_stream_recv_all(ucp_worker_h worker, ucp_ep_h ep, void *buf, siz
 }
 
 static void ucx_flush(ucp_worker_h worker, ucp_ep_h ep) {
+    OpState state;
     ucp_request_param_t param{};
-    param.op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK;
+    param.op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK | UCP_OP_ATTR_FIELD_USER_DATA;
     param.cb.send = send_cb;
+    param.user_data = &state;
     void *req = ucp_ep_flush_nbx(ep, &param);
-    wait_request(worker, req, "flush");
+    wait_op(worker, req, state, "flush");
 }
 
 struct UcxContext {
@@ -379,6 +392,12 @@ static void listener_cb(ucp_conn_request_h conn_request, void *arg) {
     cr->ready.store(true);
 }
 
+static void ep_err_cb(void *arg, ucp_ep_h ep, ucs_status_t status) {
+    const char *who = static_cast<const char *>(arg);
+    std::cerr << ts() << "!! EP ERROR (" << (who ? who : "?") << "): "
+              << ucs_status_string(status) << std::endl;
+}
+
 static void run_server(uint16_t port) {
     UcxContext ctx;
     ctx.init();
@@ -412,8 +431,13 @@ static void run_server(uint16_t port) {
 
         // Create EP for this client
         ucp_ep_params_t ep_params{};
-        ep_params.field_mask = UCP_EP_PARAM_FIELD_CONN_REQUEST;
+        ep_params.field_mask = UCP_EP_PARAM_FIELD_CONN_REQUEST |
+                               UCP_EP_PARAM_FIELD_ERR_HANDLING_MODE |
+                               UCP_EP_PARAM_FIELD_ERR_HANDLER;
         ep_params.conn_request = conn_req.req;
+        ep_params.err_mode = UCP_ERR_HANDLING_MODE_PEER;
+        ep_params.err_handler.cb = ep_err_cb;
+        ep_params.err_handler.arg = (void *)"server";
 
         ucp_ep_h ep;
         st = ucp_ep_create(ctx.worker, &ep_params, &ep);
@@ -499,10 +523,15 @@ static void run_client(const std::string &host, uint16_t port, size_t n_bytes, i
     }
 
     ucp_ep_params_t ep_params{};
-    ep_params.field_mask = UCP_EP_PARAM_FIELD_FLAGS | UCP_EP_PARAM_FIELD_SOCK_ADDR;
+    ep_params.field_mask = UCP_EP_PARAM_FIELD_FLAGS | UCP_EP_PARAM_FIELD_SOCK_ADDR |
+                           UCP_EP_PARAM_FIELD_ERR_HANDLING_MODE |
+                           UCP_EP_PARAM_FIELD_ERR_HANDLER;
     ep_params.flags = UCP_EP_PARAMS_FLAGS_CLIENT_SERVER;
     ep_params.sockaddr.addr = (struct sockaddr *)&addr;
     ep_params.sockaddr.addrlen = sizeof(addr);
+    ep_params.err_mode = UCP_ERR_HANDLING_MODE_PEER;
+    ep_params.err_handler.cb = ep_err_cb;
+    ep_params.err_handler.arg = (void *)"client";
 
     ucp_ep_h ep;
     ucs_status_t st = ucp_ep_create(ctx.worker, &ep_params, &ep);
