@@ -36,9 +36,10 @@
 #include <signal.h>
 #include <unistd.h>
 
-#include <functional>
 #include <cstring>
+#include <functional>
 #include <iostream>
+#include <memory>
 #include <thread>
 #include <vector>
 
@@ -68,7 +69,7 @@ Process::Process(std::shared_ptr<LD_Lib<Communicator, std::shared_ptr<Endpoint>>
 }
 
 // File-scope logger for the free function getstring(), which has no access to
-// the Process class member.  Using log4cplus instead of raw printf so every
+// the Process class member. Using log4cplus instead of raw printf so every
 // diagnostic message respects GVIRTUS_LOGLEVEL and shares the unified format.
 static log4cplus::Logger gs_logger =
     log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("Process.getstring"));
@@ -102,7 +103,8 @@ bool read_ucx_am_request(Communicator *client_comm,
         return false;
     }
 
-    if (header.message_type !=static_cast<uint16_t>(gvirtus::communicators::ucxam::MessageType::Request)) {
+    if (header.message_type !=
+        static_cast<uint16_t>(gvirtus::communicators::ucxam::MessageType::Request)) {
         error = "unexpected AM message type";
         return false;
     }
@@ -152,8 +154,10 @@ bool write_ucx_am_response(Communicator *client_comm,
     gvirtus::communicators::ucxam::EnvelopeHeader response_header{};
     response_header.magic = gvirtus::communicators::ucxam::kEnvelopeMagic;
     response_header.version = gvirtus::communicators::ucxam::kEnvelopeVersion;
-    response_header.message_type = static_cast<uint16_t>(gvirtus::communicators::ucxam::MessageType::Response);
-    response_header.header_size = static_cast<uint16_t>(sizeof(gvirtus::communicators::ucxam::EnvelopeHeader));
+    response_header.message_type =
+        static_cast<uint16_t>(gvirtus::communicators::ucxam::MessageType::Response);
+    response_header.header_size =
+        static_cast<uint16_t>(sizeof(gvirtus::communicators::ucxam::EnvelopeHeader));
     response_header.reserved0 = 0;
     response_header.status_code = static_cast<uint32_t>(exit_code);
     response_header.request_id = request_header.request_id;
@@ -161,7 +165,8 @@ bool write_ucx_am_response(Communicator *client_comm,
     response_header.payload_size = static_cast<uint64_t>(payload_size);
 
     try {
-        client_comm->Write(reinterpret_cast<const char *>(&response_header), sizeof(response_header));
+        client_comm->Write(reinterpret_cast<const char *>(&response_header),
+                           sizeof(response_header));
         if (!payload.empty()) {
             client_comm->Write(reinterpret_cast<const char *>(payload.data()), payload.size());
         }
@@ -174,35 +179,35 @@ bool write_ucx_am_response(Communicator *client_comm,
     error.clear();
     return true;
 }
-}
+}  // namespace
 
 bool getstring(Communicator *c, string &s) {
-    // TRACE: fires on every routine call, too noisy for DEBUG
-    // RTTI diagnostics merged into one TRACE log.
-    // Only fires when GVIRTUS_LOGLEVEL=0 (TRACE).
+    // TRACE: fires on every routine call, too noisy for DEBUG.
     if (gs_logger.isEnabledFor(log4cplus::TRACE_LOG_LEVEL)) {
         const char *rtti = "<no-rtti>";
         try {
             rtti = typeid(*c).name();
         } catch (...) {
         }
+
         std::string name;
         try {
             name = c->to_string();
         } catch (...) {
             name = "<no to_string()>";
         }
+
         LOG4CPLUS_TRACE(gs_logger,
                         "[getstring] c=" << (void *)c
-                        << " rtti=" << rtti << " to_string()=" << name);
+                                         << " rtti=" << rtti
+                                         << " to_string()=" << name);
     }
 
-    // TODO: FIX LISKOV SUBSTITUTION AND DIPENDENCE INVERSION!!!!!
+    // TODO: FIX LISKOV SUBSTITUTION AND DEPENDENCY INVERSION.
     if (c->to_string() == "tcpcommunicator") {
         s = "";
         char ch = 0;
         while (c->Read(&ch, 1) == 1) {
-            // If reading is ended, return true
             if (ch == 0) {
                 return true;
             }
@@ -213,14 +218,21 @@ bool getstring(Communicator *c, string &s) {
         try {
             s = "";
             size_t size = 30;
-            char *buf = (char *)malloc(size);
+            char *buf = static_cast<char *>(malloc(size));
+            if (buf == nullptr) {
+                throw std::runtime_error("getstring(rdmacommunicator): malloc failed");
+            }
+
+            memset(buf, 0, size);
             size = c->Read(buf, size);
 
-            // if read, return true
             if (size > 0) {
                 s += std::string(buf);
+                free(buf);
                 return true;
             }
+
+            free(buf);
         } catch (const std::exception &e) {
             cerr << e.what() << endl;
         }
@@ -228,10 +240,9 @@ bool getstring(Communicator *c, string &s) {
     } else if (c->to_string() == "hybridcommunicator") {
         s.clear();
         char ch = 0;
-        // same as tcp/ip, and stop until read /0
         while (c->Read(&ch, 1) == 1) {
             if (ch == 0) {
-                return true;  // take the complete routine name
+                return true;
             }
             s += ch;
         }
@@ -257,7 +268,8 @@ void Process::Start() {
         std::string gvirtus_home = getGVirtuSHome();
 
         std::string to_append = "libgvirtus-plugin-" + plug + ".so";
-        LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "] appending " << to_append << ".");
+        LOG4CPLUS_DEBUG(logger,
+                        "[Process " << getpid() << "] appending " << to_append << ".");
 
         auto ld_path = fs::path(gvirtus_home + "/lib").append(to_append);
 
@@ -270,15 +282,32 @@ void Process::Start() {
         }
     });
 
-    // inserisci i sym dei plugin in h
     std::function<void(Communicator *)> execute = [this](Communicator *client_comm) {
         LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "]"
                                             << "Process::Start()'s \"execute\" lambda called");
-        // carica i puntatori ai simboli dei moduli in mHandlers
+
+        // The accepted client communicator is allocated by Accept() with new.
+        // Own it here so it is closed and deleted when the handler thread exits.
+        std::unique_ptr<Communicator> client_owner(client_comm);
+
+        auto close_client = [&]() {
+            if (!client_owner) {
+                return;
+            }
+
+            try {
+                client_owner->Close();
+            } catch (const std::exception &e) {
+                LOG4CPLUS_WARN(logger, "Client close failed: " << e.what());
+            } catch (...) {
+                LOG4CPLUS_WARN(logger, "Client close failed with unknown exception.");
+            }
+        };
 
         string routine;
         std::shared_ptr<Buffer> input_buffer = std::make_shared<Buffer>();
-        const bool ucx_am_mode = client_comm != nullptr && client_comm->to_string() == "ucxcommunicator";
+        const bool ucx_am_mode =
+            client_comm != nullptr && client_comm->to_string() == "ucxcommunicator";
 
         if (ucx_am_mode) {
             try {
@@ -288,7 +317,8 @@ void Process::Start() {
                     std::vector<unsigned char> am_payload;
                     std::string read_error;
 
-                    if (!read_ucx_am_request(client_comm, request_header, am_routine, am_payload, read_error)) {
+                    if (!read_ucx_am_request(client_comm, request_header, am_routine, am_payload,
+                                             read_error)) {
                         LOG4CPLUS_INFO(logger,
                                        "Client disconnected (UCX AM): " << read_error);
                         break;
@@ -296,7 +326,8 @@ void Process::Start() {
 
                     std::shared_ptr<Buffer> am_input = std::make_shared<Buffer>();
                     if (!am_payload.empty()) {
-                        am_input = std::make_shared<Buffer>(reinterpret_cast<char *>(am_payload.data()), am_payload.size());
+                        am_input = std::make_shared<Buffer>(
+                            reinterpret_cast<char *>(am_payload.data()), am_payload.size());
                     }
 
                     std::shared_ptr<Handler> h = nullptr;
@@ -309,8 +340,12 @@ void Process::Start() {
 
                     std::shared_ptr<communicators::Result> result;
                     if (h == nullptr) {
-                        LOG4CPLUS_ERROR(logger, "[Process " << getpid() << "]: Requested unknown routine '" << am_routine << "'.");
-                        result = std::make_shared<communicators::Result>(-1, std::make_shared<Buffer>());
+                        LOG4CPLUS_ERROR(logger,
+                                        "[Process " << getpid()
+                                                    << "]: Requested unknown routine '"
+                                                    << am_routine << "'.");
+                        result = std::make_shared<communicators::Result>(
+                            -1, std::make_shared<Buffer>());
                     } else {
                         auto start = steady_clock::now();
                         result = h->Execute(am_routine, am_input);
@@ -322,7 +357,8 @@ void Process::Start() {
                     }
 
                     std::string write_error;
-                    if (!write_ucx_am_response(client_comm, request_header, result->GetExitCode(), result->TimeTaken(),
+                    if (!write_ucx_am_response(client_comm, request_header,
+                                               result->GetExitCode(), result->TimeTaken(),
                                                result->GetOutputBuffer(), write_error)) {
                         LOG4CPLUS_WARN(logger,
                                        "UCX AM response write failed: " << write_error);
@@ -340,6 +376,7 @@ void Process::Start() {
             }
 
             LOG4CPLUS_INFO(logger, "Client disconnected");
+            close_client();
             Notify("process-ended");
             return;
         }
@@ -348,25 +385,28 @@ void Process::Start() {
             while (getstring(client_comm, routine)) {
                 LOG4CPLUS_TRACE(logger, "Received routine " << routine);
 
-                // === before reading buffer, chose the protocol of this round by rountine ===
+                // Before reading buffer, choose protocol for this round if hybrid.
                 gvirtus::communicators::HybridCommunicator *hybrid = nullptr;
                 if (client_comm && client_comm->to_string() == "hybridcommunicator") {
-                    hybrid = dynamic_cast<gvirtus::communicators::HybridCommunicator *>(client_comm);
+                    hybrid =
+                        dynamic_cast<gvirtus::communicators::HybridCommunicator *>(client_comm);
                 }
+
                 if (hybrid) {
-                    // all those function payload will transfer by RDMA
-                    const bool use_rdma = routine.rfind("cudaRegisterFatBinary", 0) == 0 || routine.rfind("cudaRegisterFatBinaryEnd", 0) == 0 || routine.rfind("cudaMemcpyAsync", 0) == 0 || routine.rfind("cudaMemcpy", 0) == 0;
+                    const bool use_rdma =
+                        routine.rfind("cudaRegisterFatBinary", 0) == 0 ||
+                        routine.rfind("cudaRegisterFatBinaryEnd", 0) == 0 ||
+                        routine.rfind("cudaMemcpyAsync", 0) == 0 ||
+                        routine.rfind("cudaMemcpy", 0) == 0;
 
                     if (use_rdma) {
-                        // bytes_hint if >0 ,then trigger the first 8B under TCP moniter.
-                        // real payload size after 8B head.
-                        hybrid->begin_call(routine, gvirtus::communicators::Transport::RDMA, /*bytes_hint*/ 1);
+                        hybrid->begin_call(routine, gvirtus::communicators::Transport::RDMA,
+                                           /*bytes_hint*/ 1);
                     } else {
                         hybrid->begin_call(routine, gvirtus::communicators::Transport::TCP, 0);
                     }
                 }
 
-                // now reading buffer：8B from TCP, payload will transfer by the selected protocol
                 input_buffer->Reset(client_comm);
 
                 std::shared_ptr<Handler> h = nullptr;
@@ -379,9 +419,12 @@ void Process::Start() {
 
                 std::shared_ptr<communicators::Result> result;
                 if (h == nullptr) {
-                    LOG4CPLUS_ERROR(logger, "[Process " << getpid() << "]: Requested unknown routine '"
-                                                        << routine << "'.");
-                    result = std::make_shared<communicators::Result>(-1, std::make_shared<Buffer>());
+                    LOG4CPLUS_ERROR(logger,
+                                    "[Process " << getpid()
+                                                << "]: Requested unknown routine '"
+                                                << routine << "'.");
+                    result =
+                        std::make_shared<communicators::Result>(-1, std::make_shared<Buffer>());
                 } else {
                     auto start = steady_clock::now();
                     result = h->Execute(routine, input_buffer);
@@ -391,10 +434,8 @@ void Process::Start() {
                                       1000.0);
                 }
 
-                // return info：control the head transfer by TCP，then payload RDMA
                 result->Dump(client_comm);
 
-                // stop this round, and clean all context
                 if (hybrid) {
                     hybrid->end_call();
                 }
@@ -402,46 +443,59 @@ void Process::Start() {
                 LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "]: Routine '" << routine
                                                      << "' returned " << result->GetExitCode()
                                                      << ".");
+
+                // Temporary plain-RDMA shutdown workaround.
+                // cudaUnregisterFatBinary is normally the final CUDA runtime call during
+                // process teardown. Without a clean RDMA EOF, the backend otherwise loops
+                // back into getstring() and blocks forever waiting for another fixed-size
+                // routine-name receive.
+                if (client_comm &&
+                    client_comm->to_string() == "rdmacommunicator" &&
+                    routine == "cudaUnregisterFatBinary") {
+                    LOG4CPLUS_INFO(logger,
+                                   "[Process " << getpid()
+                                               << "]: Ending RDMA client loop after "
+                                                  "cudaUnregisterFatBinary.");
+                    break;
+                }
             }
         } catch (const std::exception &e) {
             LOG4CPLUS_WARN(logger, "Client stream closed with exception: " << e.what());
         }
 
         LOG4CPLUS_INFO(logger, "Client disconnected");
+        close_client();
         Notify("process-ended");
     };
 
     /*
     common::SignalState sig_hand;
     sig_hand.setup_signal_state(SIGINT);
-*/
+    */
 
     try {
         _communicator->obj_ptr()->Serve();
 
         int pid = 0;
         while (true) {
-            Communicator *client = const_cast<Communicator *>(_communicator->obj_ptr()->Accept());
+            Communicator *client =
+                const_cast<Communicator *>(_communicator->obj_ptr()->Accept());
 
-            // Client connect is already logged at INFO by TcpCommunicator::Accept() with IP
             LOG4CPLUS_TRACE(logger,
                             "Accept raw: client=" << (void *)client
-                            << ", comm=" << (client ? client->to_string() : "<null>"));
+                                                  << ", comm="
+                                                  << (client ? client->to_string() : "<null>"));
 
             if (client != nullptr) {
-                //      if ((pid = fork()) == 0) {
                 std::thread(execute, client).detach();
-                //        exit(0);
-                //      }
-
-            } else
+            } else {
                 _communicator->obj_ptr()->run();
-
-            // check if process received SIGINT
+            }
 
             if (common::SignalState::get_signal_state(SIGINT)) {
                 LOG4CPLUS_DEBUG(
-                    logger, "SIGINT received, killing server on [Process " << getpid() << "]...");
+                    logger,
+                    "SIGINT received, killing server on [Process " << getpid() << "]...");
                 break;
             }
         }
@@ -450,7 +504,6 @@ void Process::Start() {
     }
 
     LOG4CPLUS_DEBUG(logger, "Process::Start() returned [Process " << getpid() << "].");
-    // exit(EXIT_SUCCESS);
 }
 
 Process::~Process() {
