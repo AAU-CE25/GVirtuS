@@ -1,0 +1,247 @@
+UCX Communicator - Transport Routing & Logic
+=============================================
+
+1. UCX COMMUNICATOR CALL FLOW
+─────────────────────────────
+
+UCX automatically selects the optimal transport based on message size.
+The threshold is controlled by UCX_RNDV_THRESH (default 8KB).
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        Frontend (Client App)                             │
+│                                                                         │
+│   cudaMalloc()  cudaMemcpy()  cudaLaunchKernel()  cudaRegisterFatBinary │
+│       │              │               │                    │             │
+└───────┼──────────────┼───────────────┼────────────────────┼─────────────┘
+        │              │               │                    │
+        ▼              ▼               ▼                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     UcxCommunicator::Write()                             │
+│                                                                         │
+│  ┌───────────────────────────────────────────────────────────────────┐  │
+│  │              UCX UCP Layer (tag_send_nbx)                         │  │
+│  │                                                                   │  │
+│  │   Message size < UCX_RNDV_THRESH (8KB)?                           │  │
+│  │          │                        │                               │  │
+│  │         YES                      NO                               │  │
+│  │          │                        │                               │  │
+│  │          ▼                        ▼                               │  │
+│  │   ┌─────────────┐       ┌──────────────────┐                     │  │
+│  │   │ EAGER PROTO │       │ RENDEZVOUS PROTO │                     │  │
+│  │   │             │       │                  │                     │  │
+│  │   │ Small msg   │       │ 1. Send RTS hdr  │                     │  │
+│  │   │ copied into │       │    (via TCP)     │                     │  │
+│  │   │ pre-reg buf │       │ 2. Receiver pins │                     │  │
+│  │   │ sent inline │       │    memory        │                     │  │
+│  │   │ (TCP/SHM)   │       │ 3. RDMA READ     │                     │  │
+│  │   │             │       │    (zero-copy)   │                     │  │
+│  │   └──────┬──────┘       └────────┬─────────┘                     │  │
+│  │          │                        │                               │  │
+│  └──────────┼────────────────────────┼───────────────────────────────┘  │
+│             │                        │                                  │
+└─────────────┼────────────────────────┼──────────────────────────────────┘
+              │                        │
+              ▼                        ▼
+        ┌───────────┐          ┌──────────────┐
+        │    TCP    │          │  RDMA/RoCEv2 │
+        │  Socket   │          │  (mlx5 NIC)  │
+        └─────┬─────┘          └──────┬───────┘
+              │                        │
+══════════════╪════════════════════════╪══════════ NETWORK ═══════════
+              │                        │
+              ▼                        ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     UcxCommunicator::Read()                              │
+│                                                                         │
+│            UCX UCP Layer (tag_recv_nbx) - reassembles message           │
+│                                                                         │
+└───────────────────────────────────┬─────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        Backend (GPU Server)                              │
+│                                                                         │
+│   Process::Start() → getstring() → dispatch to plugin → real CUDA call  │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+
+2. SINGLE CUDA CALL: MESSAGE SEQUENCE
+──────────────────────────────────────
+
+    Frontend                           UCX                            Backend
+       │                                │                                │
+       │── Write(routine_name\0) ──────►│                                │
+       │   [~30 bytes → EAGER/TCP]      │──── small msg (TCP) ─────────►│
+       │                                │                                │
+       │── Write(buffer_size, 8B) ─────►│                                │
+       │   [8 bytes → EAGER/TCP]        │──── small msg (TCP) ─────────►│
+       │                                │                                │
+       │── Write(payload) ─────────────►│                                │
+       │   size > 8KB? → RENDEZVOUS     │◄─── CTS (ready to recv) ──────│
+       │   size < 8KB? → EAGER          │──── RDMA READ (zero-copy) ───►│
+       │                                │                                │
+       │── Sync() (ep_flush) ──────────►│                                │
+       │                                │                                │── execute
+       │                                │                                │   CUDA call
+       │                                │                                │
+       │                                │◄─── Write(exit_code, 4B) ──────│
+       │◄── Read(exit_code) ────────────│     [EAGER/TCP]                │
+       │                                │                                │
+       │                                │◄─── Write(exec_time, 8B) ──────│
+       │◄── Read(exec_time) ────────────│     [EAGER/TCP]                │
+       │                                │                                │
+       │                                │◄─── Write(out_buf) ────────────│
+       │◄── Read(output_buffer) ────────│     [EAGER or RDMA]            │
+       │                                │                                │
+
+
+3. UCX TRANSPORT SELECTION LOGIC
+────────────────────────────────
+
+    ┌──────────────────────────────────────────────────────────────┐
+    │              UCX Internal Decision Tree                        │
+    │                                                              │
+    │  On each ucp_tag_send_nbx(buffer, size):                     │
+    │                                                              │
+    │      size <= UCX_RNDV_THRESH ?                                │
+    │           │            │                                     │
+    │          YES          NO                                     │
+    │           │            │                                     │
+    │           ▼            ▼                                     │
+    │    ┌──────────┐  ┌─────────────────────────────┐             │
+    │    │  EAGER   │  │     RENDEZVOUS               │             │
+    │    │          │  │                             │             │
+    │    │ Copy buf │  │  sender ──RTS──► receiver   │             │
+    │    │ into WQE │  │  sender ◄─CTS── receiver   │             │
+    │    │ post SR  │  │  receiver does RDMA_READ    │             │
+    │    │          │  │  from sender's buffer       │             │
+    │    │ ~1 RTT   │  │  (zero-copy, no memcpy)    │             │
+    │    │          │  │                             │             │
+    │    │ Good for:│  │  Good for:                  │             │
+    │    │ metadata │  │  cudaMemcpy payloads        │             │
+    │    │ headers  │  │  fat binaries               │             │
+    │    │ exit code│  │  large buffers              │             │
+    │    └──────────┘  └─────────────────────────────┘             │
+    │                                                              │
+    │  Environment variable control:                               │
+    │    UCX_RNDV_THRESH=8192   (bytes, default ~8KB)              │
+    │    UCX_TLS=rc_x,tcp       (rc_x=RDMA reliable, tcp=fallback)│
+    │    UCX_NET_DEVICES=all    (auto-detect NICs)                 │
+    │                                                              │
+    └──────────────────────────────────────────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════════════
+4. COMPARISON: TCP COMMUNICATOR vs UCX COMMUNICATOR
+═══════════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    TCP Communicator (current)                            │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  Frontend                                                    Backend    │
+│     │                                                           │       │
+│     │──── TCP send(routine\0) ─────────────────────────────────►│       │
+│     │──── TCP send(buf_size, 8B) ──────────────────────────────►│       │
+│     │──── TCP send(payload, N bytes) ──────────────────────────►│       │
+│     │        └── goes through kernel TCP stack                  │       │
+│     │            └── memcpy to socket buffer                    │       │
+│     │                └── NIC DMA from kernel buf                │       │
+│     │                    └── network                            │       │
+│     │                        └── NIC DMA to kernel buf          │       │
+│     │                            └── memcpy to user buf         │       │
+│     │                                                           │       │
+│     │◄─── TCP recv(exit_code) ─────────────────────────────────│       │
+│     │◄─── TCP recv(exec_time) ─────────────────────────────────│       │
+│     │◄─── TCP recv(output) ───────────────────────────────────-│       │
+│     │                                                           │       │
+│  EVERY message: kernel→user copies, TCP overhead, no zero-copy  │       │
+│                                                                         │
+│  Latency per CUDA call: 4-6 TCP round-trips × kernel overhead           │
+│  Data path: App → memcpy → kernel TCP → NIC DMA → wire                 │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+                              vs.
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    UCX Communicator (new)                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  Frontend                                                    Backend    │
+│     │                                                           │       │
+│     │──── UCX send(routine\0) ────── [EAGER/TCP, 30B] ────────►│       │
+│     │──── UCX send(buf_size+payload) ─────────────────────────►│       │
+│     │        └── size < 8KB: EAGER (fast TCP-like, 1 copy)      │       │
+│     │        └── size > 8KB: RENDEZVOUS                         │       │
+│     │              └── send RTS header only (tiny)               │       │
+│     │              └── backend RDMA-READs directly from          │       │
+│     │                  frontend's app buffer (ZERO copies)       │       │
+│     │                                                           │       │
+│     │◄─── UCX recv(exit_code) ─── [EAGER, inline] ─────────────│       │
+│     │◄─── UCX recv(exec_time) ─── [EAGER, inline] ─────────────│       │
+│     │◄─── UCX recv(output) ───── [EAGER or RDMA] ──────────────│       │
+│     │                                                           │       │
+│  Small msgs: eager protocol (1 network hop, minimal copies)     │       │
+│  Large msgs: RDMA zero-copy (NIC reads directly from app RAM)   │       │
+│                                                                         │
+│  Latency per CUDA call: same # of exchanges, lower per-msg cost         │
+│  Data path (large): App buffer → NIC DMA → wire (zero-copy!)           │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+
+5. LATENCY BREAKDOWN COMPARISON
+───────────────────────────────
+
+                TCP Communicator              UCX Communicator
+               ┌──────────────────┐         ┌──────────────────┐
+  Small msg    │                  │         │                  │
+  (<8KB)       │ app→kernel copy  │         │ app→WQE copy     │
+               │ TCP segmentation │         │ (single copy)    │
+               │ NIC DMA          │         │ NIC DMA          │
+               │ ───── wire ───── │         │ ───── wire ───── │
+               │ NIC DMA          │         │ NIC DMA          │
+               │ TCP reassembly   │         │ deliver to app   │
+               │ kernel→app copy  │         │                  │
+               │                  │         │                  │
+               │ Total: ~15-50 μs │         │ Total: ~3-10 μs  │
+               └──────────────────┘         └──────────────────┘
+
+               ┌──────────────────┐         ┌──────────────────┐
+  Large msg    │                  │         │                  │
+  (>8KB,       │ app→kernel copy  │         │ send RTS (tiny)  │
+   e.g. 1MB   │ TCP segmentation │         │ recv CTS         │
+   memcpy)     │ multiple packets │         │ NIC RDMA-READs   │
+               │ NIC DMA (×many)  │         │ directly from    │
+               │ ───── wire ───── │         │ sender's RAM     │
+               │ NIC DMA (×many)  │         │ ───── wire ───── │
+               │ TCP reassembly   │         │ (zero-copy,      │
+               │ kernel→app copy  │         │  single DMA op)  │
+               │                  │         │                  │
+               │ Total: ~200+ μs  │         │ Total: ~10-30 μs │
+               │ + CPU overhead   │         │ CPU-free xfer    │
+               └──────────────────┘         └──────────────────┘
+
+
+6. GVirtuS CUDA CALL TCP ROUND-TRIPS (before UCX)
+──────────────────────────────────────────────────
+
+  A single cudaMemcpy(dst, src, 4MB, cudaMemcpyHostToDevice):
+
+  Frontend ←──────── TCP ────────► Backend
+     │                                 │
+     │─── send routine name ──────────►│  RTT #1
+     │─── send buffer header (8B) ────►│  RTT #2 (Nagle/TCP_NODELAY)
+     │─── send 4MB payload ───────────►│  RTT #3 (multiple segments)
+     │─── flush ──────────────────────►│  
+     │                                 │── execute cudaMemcpy
+     │◄── recv exit_code (4B) ─────────│  RTT #4
+     │◄── recv exec_time (8B) ─────────│  RTT #5
+     │◄── recv output_size (8B) ───────│  RTT #6
+     │◄── recv output_data ────────────│  (if any)
+     │                                 │
+
+  With UCX: same logical exchanges, but the 4MB payload uses
+  RDMA zero-copy (single DMA, no kernel copies, no TCP overhead).
