@@ -4,9 +4,9 @@ set -euo pipefail
 GVIRTUS_HOME=${GVIRTUS_HOME:-/opt/GVirtuS}
 EXAMPLES_DIR="${GVIRTUS_HOME}/examples"
 
-MATRIX_SIZES=${MATRIX_SIZES:-"1024 2048 4096"}
-ITERATIONS=${ITERATIONS:-50}
-WARMUP=${WARMUP:-5}
+MATRIX_SIZES=${MATRIX_SIZES:-"512 1024 2048 4096"}
+ITERATIONS=${ITERATIONS:-20}
+WARMUP=${WARMUP:-2}
 MODE_LABEL=${MODE_LABEL:-custom}
 VARIANT_LABEL=${VARIANT_LABEL:-custom}
 export LD_LIBRARY_PATH="${GVIRTUS_HOME}/lib:${GVIRTUS_HOME}/lib/frontend:${LD_LIBRARY_PATH:-}"
@@ -25,7 +25,7 @@ nvcc simple_matrix.cu -o simple_matrix -g --cudart=shared \
   -lcuda -lcudart -lcublas
 
 run_sizes() {
-    local out_dir="${OUT_DIR:-${PWD}/benchmark_results}"
+    local out_dir="${OUT_DIR:-${PWD}/benchmarks}"
     local out_file="${out_dir}/simple_matrix_${MODE_LABEL}_${VARIANT_LABEL}.csv"
 
     mkdir -p "${out_dir}"
