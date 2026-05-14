@@ -1,0 +1,632 @@
+docker run \
+	--rm \
+	-it \
+	--network host \
+	--privileged \
+	-v ./cmake:/gvirtus/cmake/ \
+	-v ./etc:/gvirtus/etc/ \
+	-v ./include:/gvirtus/include/ \
+	-v ./plugins:/gvirtus/plugins/ \
+	-v ./src:/gvirtus/src/ \
+	-v ./tools:/gvirtus/tools/ \
+	-v ./tests:/gvirtus/tests/ \
+	-v ./CMakeLists.txt:/gvirtus/CMakeLists.txt \
+	-v ./docker/dev/entrypoint.sh:/entrypoint.sh \
+	-v ./examples:/gvirtus/examples/ \
+	--entrypoint /entrypoint.sh \
+	--name gvirtus-kz08ey \
+	--runtime=nvidia \
+	--shm-size=8G \
+	-e GVIRTUS_LOGLEVEL=10000 \
+	-e GVIRTUS_UCX_DATAPATH=am \
+	-e UCX_TLS=rc_mlx5,ud_mlx5,self \
+	-e UCX_NET_DEVICES=mlx5_1:1 \
+	-e UCX_LOG_LEVEL=info \
+	-e UCX_SOCKADDR_TLS_PRIORITY=rdmacm \
+	entor/gvirtus-dev:cuda12.6.3-cudnn-ubuntu22.04
+-- The CXX compiler identification is GNU 11.4.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Using GVIRTUS_HOME=/usr/local/gvirtus
+-- log4cplus found in /usr/include
+-- Looking for C++ include pthread.h
+-- Looking for C++ include pthread.h - found
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE  
+-- Installing /gvirtus/include/gvirtus to /usr/local/gvirtus/include
+-- The C compiler identification is GNU 11.4.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Found CUDA: /usr/local/cuda (found version "12.6") 
+-- Found CUDAToolkit: /usr/local/cuda/include (found version "12.6.85") 
+-- Resolved version for cudart: 12
+-- COMPILING...
+-- LD_LIBRARY_PATH
+-- EXTRA_NVCC_FLAGS
+-- cudaDr include directory found at: /usr/local/cuda/include
+-- cudaDr library found at /usr/lib/x86_64-linux-gnu/libcuda.so, adding plugins/cudadr
+-- /usr/lib/x86_64-linux-gnu/libcuda.so
+-- Resolved CUDADR version: libcuda.so.1
+-- cuDNN include directory found at: /usr/include
+-- cuDNN library found at /usr/lib/x86_64-linux-gnu/libcudnn.so, adding plugins/cudnn
+-- Resolved version for cuDNN: 9.5.1
+-- CUDA library nvml found at /usr/local/cuda/lib64/stubs/libnvidia-ml.so
+-- Resolved version for nvml: 1
+-- CUDA library cublas found at /usr/local/cuda/lib64/libcublas.so, adding plugins/cublas
+-- Resolved version for cublas: 12
+-- CUDA library cufft found at /usr/local/cuda/lib64/libcufft.so, adding plugins/cufft
+-- Resolved version for cufft: 11
+-- CUDA library cusolver found at /usr/local/cuda/lib64/libcusolver.so, adding plugins/cusolver
+-- Resolved version for cusolver: 11
+-- CUDA library cusparse found at /usr/local/cuda/lib64/libcusparse.so, adding plugins/cusparse
+-- Resolved version for cusparse: 12
+-- CUDA library curand found at /usr/local/cuda/lib64/libcurand.so, adding plugins/curand
+-- Resolved version for curand: 10
+-- CUDA library nvrtc found at /usr/local/cuda/lib64/libnvrtc.so, adding plugins/nvrtc
+-- Resolved version for nvrtc: 12
+-- The CUDA compiler identification is NVIDIA 12.6.85
+-- Detecting CUDA compiler ABI info
+-- Detecting CUDA compiler ABI info - done
+-- Check for working CUDA compiler: /usr/local/cuda/bin/nvcc - skipped
+-- Detecting CUDA compile features
+-- Detecting CUDA compile features - done
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /gvirtus/build
+[  0%] [34m[1mBuilding NVCC (Device) object plugins/cudart/demo/CMakeFiles/dummy0.e.dir/dummy0.e_generated_dummy0.cu.o[0m
+[  0%] [34m[1mGenerating include/nlohmann/json.hpp[0m
+[  1%] [34m[1mBuilding NVCC (Device) object plugins/cudart/demo/CMakeFiles/add_grid.e.dir/add_grid.e_generated_add_grid.cu.o[0m
+[  1%] [34m[1mBuilding NVCC (Device) object plugins/cudart/demo/CMakeFiles/matrixMul.e.dir/matrixMul.e_generated_matrixMul.cu.o[0m
+[  1%] [34m[1mBuilding NVCC (Device) object plugins/cudart/demo/CMakeFiles/launchKernel.e.dir/launchKernel.e_generated_launchKernel.cu.o[0m
+[  2%] [32mBuilding CXX object CMakeFiles/gvirtus-common.dir/src/common/Decoder.cpp.o[0m
+[  2%] [32mBuilding CXX object CMakeFiles/gvirtus-common.dir/src/common/MessageDispatcher.cpp.o[0m
+[  2%] [32mBuilding CXX object CMakeFiles/gvirtus-common.dir/src/common/Encoder.cpp.o[0m
+[  3%] [32mBuilding CXX object CMakeFiles/gvirtus-common.dir/src/common/JSON.cpp.o[0m
+[  3%] [32mBuilding CXX object CMakeFiles/gvirtus-common.dir/src/common/LD_Lib.cpp.o[0m
+[  3%] [32mBuilding CXX object CMakeFiles/gvirtus-common.dir/src/common/SignalException.cpp.o[0m
+[  4%] [32mBuilding CXX object CMakeFiles/gvirtus-common.dir/src/common/Mutex.cpp.o[0m
+[  4%] [32mBuilding CXX object CMakeFiles/gvirtus-common.dir/src/common/Util.cpp.o[0m
+[  4%] [32mBuilding CXX object CMakeFiles/gvirtus-common.dir/src/common/Observable.cpp.o[0m
+[  5%] [32mBuilding CXX object CMakeFiles/gvirtus-common.dir/src/common/Observer.cpp.o[0m
+[  6%] [32mBuilding CXX object CMakeFiles/gvirtus-common.dir/src/common/SignalState.cpp.o[0m
+[  7%] [32m[1mLinking CXX executable dummy0.e[0m
+[  7%] [32m[1mLinking CXX executable launchKernel.e[0m
+[  7%] [32m[1mLinking CXX executable matrixMul.e[0m
+[  7%] Built target dummy0.e
+[  7%] Built target launchKernel.e
+[  7%] Built target matrixMul.e
+[  7%] [32m[1mLinking CXX executable add_grid.e[0m
+[  7%] Built target add_grid.e
+[  7%] [32m[1mLinking CXX shared library libgvirtus-common.so[0m
+[  7%] Built target gvirtus-common
+[  9%] [32mBuilding CXX object CMakeFiles/gvirtus-communicators.dir/src/communicators/Buffer.cpp.o[0m
+[  9%] [32mBuilding CXX object CMakeFiles/gvirtus-communicators.dir/src/communicators/CommunicatorFactory.cpp.o[0m
+[  9%] [32mBuilding CXX object CMakeFiles/gvirtus-communicators.dir/src/communicators/Endpoint_Rdma.cpp.o[0m
+[  9%] [32mBuilding CXX object CMakeFiles/gvirtus-communicators.dir/src/communicators/Endpoint_Tcp.cpp.o[0m
+[ 10%] [32mBuilding CXX object CMakeFiles/gvirtus-communicators.dir/src/communicators/Endpoint_Hybrid.cpp.o[0m
+[ 10%] [32mBuilding CXX object CMakeFiles/gvirtus-communicators.dir/src/communicators/Endpoint_Ucx.cpp.o[0m
+[ 10%] [32mBuilding CXX object CMakeFiles/gvirtus-communicators.dir/src/communicators/Result.cpp.o[0m
+[ 10%] [32mBuilding CXX object CMakeFiles/gvirtus-communicators.dir/src/communicators/EndpointFactory.cpp.o[0m
+[ 11%] [32mBuilding CXX object CMakeFiles/gvirtus-communicators.dir/src/communicators/rdma/ktmrdma.cpp.o[0m
+[ 12%] [32m[1mLinking CXX shared library libgvirtus-communicators.so[0m
+[ 12%] Built target gvirtus-communicators
+[ 12%] [32mBuilding CXX object CMakeFiles/gvirtus-communicators-tcp.dir/src/communicators/tcp/TcpCommunicator.cpp.o[0m
+[ 12%] [32mBuilding CXX object CMakeFiles/gvirtus-communicators-ib.dir/src/communicators/rdma/ktmrdma.cpp.o[0m
+[ 12%] [32mBuilding CXX object CMakeFiles/gvirtus-communicators-ucx.dir/src/communicators/ucx/UcxCommunicator.cpp.o[0m
+[ 13%] [32mBuilding CXX object CMakeFiles/gvirtus-communicators-ib.dir/src/communicators/rdma/RdmaCommunicator.cpp.o[0m
+[ 14%] [32mBuilding CXX object plugins/cudnn/CMakeFiles/gvirtus-plugin-cudnn.dir/backend/CudnnHandler.cpp.o[0m
+[ 15%] [32mBuilding CXX object plugins/cusolver/CMakeFiles/gvirtus-plugin-cusolver.dir/backend/CusolverHandler.cpp.o[0m
+[ 16%] [32mBuilding CXX object plugins/cudart/CMakeFiles/gvirtus-plugin-cudart.dir/backend/CudaRtHandler_api.cpp.o[0m
+[ 17%] [32mBuilding CXX object plugins/cusparse/CMakeFiles/gvirtus-plugin-cusparse.dir/backend/CusparseHandler.cpp.o[0m
+[ 17%] [32mBuilding CXX object plugins/cudart/CMakeFiles/gvirtus-plugin-cudart.dir/backend/CudaRtHandler_device.cpp.o[0m
+[ 17%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/gvirtus-plugin-cuda.dir/backend/CudaDrHandler_context.cpp.o[0m
+[ 18%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/gvirtus-plugin-cuda.dir/backend/CudaDrHandler_device.cpp.o[0m
+[ 19%] [32mBuilding CXX object plugins/cudart/CMakeFiles/gvirtus-plugin-cudart.dir/backend/CudaRtHandler_error.cpp.o[0m
+[ 19%] [32mBuilding CXX object plugins/cudart/CMakeFiles/gvirtus-plugin-cudart.dir/backend/CudaRtHandler_driver_entry_point.cpp.o[0m
+[ 19%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/gvirtus-plugin-cuda.dir/backend/CudaDrHandler_driver_entry_point.cpp.o[0m
+[ 20%] [32mBuilding CXX object plugins/cufft/CMakeFiles/gvirtus-plugin-cufft.dir/backend/CufftHandler.cpp.o[0m
+[ 20%] [32mBuilding CXX object plugins/nvml/CMakeFiles/gvirtus-plugin-nvml.dir/backend/NvmlHandler_systemquery.cpp.o[0m
+[ 20%] [32mBuilding CXX object plugins/curand/CMakeFiles/gvirtus-plugin-curand.dir/backend/CurandHandler.cpp.o[0m
+[ 21%] [32mBuilding CXX object plugins/cudart/CMakeFiles/gvirtus-plugin-cudart.dir/backend/CudaRtHandler_event.cpp.o[0m
+[ 21%] [32mBuilding CXX object plugins/nvml/CMakeFiles/gvirtus-plugin-nvml.dir/backend/NvmlHandler_init.cpp.o[0m
+[ 22%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/gvirtus-plugin-cuda.dir/backend/CudaDrHandler_event.cpp.o[0m
+[ 22%] [32mBuilding CXX object plugins/nvml/CMakeFiles/gvirtus-plugin-nvml.dir/backend/NvmlHandler_devicequery.cpp.o[0m
+[ 23%] [32mBuilding CXX object plugins/curand/CMakeFiles/gvirtus-plugin-curand.dir/backend/CurandHandler_host.cpp.o[0m
+[ 23%] [32mBuilding CXX object plugins/cudart/CMakeFiles/gvirtus-plugin-cudart.dir/backend/CudaRtHandler_graph.cpp.o[0m
+[ 23%] [32mBuilding CXX object plugins/nvrtc/CMakeFiles/gvirtus-plugin-nvrtc.dir/backend/NvrtcHandler_compilation.cpp.o[0m
+[ 24%] [32mBuilding CXX object plugins/cudart/CMakeFiles/gvirtus-plugin-cudart.dir/backend/CudaRtHandler_execution.cpp.o[0m
+[ 24%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/gvirtus-plugin-cuda.dir/backend/CudaDrHandler_initialization.cpp.o[0m
+[ 24%] [32mBuilding CXX object plugins/nvrtc/CMakeFiles/gvirtus-plugin-nvrtc.dir/backend/NvrtcHandler_error.cpp.o[0m
+[ 24%] [32mBuilding CXX object plugins/nvml/CMakeFiles/gvirtus-plugin-nvml.dir/backend/NvmlHandler_error.cpp.o[0m
+[ 25%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/gvirtus-plugin-cuda.dir/backend/CudaDrHandler_error.cpp.o[0m
+[ 27%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/gvirtus-plugin-cuda.dir/backend/CudaDrHandler_memory.cpp.o[0m
+[ 27%] [32mBuilding CXX object plugins/cudart/CMakeFiles/gvirtus-plugin-cudart.dir/backend/CudaRtHandler_internal.cpp.o[0m
+[ 27%] [32mBuilding CXX object plugins/nvrtc/CMakeFiles/gvirtus-plugin-nvrtc.dir/backend/NvrtcHandler_host.cpp.o[0m
+[ 27%] [32mBuilding CXX object plugins/nvrtc/CMakeFiles/gvirtus-plugin-nvrtc.dir/backend/NvrtcHandler_pch.cpp.o[0m
+[ 28%] [32mBuilding CXX object plugins/nvrtc/CMakeFiles/gvirtus-plugin-nvrtc.dir/backend/NvrtcHandler.cpp.o[0m
+[ 28%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/gvirtus-plugin-cuda.dir/backend/CudaDrHandler_execution.cpp.o[0m
+[ 28%] [32mBuilding CXX object plugins/nvml/CMakeFiles/gvirtus-plugin-nvml.dir/backend/NvmlHandler.cpp.o[0m
+[ 28%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/gvirtus-plugin-cuda.dir/backend/CudaDrHandler_occupancy.cpp.o[0m
+[ 29%] [32mBuilding CXX object plugins/nvml/CMakeFiles/gvirtus-plugin-nvml.dir/backend/NvmlHandler_internal.cpp.o[0m
+[ 31%] [32mBuilding CXX object plugins/cudart/CMakeFiles/gvirtus-plugin-cudart.dir/backend/CudaRtHandler_occupancy.cpp.o[0m
+[ 31%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/gvirtus-plugin-cuda.dir/backend/CudaDrHandler_version.cpp.o[0m
+[ 31%] [32mBuilding CXX object plugins/cudart/CMakeFiles/gvirtus-plugin-cudart.dir/backend/CudaRtHandler_profiler.cpp.o[0m
+[ 31%] [32mBuilding CXX object plugins/nvrtc/CMakeFiles/gvirtus-plugin-nvrtc.dir/backend/NvrtcHandler_giq.cpp.o[0m
+[ 31%] [32mBuilding CXX object plugins/cudart/CMakeFiles/gvirtus-plugin-cudart.dir/backend/CudaRtHandler_stream.cpp.o[0m
+[ 33%] [32mBuilding CXX object plugins/cudart/CMakeFiles/gvirtus-plugin-cudart.dir/backend/CudaRtHandler_opengl.cpp.o[0m
+[ 33%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/gvirtus-plugin-cuda.dir/backend/CudaDrHandler_texture.cpp.o[0m
+[ 33%] [32mBuilding CXX object plugins/cublas/CMakeFiles/gvirtus-plugin-cublas.dir/backend/CublasHandler_Level1.cpp.o[0m
+[ 33%] [32mBuilding CXX object plugins/cublas/CMakeFiles/gvirtus-plugin-cublas.dir/backend/CublasHandler_Level2.cpp.o[0m
+[ 33%] [32mBuilding CXX object plugins/cudart/CMakeFiles/gvirtus-plugin-cudart.dir/backend/CudaRtHandler_texture.cpp.o[0m
+[ 33%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/gvirtus-plugin-cuda.dir/backend/CudaDrHandler.cpp.o[0m
+[ 33%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/gvirtus-plugin-cuda.dir/backend/CudaDrHandler_streammemory.cpp.o[0m
+[ 33%] [32mBuilding CXX object plugins/cublas/CMakeFiles/gvirtus-plugin-cublas.dir/backend/CublasHandler_Extension.cpp.o[0m
+[ 33%] [32mBuilding CXX object plugins/cublas/CMakeFiles/gvirtus-plugin-cublas.dir/backend/CublasHandler_Helper.cpp.o[0m
+[ 35%] [32mBuilding CXX object plugins/cudart/CMakeFiles/gvirtus-plugin-cudart.dir/backend/CudaRtHandler_stream_memory.cpp.o[0m
+[ 35%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/gvirtus-plugin-cuda.dir/backend/CudaDrHandler_tensormap.cpp.o[0m
+[ 36%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/gvirtus-plugin-cuda.dir/backend/CudaDrHandler_module.cpp.o[0m
+[ 36%] [32mBuilding CXX object plugins/nvml/CMakeFiles/gvirtus-plugin-nvml.dir/backend/NvmlHandler_event.cpp.o[0m
+[ 36%] [32mBuilding CXX object plugins/cudart/CMakeFiles/gvirtus-plugin-cudart.dir/backend/CudaRtHandler_memory.cpp.o[0m
+[ 38%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/gvirtus-plugin-cuda.dir/backend/CudaDrHandler_stream.cpp.o[0m
+[ 39%] [32mBuilding CXX object plugins/cublas/CMakeFiles/gvirtus-plugin-cublas.dir/backend/CublasHandler_Level3.cpp.o[0m
+[ 39%] [32mBuilding CXX object plugins/cudart/CMakeFiles/gvirtus-plugin-cudart.dir/backend/CudaRtHandler_thread.cpp.o[0m
+[ 40%] [32mBuilding CXX object plugins/cudart/CMakeFiles/gvirtus-plugin-cudart.dir/backend/CudaRtHandler_surface.cpp.o[0m
+[ 41%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/gvirtus-plugin-cuda.dir/backend/CudaDrHandler_unified.cpp.o[0m
+[ 41%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/gvirtus-plugin-cuda.dir/backend/CudaDrHandler_virtmemory.cpp.o[0m
+[ 41%] [32mBuilding CXX object plugins/cudart/CMakeFiles/gvirtus-plugin-cudart.dir/backend/CudaRtHandler_version.cpp.o[0m
+[ 41%] [32mBuilding CXX object plugins/cublas/CMakeFiles/gvirtus-plugin-cublas.dir/backend/CublasHandler_Lt.cpp.o[0m
+[ 41%] [32mBuilding CXX object plugins/cudart/CMakeFiles/gvirtus-plugin-cudart.dir/backend/CudaRtHandler.cpp.o[0m
+[ 42%] [32mBuilding CXX object plugins/cublas/CMakeFiles/gvirtus-plugin-cublas.dir/backend/CublasHandler.cpp.o[0m
+[ 43%] [32mBuilding CXX object plugins/cudart/CMakeFiles/gvirtus-plugin-cudart.dir/util/CudaUtil.cpp.o[0m
+[ 44%] [32m[1mLinking CXX shared library libgvirtus-plugin-nvrtc.so[0m
+[ 45%] [32m[1mLinking CXX shared library libgvirtus-plugin-nvml.so[0m
+[ 45%] Built target gvirtus-plugin-nvrtc
+[ 45%] Built target gvirtus-plugin-nvml
+[ 45%] [32m[1mLinking CXX shared library libgvirtus-plugin-cuda.so[0m
+[ 45%] [32m[1mLinking CXX shared library libgvirtus-plugin-cusparse.so[0m
+[ 45%] [32m[1mLinking CXX shared library libgvirtus-plugin-cusolver.so[0m
+[ 45%] Built target gvirtus-plugin-cuda
+[ 45%] Built target gvirtus-plugin-cusparse
+[ 45%] [32m[1mLinking CXX shared library libgvirtus-plugin-cufft.so[0m
+[ 45%] [32m[1mLinking CXX shared library libgvirtus-plugin-curand.so[0m
+[ 45%] Built target gvirtus-plugin-cusolver
+[ 45%] [32m[1mLinking CXX shared library libgvirtus-communicators-ib.so[0m
+[ 45%] Built target gvirtus-plugin-cufft
+[ 45%] Built target gvirtus-plugin-curand
+[ 45%] Built target gvirtus-communicators-ib
+[ 46%] [32m[1mLinking CXX shared library libgvirtus-communicators-ucx.so[0m
+[ 46%] Built target gvirtus-communicators-ucx
+[ 46%] [32m[1mLinking CXX shared library libgvirtus-plugin-cudart.so[0m
+[ 47%] [32m[1mLinking CXX shared library libgvirtus-communicators-tcp.so[0m
+[ 47%] Built target gvirtus-communicators-tcp
+[ 47%] [32mBuilding CXX object CMakeFiles/gvirtus-communicators-hybrid.dir/src/communicators/hybrid/HybridCommunicator.cpp.o[0m
+[ 47%] [32m[1mLinking CXX shared library libgvirtus-plugin-cublas.so[0m
+[ 47%] Built target gvirtus-plugin-cudart
+[ 47%] Built target gvirtus-plugin-cublas
+[ 47%] [32m[1mLinking CXX shared library libgvirtus-plugin-cudnn.so[0m
+[ 47%] Built target gvirtus-plugin-cudnn
+[ 48%] [32m[1mLinking CXX shared library libgvirtus-communicators-hybrid.so[0m
+[ 48%] Built target gvirtus-communicators-hybrid
+[ 48%] [32mBuilding CXX object CMakeFiles/gvirtus-backend.dir/src/backend/Backend.cpp.o[0m
+[ 48%] [32mBuilding CXX object CMakeFiles/gvirtus-backend.dir/src/backend/Process.cpp.o[0m
+[ 49%] [32mBuilding CXX object CMakeFiles/gvirtus-backend.dir/src/backend/main.cpp.o[0m
+[ 49%] [32mBuilding CXX object CMakeFiles/gvirtus-backend.dir/src/backend/Property.cpp.o[0m
+[ 49%] [32mBuilding CXX object CMakeFiles/gvirtus-frontend.dir/src/frontend/Frontend.cpp.o[0m
+[ 50%] [32m[1mLinking CXX executable gvirtus-backend[0m
+[ 51%] [32m[1mLinking CXX shared library libgvirtus-frontend.so[0m
+[ 51%] Built target gvirtus-backend
+[ 51%] Built target gvirtus-frontend
+[ 52%] [32mBuilding CXX object plugins/nvml/CMakeFiles/nvml_frontend.dir/frontend/Nvml_init.cpp.o[0m
+[ 52%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/cuda.dir/frontend/CudaDr_context.cpp.o[0m
+[ 52%] [32mBuilding CXX object plugins/nvml/CMakeFiles/nvml_frontend.dir/frontend/Nvml_systemquery.cpp.o[0m
+[ 53%] [32mBuilding CXX object plugins/nvml/CMakeFiles/nvml_frontend.dir/frontend/Nvml_devicequery.cpp.o[0m
+[ 53%] [32mBuilding CXX object plugins/nvml/CMakeFiles/nvml_frontend.dir/frontend/Nvml_error.cpp.o[0m
+[ 54%] [32mBuilding CXX object plugins/cublas/CMakeFiles/cublasLt.dir/frontend/CublasLt.cpp.o[0m
+[ 54%] [32mBuilding CXX object plugins/nvml/CMakeFiles/nvml_frontend.dir/frontend/Nvml_event.cpp.o[0m
+[ 54%] [32mBuilding CXX object plugins/cublas/CMakeFiles/cublasLt.dir/frontend/CublasFrontend.cpp.o[0m
+[ 55%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/cuda.dir/frontend/CudaDr_device.cpp.o[0m
+[ 55%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/cuda.dir/frontend/CudaDr_driver_entry_point.cpp.o[0m
+[ 55%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/cuda.dir/frontend/CudaDr_error.cpp.o[0m
+[ 55%] [32mBuilding CXX object plugins/cudnn/CMakeFiles/cudnn.dir/frontend/Cudnn.cpp.o[0m
+[ 55%] [32mBuilding CXX object plugins/cudart/CMakeFiles/cudart.dir/frontend/CudaRt_api.cpp.o[0m
+[ 56%] [32mBuilding CXX object plugins/cufft/CMakeFiles/cufft.dir/frontend/Cufft.cpp.o[0m
+[ 57%] [32mBuilding CXX object plugins/nvml/CMakeFiles/nvml_frontend.dir/frontend/NvmlFrontend.cpp.o[0m
+[ 57%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/cuda.dir/frontend/CudaDr_event.cpp.o[0m
+[ 58%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/cuda.dir/frontend/CudaDr_initialization.cpp.o[0m
+[ 58%] [32mBuilding CXX object plugins/cudart/CMakeFiles/cudart.dir/frontend/CudaRt_driver_entry_point.cpp.o[0m
+[ 58%] [32mBuilding CXX object plugins/cudart/CMakeFiles/cudart.dir/frontend/CudaRtFrontend.cpp.o[0m
+[ 58%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/cuda.dir/frontend/CudaDr_memory.cpp.o[0m
+[ 59%] [32mBuilding CXX object plugins/cudart/CMakeFiles/cudart.dir/frontend/CudaRt_device.cpp.o[0m
+[ 59%] [32mBuilding CXX object plugins/cudart/CMakeFiles/cudart.dir/frontend/CudaRt_graph.cpp.o[0m
+[ 59%] [32mBuilding CXX object plugins/cudnn/CMakeFiles/cudnn.dir/frontend/CudnnFrontend.cpp.o[0m
+[ 62%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/cuda.dir/frontend/CudaDr_execution.cpp.o[0m
+[ 63%] [32mBuilding CXX object plugins/cublas/CMakeFiles/cublas.dir/frontend/Cublas_extension.cpp.o[0m
+[ 63%] [32mBuilding CXX object plugins/cufft/CMakeFiles/cufft.dir/frontend/CufftFrontend.cpp.o[0m
+[ 63%] [32mBuilding CXX object plugins/cudnn/CMakeFiles/cudnn.dir/frontend/Cudnn_helper.cpp.o[0m
+[ 63%] [32mBuilding CXX object plugins/cusolver/CMakeFiles/cusolver.dir/frontend/Cusolver_helper.cpp.o[0m
+[ 63%] [32mBuilding CXX object plugins/nvrtc/CMakeFiles/nvrtc.dir/frontend/NvrtcFrontend.cpp.o[0m
+[ 63%] [32mBuilding CXX object plugins/curand/CMakeFiles/curand.dir/frontend/Curand.cpp.o[0m
+[ 64%] [32mBuilding CXX object plugins/cudart/CMakeFiles/cudart.dir/frontend/CudaRt_error.cpp.o[0m
+[ 63%] [32mBuilding CXX object plugins/nvrtc/CMakeFiles/nvrtc.dir/frontend/Nvrtc_compilation.cpp.o[0m
+[ 63%] [32mBuilding CXX object plugins/cusolver/CMakeFiles/cusolver.dir/frontend/CusolverFrontend.cpp.o[0m
+[ 64%] [32mBuilding CXX object plugins/cublas/CMakeFiles/cublas.dir/frontend/Cublas_helper.cpp.o[0m
+[ 66%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/cuda.dir/frontend/CudaDr_module.cpp.o[0m
+[ 67%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/cuda.dir/frontend/CudaDr_occupancy.cpp.o[0m
+[ 68%] [32mBuilding CXX object plugins/cusolver/CMakeFiles/cusolver.dir/frontend/Cusolver.cpp.o[0m
+[ 69%] [32mBuilding CXX object plugins/cudart/CMakeFiles/cudart.dir/frontend/CudaRt_execution.cpp.o[0m
+[ 69%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/cuda.dir/frontend/CudaDr_stream.cpp.o[0m
+[ 69%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/cuda.dir/frontend/CudaDr_tensormap.cpp.o[0m
+[ 69%] [32mBuilding CXX object plugins/cusparse/CMakeFiles/cusparse.dir/frontend/CusparseFrontend.cpp.o[0m
+[ 69%] [32mBuilding CXX object plugins/cusparse/CMakeFiles/cusparse.dir/frontend/Cusparse.cpp.o[0m
+[ 69%] [32mBuilding CXX object plugins/cudart/CMakeFiles/cudart.dir/frontend/CudaRt_event.cpp.o[0m
+[ 69%] [32mBuilding CXX object plugins/cublas/CMakeFiles/cublas.dir/frontend/Cublas_level2.cpp.o[0m
+[ 71%] [32mBuilding CXX object plugins/cudart/CMakeFiles/cudart.dir/frontend/CudaRt_internal.cpp.o[0m
+[ 70%] [32mBuilding CXX object plugins/nvrtc/CMakeFiles/nvrtc.dir/frontend/Nvrtc_error.cpp.o[0m
+[ 70%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/cuda.dir/frontend/CudaDr_unified.cpp.o[0m
+[ 70%] [32mBuilding CXX object plugins/nvrtc/CMakeFiles/nvrtc.dir/frontend/Nvrtc_giq.cpp.o[0m
+[ 71%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/cuda.dir/frontend/CudaDr_streammemory.cpp.o[0m
+[ 71%] [32mBuilding CXX object plugins/nvrtc/CMakeFiles/nvrtc.dir/frontend/Nvrtc_host.cpp.o[0m
+[ 71%] [32mBuilding CXX object plugins/cudart/CMakeFiles/cudart.dir/frontend/CudaRt_memory.cpp.o[0m
+[ 72%] [32mBuilding CXX object plugins/cublas/CMakeFiles/cublas.dir/frontend/Cublas_level1.cpp.o[0m
+[ 73%] [32mBuilding CXX object plugins/cublas/CMakeFiles/cublas.dir/frontend/CublasFrontend.cpp.o[0m
+[ 73%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/cuda.dir/frontend/CudaDr_version.cpp.o[0m
+[ 74%] [32mBuilding CXX object plugins/cudart/CMakeFiles/cudart.dir/frontend/CudaRt_occupancy.cpp.o[0m
+[ 76%] [32mBuilding CXX object plugins/curand/CMakeFiles/curand.dir/frontend/CurandFrontend.cpp.o[0m
+[ 76%] [32mBuilding CXX object plugins/cudart/CMakeFiles/cudart.dir/frontend/CudaRt_profiler.cpp.o[0m
+[ 76%] [32mBuilding CXX object plugins/cudart/CMakeFiles/cudart.dir/frontend/CudaRt_opengl.cpp.o[0m
+[ 77%] [32mBuilding CXX object plugins/nvml/CMakeFiles/nvml_frontend.dir/frontend/Nvml_internal.cpp.o[0m
+[ 78%] [32mBuilding CXX object plugins/nvrtc/CMakeFiles/nvrtc.dir/frontend/Nvrtc_pch.cpp.o[0m
+[ 78%] [32mBuilding CXX object plugins/cusparse/CMakeFiles/cusparse.dir/frontend/Cusparse_helper.cpp.o[0m
+[ 78%] [32mBuilding CXX object plugins/cublas/CMakeFiles/cublas.dir/frontend/Cublas_level3.cpp.o[0m
+[ 78%] [32mBuilding CXX object plugins/cudart/CMakeFiles/cudart.dir/frontend/CudaRt_stream_memory.cpp.o[0m
+[ 79%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/cuda.dir/frontend/CudaDr_texture.cpp.o[0m
+[ 79%] [32mBuilding CXX object plugins/cudart/CMakeFiles/cudart.dir/frontend/CudaRt_stream.cpp.o[0m
+[ 79%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/cuda.dir/frontend/CudaDr_virtmemory.cpp.o[0m
+[ 79%] [32mBuilding CXX object plugins/cudadr/CMakeFiles/cuda.dir/frontend/CudaDrFrontend.cpp.o[0m
+[ 79%] [32mBuilding CXX object plugins/cudart/CMakeFiles/cudart.dir/frontend/CudaRt_texture.cpp.o[0m
+[ 80%] [32mBuilding CXX object plugins/cudart/CMakeFiles/cudart.dir/frontend/CudaRt_thread.cpp.o[0m
+[ 81%] [32mBuilding CXX object plugins/cudart/CMakeFiles/cudart.dir/frontend/CudaRt_surface.cpp.o[0m
+[ 81%] [32mBuilding CXX object plugins/cudart/CMakeFiles/cudart.dir/frontend/CudaRt_version.cpp.o[0m
+[ 82%] [32mBuilding CXX object plugins/cudart/CMakeFiles/cudart.dir/util/CudaUtil.cpp.o[0m
+[ 83%] [32m[1mLinking CXX shared library libnvrtc.so[0m
+[ 84%] [32m[1mLinking CXX shared library libnvidia-ml.so[0m
+[ 84%] Built target nvrtc
+[ 84%] Built target nvml_frontend
+[ 84%] [32m[1mLinking CXX shared library libcufft.so[0m
+[ 84%] [32m[1mLinking CXX shared library libcurand.so[0m
+[ 84%] Built target cufft
+[ 84%] Built target curand
+[ 85%] [32m[1mLinking CXX shared library libcublasLt.so[0m
+[ 85%] [32m[1mLinking CXX shared library libcusolver.so[0m
+[ 86%] [32m[1mLinking CXX shared library libcuda.so[0m
+[ 86%] Built target cublasLt
+[ 86%] Built target cusolver
+[ 87%] [32m[1mLinking CXX shared library libcusparse.so[0m
+[ 87%] [32m[1mLinking CXX shared library libcublas.so[0m
+[ 87%] Built target cuda
+[ 87%] Built target cusparse
+[ 87%] Built target cublas
+[ 87%] [32m[1mLinking CXX shared library libcudart.so[0m
+[ 88%] [32m[1mLinking CXX shared library libcudnn.so[0m
+[ 88%] Built target cudart
+[ 88%] Built target cudnn
+[ 89%] [32mBuilding CUDA object tests/CMakeFiles/test_nvrtc.dir/test_nvrtc.cu.o[0m
+[ 89%] [32mBuilding CUDA object tests/CMakeFiles/test_cudnn.dir/test_cudnn.cu.o[0m
+[ 90%] [32mBuilding CUDA object tests/CMakeFiles/test_cudart.dir/test_cudart.cu.o[0m
+[ 91%] [32mBuilding CUDA object tests/CMakeFiles/test_curand.dir/test_curand.cu.o[0m
+[ 91%] [32mBuilding CUDA object tests/CMakeFiles/test_cublas.dir/test_cublas.cu.o[0m
+[ 92%] [32mBuilding CUDA object tests/CMakeFiles/test_cudadr.dir/test_cudadr.cu.o[0m
+[ 92%] [32mBuilding CUDA object tests/CMakeFiles/test_cusparse.dir/test_cusparse.cu.o[0m
+[ 92%] [32mBuilding CUDA object tests/CMakeFiles/test_cufft.dir/test_cufft.cu.o[0m
+[ 92%] [32mBuilding CUDA object tests/CMakeFiles/test_cusolver.dir/test_cusolver.cu.o[0m
+[ 92%] [32m[1mLinking CUDA device code CMakeFiles/test_nvrtc.dir/cmake_device_link.o[0m
+[ 93%] [32m[1mLinking CXX executable test_nvrtc[0m
+[ 93%] [32m[1mLinking CUDA device code CMakeFiles/test_cudadr.dir/cmake_device_link.o[0m
+[ 93%] Built target test_nvrtc
+[ 93%] [32m[1mLinking CXX executable test_cudadr[0m
+[ 93%] Built target test_cudadr
+[ 93%] [32m[1mLinking CUDA device code CMakeFiles/test_curand.dir/cmake_device_link.o[0m
+[ 93%] [32m[1mLinking CUDA device code CMakeFiles/test_cudart.dir/cmake_device_link.o[0m
+[ 94%] [32m[1mLinking CXX executable test_curand[0m
+[ 95%] [32m[1mLinking CUDA device code CMakeFiles/test_cusparse.dir/cmake_device_link.o[0m
+[ 96%] [32m[1mLinking CXX executable test_cudart[0m
+[ 96%] [32m[1mLinking CXX executable test_cusparse[0m
+[ 96%] Built target test_curand
+[ 96%] Built target test_cudart
+[ 97%] [32m[1mLinking CUDA device code CMakeFiles/test_cufft.dir/cmake_device_link.o[0m
+[ 97%] Built target test_cusparse
+[ 97%] [32m[1mLinking CXX executable test_cufft[0m
+[ 97%] Built target test_cufft
+[ 97%] [32m[1mLinking CUDA device code CMakeFiles/test_cusolver.dir/cmake_device_link.o[0m
+[ 98%] [32m[1mLinking CXX executable test_cusolver[0m
+[ 98%] Built target test_cusolver
+[ 99%] [32m[1mLinking CUDA device code CMakeFiles/test_cublas.dir/cmake_device_link.o[0m
+[ 99%] [32m[1mLinking CXX executable test_cublas[0m
+[100%] [32m[1mLinking CUDA device code CMakeFiles/test_cudnn.dir/cmake_device_link.o[0m
+[100%] Built target test_cublas
+[100%] [32m[1mLinking CXX executable test_cudnn[0m
+[100%] Built target test_cudnn
+-- Using GVIRTUS_HOME=/usr/local/gvirtus
+-- log4cplus found in /usr/include
+-- Installing /gvirtus/include/gvirtus to /usr/local/gvirtus/include
+-- Resolved version for cudart: 12
+-- COMPILING...
+-- LD_LIBRARY_PATH
+-- EXTRA_NVCC_FLAGS
+-- cudaDr include directory found at: /usr/local/cuda/include
+-- cudaDr library found at /usr/lib/x86_64-linux-gnu/libcuda.so, adding plugins/cudadr
+-- /usr/lib/x86_64-linux-gnu/libcuda.so
+-- Resolved CUDADR version: libcuda.so.1
+-- cuDNN include directory found at: /usr/include
+-- cuDNN library found at /usr/lib/x86_64-linux-gnu/libcudnn.so, adding plugins/cudnn
+-- Resolved version for cuDNN: 9.5.1
+-- CUDA library nvml found at /usr/local/cuda/lib64/stubs/libnvidia-ml.so
+-- Resolved version for nvml: 1
+-- CUDA library cublas found at /usr/local/cuda/lib64/libcublas.so, adding plugins/cublas
+-- Resolved version for cublas: 12
+-- CUDA library cufft found at /usr/local/cuda/lib64/libcufft.so, adding plugins/cufft
+-- Resolved version for cufft: 11
+-- CUDA library cusolver found at /usr/local/cuda/lib64/libcusolver.so, adding plugins/cusolver
+-- Resolved version for cusolver: 11
+-- CUDA library cusparse found at /usr/local/cuda/lib64/libcusparse.so, adding plugins/cusparse
+-- Resolved version for cusparse: 12
+-- CUDA library curand found at /usr/local/cuda/lib64/libcurand.so, adding plugins/curand
+-- Resolved version for curand: 10
+-- CUDA library nvrtc found at /usr/local/cuda/lib64/libnvrtc.so, adding plugins/nvrtc
+-- Resolved version for nvrtc: 12
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /gvirtus/build
+[35m[1mConsolidate compiler generated dependencies of target gvirtus-common[0m
+[  5%] Built target gvirtus-common
+[35m[1mConsolidate compiler generated dependencies of target gvirtus-communicators[0m
+[ 10%] Built target gvirtus-communicators
+[35m[1mConsolidate compiler generated dependencies of target gvirtus-communicators-tcp[0m
+[ 11%] Built target gvirtus-communicators-tcp
+[35m[1mConsolidate compiler generated dependencies of target gvirtus-communicators-ib[0m
+[ 12%] Built target gvirtus-communicators-ib
+[35m[1mConsolidate compiler generated dependencies of target gvirtus-communicators-hybrid[0m
+[ 13%] Built target gvirtus-communicators-hybrid
+[35m[1mConsolidate compiler generated dependencies of target gvirtus-communicators-ucx[0m
+[ 14%] Built target gvirtus-communicators-ucx
+[35m[1mConsolidate compiler generated dependencies of target gvirtus-frontend[0m
+[ 15%] Built target gvirtus-frontend
+[35m[1mConsolidate compiler generated dependencies of target gvirtus-backend[0m
+[ 17%] Built target gvirtus-backend
+[35m[1mConsolidate compiler generated dependencies of target gvirtus-plugin-cudart[0m
+[ 26%] Built target gvirtus-plugin-cudart
+[35m[1mConsolidate compiler generated dependencies of target cudart[0m
+[ 35%] Built target cudart
+[ 35%] [32m[1mLinking CXX executable add_grid.e[0m
+[ 35%] Built target add_grid.e
+[ 36%] [32m[1mLinking CXX executable dummy0.e[0m
+[ 36%] Built target dummy0.e
+[ 36%] [32m[1mLinking CXX executable launchKernel.e[0m
+[ 36%] Built target launchKernel.e
+[ 36%] [32m[1mLinking CXX executable matrixMul.e[0m
+[ 37%] Built target matrixMul.e
+[35m[1mConsolidate compiler generated dependencies of target gvirtus-plugin-cuda[0m
+[ 45%] Built target gvirtus-plugin-cuda
+[35m[1mConsolidate compiler generated dependencies of target cuda[0m
+[ 53%] Built target cuda
+[35m[1mConsolidate compiler generated dependencies of target gvirtus-plugin-cudnn[0m
+[ 54%] Built target gvirtus-plugin-cudnn
+[35m[1mConsolidate compiler generated dependencies of target cudnn[0m
+[ 56%] Built target cudnn
+[35m[1mConsolidate compiler generated dependencies of target gvirtus-plugin-nvml[0m
+[ 60%] Built target gvirtus-plugin-nvml
+[35m[1mConsolidate compiler generated dependencies of target nvml_frontend[0m
+[ 64%] Built target nvml_frontend
+[35m[1mConsolidate compiler generated dependencies of target gvirtus-plugin-cublas[0m
+[ 67%] Built target gvirtus-plugin-cublas
+[35m[1mConsolidate compiler generated dependencies of target cublas[0m
+[ 70%] Built target cublas
+[35m[1mConsolidate compiler generated dependencies of target cublasLt[0m
+[ 72%] Built target cublasLt
+[35m[1mConsolidate compiler generated dependencies of target gvirtus-plugin-cufft[0m
+[ 73%] Built target gvirtus-plugin-cufft
+[35m[1mConsolidate compiler generated dependencies of target cufft[0m
+[ 74%] Built target cufft
+[35m[1mConsolidate compiler generated dependencies of target gvirtus-plugin-cusolver[0m
+[ 75%] Built target gvirtus-plugin-cusolver
+[35m[1mConsolidate compiler generated dependencies of target cusolver[0m
+[ 77%] Built target cusolver
+[35m[1mConsolidate compiler generated dependencies of target gvirtus-plugin-cusparse[0m
+[ 78%] Built target gvirtus-plugin-cusparse
+[35m[1mConsolidate compiler generated dependencies of target cusparse[0m
+[ 80%] Built target cusparse
+[35m[1mConsolidate compiler generated dependencies of target gvirtus-plugin-curand[0m
+[ 81%] Built target gvirtus-plugin-curand
+[35m[1mConsolidate compiler generated dependencies of target curand[0m
+[ 82%] Built target curand
+[35m[1mConsolidate compiler generated dependencies of target gvirtus-plugin-nvrtc[0m
+[ 85%] Built target gvirtus-plugin-nvrtc
+[35m[1mConsolidate compiler generated dependencies of target nvrtc[0m
+[ 88%] Built target nvrtc
+[35m[1mConsolidate compiler generated dependencies of target test_cudart[0m
+[ 90%] Built target test_cudart
+[35m[1mConsolidate compiler generated dependencies of target test_nvrtc[0m
+[ 92%] Built target test_nvrtc
+[35m[1mConsolidate compiler generated dependencies of target test_curand[0m
+[ 94%] Built target test_curand
+[35m[1mConsolidate compiler generated dependencies of target test_cublas[0m
+[ 95%] Built target test_cublas
+[35m[1mConsolidate compiler generated dependencies of target test_cufft[0m
+[ 96%] Built target test_cufft
+[35m[1mConsolidate compiler generated dependencies of target test_cudnn[0m
+[ 97%] Built target test_cudnn
+[35m[1mConsolidate compiler generated dependencies of target test_cudadr[0m
+[ 98%] Built target test_cudadr
+[35m[1mConsolidate compiler generated dependencies of target test_cusolver[0m
+[ 99%] Built target test_cusolver
+[35m[1mConsolidate compiler generated dependencies of target test_cusparse[0m
+[100%] Built target test_cusparse
+[36mInstall the project...[0m
+-- Install configuration: ""
+-- Installing: /usr/local/gvirtus/include/gvirtus
+-- Installing: /usr/local/gvirtus/include/gvirtus/common
+-- Installing: /usr/local/gvirtus/include/gvirtus/common/JSON.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/common/Observable.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/common/SignalState.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/common/Util.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/common/LD_Lib.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/common/SignalException.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/common/Observer.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/common/gvirtus-type.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/common/MessageDispatcher.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/common/Decoder.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/common/Encoder.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/common/Mutex.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/frontend
+-- Installing: /usr/local/gvirtus/include/gvirtus/frontend/Frontend.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/backend
+-- Installing: /usr/local/gvirtus/include/gvirtus/backend/Handler.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/backend/Backend.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/backend/Process.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/backend/Property.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/communicators
+-- Installing: /usr/local/gvirtus/include/gvirtus/communicators/ZmqCommunicator.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/communicators/VirtioCommunicator.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/communicators/AfUnixCommunicator.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/communicators/Buffer.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/communicators/Communicator.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/communicators/Endpoint.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/communicators/VMSocketCommunicator.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/communicators/VMShmCommunicator.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/communicators/CommunicatorFactory.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/communicators/Endpoint_Tcp.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/communicators/VmciCommunicator.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/communicators/ShmCommunicator.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/communicators/Result.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/communicators/Endpoint_Hybrid.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/communicators/Endpoint_Ucx.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/communicators/Endpoint_Rdma.h
+-- Installing: /usr/local/gvirtus/include/gvirtus/communicators/EndpointFactory.h
+-- Installing: /usr/local/gvirtus/lib/libgvirtus-common.so
+-- Installing: /usr/local/gvirtus/include/nlohmann
+-- Installing: /usr/local/gvirtus/include/nlohmann/json.hpp
+-- Installing: /usr/local/gvirtus/etc
+-- Installing: /usr/local/gvirtus/etc/properties.json
+-- Installing: /usr/local/gvirtus/etc/properties_hybrid.json
+-- Installing: /usr/local/gvirtus/etc/properties_ucx.json
+-- Installing: /usr/local/gvirtus/lib/libgvirtus-communicators.so
+-- Installing: /usr/local/gvirtus/lib/libgvirtus-communicators-tcp.so
+-- Installing: /usr/local/gvirtus/lib/libgvirtus-communicators-ib.so
+-- Installing: /usr/local/gvirtus/lib/libgvirtus-communicators-hybrid.so
+-- Installing: /usr/local/gvirtus/lib/libgvirtus-communicators-ucx.so
+-- Installing: /usr/local/gvirtus/lib/libgvirtus-frontend.so
+-- Installing: /usr/local/gvirtus/bin/gvirtus-backend
+-- Installing: /usr/local/gvirtus/lib/libgvirtus-plugin-cudart.so
+-- Installing: /usr/local/gvirtus/lib/frontend/libcudart.so.12
+-- Installing: /usr/local/gvirtus/lib/frontend/libcudart.so
+-- Installing: /usr/local/gvirtus/demo/cudart/add_grid.e
+-- Installing: /usr/local/gvirtus/demo/cudart/dummy0.e
+-- Installing: /usr/local/gvirtus/demo/cudart/launchKernel.e
+-- Installing: /usr/local/gvirtus/demo/cudart/matrixMul.e
+-- Installing: /usr/local/gvirtus/lib/libgvirtus-plugin-cuda.so
+-- Installing: /usr/local/gvirtus/lib/frontend/libcuda.so.1
+-- Installing: /usr/local/gvirtus/lib/frontend/libcuda.so
+-- Installing: /usr/local/gvirtus/lib/libgvirtus-plugin-cudnn.so
+-- Installing: /usr/local/gvirtus/lib/frontend/libcudnn.so.9.5.1
+-- Installing: /usr/local/gvirtus/lib/frontend/libcudnn.so.9
+-- Installing: /usr/local/gvirtus/lib/frontend/libcudnn.so
+-- Installing: /usr/local/gvirtus/lib/libgvirtus-plugin-nvml.so
+-- Installing: /usr/local/gvirtus/lib/frontend/libnvidia-ml.so.1
+-- Installing: /usr/local/gvirtus/lib/frontend/libnvidia-ml.so
+-- Installing: /usr/local/gvirtus/lib/libgvirtus-plugin-cublas.so
+-- Installing: /usr/local/gvirtus/lib/frontend/libcublas.so.12
+-- Installing: /usr/local/gvirtus/lib/frontend/libcublas.so
+-- Installing: /usr/local/gvirtus/lib/frontend/libcublasLt.so.12
+-- Installing: /usr/local/gvirtus/lib/frontend/libcublasLt.so
+-- Installing: /usr/local/gvirtus/lib/libgvirtus-plugin-cufft.so
+-- Installing: /usr/local/gvirtus/lib/frontend/libcufft.so.11
+-- Installing: /usr/local/gvirtus/lib/frontend/libcufft.so
+-- Installing: /usr/local/gvirtus/lib/libgvirtus-plugin-cusolver.so
+-- Installing: /usr/local/gvirtus/lib/frontend/libcusolver.so.11
+-- Installing: /usr/local/gvirtus/lib/frontend/libcusolver.so
+-- Installing: /usr/local/gvirtus/lib/libgvirtus-plugin-cusparse.so
+-- Installing: /usr/local/gvirtus/lib/frontend/libcusparse.so.12
+-- Installing: /usr/local/gvirtus/lib/frontend/libcusparse.so
+-- Installing: /usr/local/gvirtus/lib/libgvirtus-plugin-curand.so
+-- Installing: /usr/local/gvirtus/lib/frontend/libcurand.so.10
+-- Installing: /usr/local/gvirtus/lib/frontend/libcurand.so
+-- Installing: /usr/local/gvirtus/lib/libgvirtus-plugin-nvrtc.so
+-- Installing: /usr/local/gvirtus/lib/frontend/libnvrtc.so.12
+-- Installing: /usr/local/gvirtus/lib/frontend/libnvrtc.so
+2026-05-14 12:11:37.199 [INFO ] [GVirtuS] (/gvirtus/src/backend/main.cpp:93) - GVirtuS backend: 0.0.12 version
+2026-05-14 12:11:37.199 [INFO ] [GVirtuS] (/gvirtus/src/backend/main.cpp:101) - Configuration: /usr/local/gvirtus/etc/properties_ucx.json
+2026-05-14 12:11:37.199 [DEBUG] [Backend] (/gvirtus/src/backend/Backend.cpp:52) -  Json file has been loaded.
+2026-05-14 12:11:37.199 [DEBUG] [Backend] (/gvirtus/src/backend/Backend.cpp:90) - Setting up endpoint 0/1
+2026-05-14 12:11:37.199 [INFO ] [GVirtuS.EndpointFactory] (/gvirtus/include/gvirtus/communicators/EndpointFactory.h:39) - Parsing endpoint config from: /usr/local/gvirtus/etc/properties_ucx.json
+2026-05-14 12:11:37.199 [DEBUG] [GVirtuS.EndpointFactory] (/gvirtus/include/gvirtus/communicators/EndpointFactory.h:40) - Full JSON dump:
+{
+    "communicator": [
+        {
+            "endpoint": {
+                "port": "22222",
+                "protocol": "ucx",
+                "server_address": "25.25.25.1",
+                "suite": "ucx"
+            },
+            "plugins": [
+                "cuda",
+                "cudart",
+                "cublas",
+                "curand",
+                "cudnn",
+                "cufft",
+                "cusolver",
+                "cusparse",
+                "nvrtc",
+                "nvml"
+            ]
+        }
+    ],
+    "secure_application": false
+}
+2026-05-14 12:11:37.199 [INFO ] [GVirtuS.EndpointFactory] (/gvirtus/include/gvirtus/communicators/EndpointFactory.h:53) - Parsed endpoint suite: ucx
+DEBUG: protocol string is [ucx]
+[1778760697.264518] [es-dpu-01:2998 :0]     ucp_context.c:2431 UCX  INFO  Version 1.20.0 (loaded from /lib/libucp.so.0)
+[1778760697.517249] [es-dpu-01:2998 :0]          parser.c:2359 UCX  WARN  unused environment variable: UCX_DIAG
+[1778760697.517249] [es-dpu-01:2998 :0]          parser.c:2359 UCX  WARN  (set UCX_WARN_UNUSED_ENV_VARS=n to suppress this warning)
+[1778760697.517264] [es-dpu-01:2998 :0]          parser.c:2368 UCX  INFO  UCX_* env variables: UCX_NET_DEVICES=mlx5_1:1 UCX_TLS=rc_mlx5,ud_mlx5,self UCX_SOCKADDR_TLS_PRIORITY=rdmacm UCX_LOG_LEVEL=info
+2026-05-14 12:11:37.517 [DEBUG] [Backend] (/gvirtus/src/backend/Backend.cpp:95) - Endpoint 0 ready
+2026-05-14 12:11:37.517 [INFO ] [Backend] (/gvirtus/src/backend/Backend.cpp:102) - Backend Initialization is complete!
+2026-05-14 12:11:37.517 [INFO ] [GVirtuS] (/gvirtus/src/backend/main.cpp:107) - [Process 2998] Up and running!
+2026-05-14 12:11:37.517 [DEBUG] [Backend] (/gvirtus/src/backend/Backend.cpp:112) - [Process 2998] Backend::Start() called.
+2026-05-14 12:11:37.517 [DEBUG] [Backend] (/gvirtus/src/backend/Backend.cpp:137) - [Process 2998] Waiting for childs to terminate. Current active childs: 1
+2026-05-14 12:11:37.517 [DEBUG] [Process] (/gvirtus/src/backend/Process.cpp:161) - [Process 3006] Process::Start() called.
+2026-05-14 12:11:37.518 [DEBUG] [Process] (/gvirtus/src/backend/Process.cpp:167) - [Process 3006] appending libgvirtus-plugin-cuda.so.
+2026-05-14 12:11:37.518 [DEBUG] [Process] (/gvirtus/src/backend/Process.cpp:167) - [Process 3006] appending libgvirtus-plugin-cudart.so.
+2026-05-14 12:11:37.519 [DEBUG] [Process] (/gvirtus/src/backend/Process.cpp:167) - [Process 3006] appending libgvirtus-plugin-cublas.so.
+2026-05-14 12:11:37.559 [DEBUG] [Process] (/gvirtus/src/backend/Process.cpp:167) - [Process 3006] appending libgvirtus-plugin-curand.so.
+2026-05-14 12:11:37.559 [DEBUG] [Process] (/gvirtus/src/backend/Process.cpp:167) - [Process 3006] appending libgvirtus-plugin-cudnn.so.
+2026-05-14 12:11:37.560 [DEBUG] [Process] (/gvirtus/src/backend/Process.cpp:167) - [Process 3006] appending libgvirtus-plugin-cufft.so.
+2026-05-14 12:11:37.563 [DEBUG] [Process] (/gvirtus/src/backend/Process.cpp:167) - [Process 3006] appending libgvirtus-plugin-cusolver.so.
+2026-05-14 12:11:37.566 [DEBUG] [Process] (/gvirtus/src/backend/Process.cpp:167) - [Process 3006] appending libgvirtus-plugin-cusparse.so.
+2026-05-14 12:11:37.566 [DEBUG] [Process] (/gvirtus/src/backend/Process.cpp:167) - [Process 3006] appending libgvirtus-plugin-nvrtc.so.
+2026-05-14 12:11:37.569 [DEBUG] [Process] (/gvirtus/src/backend/Process.cpp:167) - [Process 3006] appending libgvirtus-plugin-nvml.so.
+[1778760697.569588] [es-dpu-01:3006 :0] rdmacm_listener.c:53   UCX  ERROR rdma_create_id() failed: Permission denied
+[1778760697.569634] [es-dpu-01:3006 :0]    ucp_listener.c:236  UCX  ERROR failed to create UCT listener on CM 0x555ec39c61d0 (component rdmacm) with address 25.25.25.1:22222 status Input/output error
+2026-05-14 12:11:37.569 [ERROR] [Process] (/gvirtus/src/backend/Process.cpp:298) - [Process 3006]: UcxCommunicator: ucp_listener_create failed: Input/output error
+2026-05-14 12:11:37.569 [DEBUG] [Process] (/gvirtus/src/backend/Process.cpp:301) - Process::Start() returned [Process 3006].
+2026-05-14 12:11:37.569 [DEBUG] [Backend] (/gvirtus/src/backend/Backend.cpp:162) - [Process 3006] Backend::Start() returned.
+2026-05-14 12:11:37.646 [INFO ] [Backend] (/gvirtus/src/backend/Backend.cpp:154) - No child processes are currently running. Use CTRL + C to terminate the backend.
+^C2026-05-14 12:12:02.278 [DEBUG] [Backend] (/gvirtus/src/backend/Backend.cpp:162) - [Process 2998] Backend::Start() returned.
+[1778760722.278695] [es-dpu-01:2998 :0]       event_set.c:176  UCX  ERROR epoll_ctl(event_fd=19, DEL, fd=26) failed: No such file or directory
+[1778760722.278710] [es-dpu-01:2998 :0]           async.c:585  UCX  WARN  failed to remove async handler 0x555ec39c6790 [id=26 ref 1] ???() : Input/output error
+[1778760722.278742] [es-dpu-01:2998 :0]       event_set.c:176  UCX  ERROR epoll_ctl(event_fd=19, DEL, fd=24) failed: No such file or directory
+[1778760722.278753] [es-dpu-01:2998 :0]           async.c:585  UCX  WARN  failed to remove async handler 0x555ec39c6ea0 [id=24 ref 1] ???() : Input/output error
+[1778760722.278770] [es-dpu-01:2998 :0]       event_set.c:176  UCX  ERROR epoll_ctl(event_fd=19, DEL, fd=23) failed: No such file or directory
+[1778760722.278779] [es-dpu-01:2998 :0]           async.c:585  UCX  WARN  failed to remove async handler 0x555ec39b6fc0 [id=23 ref 1] ???() : Input/output error
+[1778760722.278857] [es-dpu-01:2998 :0]         ib_mlx5.h:1015 UCX  WARN  mlx5dv_devx_obj_destroy(SRQ) failed: No such file or directory
+2026-05-14 12:12:02.281 [INFO ] [GVirtuS] (/gvirtus/src/backend/main.cpp:113) - [Process 2998] Shutdown
+[1778760722.281889] [es-dpu-01:2998 :0]          thread.c:433  UCX  DIAG  async thread still running (use count 3)
+[1778760722.281896] [es-dpu-01:2998 :0]          thread.c:433  UCX  DIAG  async thread still running (use count 3)
