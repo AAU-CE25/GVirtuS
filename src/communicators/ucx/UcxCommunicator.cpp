@@ -66,7 +66,10 @@ UcxCommunicator::UcxShared::~UcxShared() {
 UcxCommunicator::UcxCommunicator(const std::string &hostname, std::uint16_t port)
     : hostname_(hostname), port_(port) {
     is_listener_ = true;
-    init_shared();
+    // Do NOT call init_shared() here. The Backend::Start() fork()s after
+    // constructing this object; UCX kernel resources (RDMA CM fds, memory
+    // registrations) do not survive fork(). Initialization is deferred to
+    // Serve() which runs in the forked child.
 }
 
 UcxCommunicator::UcxCommunicator(std::shared_ptr<UcxShared> shared, std::string hostname,
@@ -276,6 +279,10 @@ void UcxCommunicator::Serve() {
     if (listener_ != nullptr) {
         return;
     }
+    // Initialize UCX here (post-fork) rather than in the constructor,
+    // because Backend::Start() fork()s after constructing this object.
+    init_shared();
+
     socklen_t addrlen = 0;
     sockaddr_storage addr = make_sockaddr(hostname_, port_, addrlen);
 
