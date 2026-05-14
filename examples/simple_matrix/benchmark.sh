@@ -34,7 +34,15 @@ run_sizes() {
         local line
         local output
         local status=0
-        output=$(MATRIX_SIZE="${n}" ITERATIONS="${ITERATIONS}" WARMUP="${WARMUP}" ./simple_matrix 2>&1) || status=$?
+        local output_file
+        output_file=$(mktemp)
+        set +e
+        MATRIX_SIZE="${n}" ITERATIONS="${ITERATIONS}" WARMUP="${WARMUP}" \
+            ./simple_matrix 2>&1 | tee /dev/stderr > "${output_file}"
+        status=${PIPESTATUS[0]}
+        set -e
+        output=$(cat "${output_file}")
+        rm -f "${output_file}"
         line=$(printf '%s\n' "${output}" | awk -F, '/^CSV,/{print $0}')
         if [[ -z "${line}" ]]; then
             echo "ERROR: No CSV line produced for size ${n} (exit=${status})" >&2
