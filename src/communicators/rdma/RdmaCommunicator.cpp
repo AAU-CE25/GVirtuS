@@ -11,6 +11,7 @@
 
 #include <iostream>
 #include <sstream>
+#include <stdexcept>
 
 using gvirtus::communicators::RdmaCommunicator;
 
@@ -157,9 +158,13 @@ size_t RdmaCommunicator::Read(char *buffer, size_t size) {
     int num_comp;
     do num_comp = ibv_poll_cq(rdmaCmId->recv_cq, 1, &workCompletion);
     while (num_comp == 0);
-    if (num_comp < 0) throw "ibv_poll_cq() failed";
-    if (workCompletion.status != IBV_WC_SUCCESS)
-        throw "Failed status " + std::string(ibv_wc_status_str(workCompletion.status));
+    if (num_comp < 0) {
+        throw std::runtime_error("ibv_poll_cq() failed");
+    }
+    if (workCompletion.status != IBV_WC_SUCCESS) {
+        throw std::runtime_error(
+            "Failed status " + std::string(ibv_wc_status_str(workCompletion.status)));
+    }
 
     if (size < 1024 * 5) {
         memcpy(buffer, preregisteredBuffer, size);
@@ -189,9 +194,13 @@ size_t RdmaCommunicator::Write(const char *buffer, size_t size) {
     int num_comp;
     do num_comp = ibv_poll_cq(rdmaCmId->send_cq, 1, &workCompletion);
     while (num_comp == 0);
-    if (num_comp < 0) throw "ibv_poll_cq() failed";
-    if (workCompletion.status != IBV_WC_SUCCESS)
-        throw "Failed status " + std::string(ibv_wc_status_str(workCompletion.status));
+    if (num_comp < 0) {
+        throw std::runtime_error("ibv_poll_cq() failed");
+    }
+    if (workCompletion.status != IBV_WC_SUCCESS) {
+        throw std::runtime_error(
+            "Failed status " + std::string(ibv_wc_status_str(workCompletion.status)));
+    }
 
     if (size > 1024 * 5) {
         free(actualBuffer);

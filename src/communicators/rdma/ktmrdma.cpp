@@ -4,6 +4,8 @@
 
 #include "ktmrdma.h"
 
+#include <stdexcept>
+
 void ktm_rdma_getaddrinfo(char *node, char *service, struct rdma_addrinfo *hints,
                           struct rdma_addrinfo **res) {
 #ifdef DEBUG
@@ -12,10 +14,11 @@ void ktm_rdma_getaddrinfo(char *node, char *service, struct rdma_addrinfo *hints
 
     int addrinfoResult = rdma_getaddrinfo(node, service, hints, res);
     if (addrinfoResult == -1) {
-        throw "rdma_getaddrinfo(): error: " + std::string(strerror(errno));
+        throw std::runtime_error("rdma_getaddrinfo(): error: " +
+                                 std::string(strerror(errno)));
     } else if (addrinfoResult != 0) {
-        throw "rdma_getaddrinfo(): error (non-zero return value): " +
-            std::string(gai_strerror(addrinfoResult));
+        throw std::runtime_error("rdma_getaddrinfo(): error (non-zero return value): " +
+                                 std::string(gai_strerror(addrinfoResult)));
     }
 }
 
@@ -24,7 +27,7 @@ void Testlib() { std::cout << "ciao" << std::endl; }
 void ktm_rdma_create_ep(struct rdma_cm_id **id, struct rdma_addrinfo *res, struct ibv_pd *pd,
                         struct ibv_qp_init_attr *qp_init_attr) {
     if (rdma_create_ep(id, res, pd, qp_init_attr) == -1) {
-        throw "rdma_create_ep(): error: " + std::string(strerror(errno));
+        throw std::runtime_error("rdma_create_ep(): error: " + std::string(strerror(errno)));
     }
 }
 
@@ -32,7 +35,7 @@ ibv_mr *ktm_rdma_reg_msgs(struct rdma_cm_id *id, void *addr, size_t length) {
     auto registered = rdma_reg_msgs(id, addr, length);
 
     if (not registered) {
-        throw "rdma_reg_msgs(): error: " + std::string(strerror(errno));
+        throw std::runtime_error("rdma_reg_msgs(): error: " + std::string(strerror(errno)));
     }
 
     return registered;
@@ -42,7 +45,7 @@ ibv_mr *ktm_rdma_reg_read(struct rdma_cm_id *id, void *addr, size_t length) {
     auto registered = rdma_reg_read(id, addr, length);
 
     if (not registered) {
-        throw "rdma_reg_read(): error: " + std::string(strerror(errno));
+        throw std::runtime_error("rdma_reg_read(): error: " + std::string(strerror(errno)));
     }
 
     return registered;
@@ -52,7 +55,7 @@ ibv_mr *ktm_rdma_reg_write(struct rdma_cm_id *id, void *addr, size_t length) {
     auto registered = rdma_reg_write(id, addr, length);
 
     if (not registered) {
-        throw "rdma_reg_write(): error: " + std::string(strerror(errno));
+        throw std::runtime_error("rdma_reg_write(): error: " + std::string(strerror(errno)));
     }
 
     return registered;
@@ -60,39 +63,39 @@ ibv_mr *ktm_rdma_reg_write(struct rdma_cm_id *id, void *addr, size_t length) {
 
 void ktm_rdma_connect(struct rdma_cm_id *id, struct rdma_conn_param *conn_param) {
     if (rdma_connect(id, conn_param) == -1) {
-        throw "rdma_connect(): error: " + std::string(strerror(errno));
+        throw std::runtime_error("rdma_connect(): error: " + std::string(strerror(errno)));
     }
 }
 
 void ktm_rdma_listen(struct rdma_cm_id *id, int backlog) {
     if (rdma_listen(id, backlog) == -1) {
-        throw "rdma_listen(): error: " + std::string(strerror(errno));
+        throw std::runtime_error("rdma_listen(): error: " + std::string(strerror(errno)));
     }
 }
 
 void ktm_rdma_get_request(struct rdma_cm_id *listen, struct rdma_cm_id **id) {
     if (rdma_get_request(listen, id) == -1) {
-        throw "rdma_get_request(): error: " + std::string(strerror(errno));
+        throw std::runtime_error("rdma_get_request(): error: " + std::string(strerror(errno)));
     }
 }
 
 void ktm_rdma_accept(struct rdma_cm_id *id, struct rdma_conn_param *conn_param) {
     if (rdma_accept(id, conn_param) == -1) {
-        throw "rdma_accept(): error: " + std::string(strerror(errno));
+        throw std::runtime_error("rdma_accept(): error: " + std::string(strerror(errno)));
     }
 }
 
 void ktm_rdma_post_recv(struct rdma_cm_id *id, void *context, void *addr, size_t length,
                         struct ibv_mr *mr) {
     if (rdma_post_recv(id, context, addr, length, mr) == -1) {
-        throw "rdma_post_recv(): error: " + std::string(strerror(errno));
+        throw std::runtime_error("rdma_post_recv(): error: " + std::string(strerror(errno)));
     }
 }
 
 void ktm_rdma_post_send(struct rdma_cm_id *id, void *context, void *addr, size_t length,
                         struct ibv_mr *mr, int flags) {
     if (rdma_post_send(id, context, addr, length, mr, flags) == -1) {
-        throw "rdma_post_send(): error: " + std::string(strerror(errno));
+        throw std::runtime_error("rdma_post_send(): error: " + std::string(strerror(errno)));
     }
 }
 
@@ -100,12 +103,14 @@ int ktm_rdma_get_send_comp(struct rdma_cm_id *id, struct ibv_wc *wc) {
     int returned = rdma_get_send_comp(id, wc);
 
     if (returned < 0) {
-        throw "rdma_get_send_comp(): error: " + std::string(strerror(errno));
+        throw std::runtime_error("rdma_get_send_comp(): error: " +
+                                 std::string(strerror(errno)));
     }
 
     if (wc->status != IBV_WC_SUCCESS) {
-        throw "rdma_get_send_comp(): error: (completion with error) failed status " +
-            std::string(ibv_wc_status_str(wc->status));
+        throw std::runtime_error(
+            "rdma_get_send_comp(): error: (completion with error) failed status " +
+            std::string(ibv_wc_status_str(wc->status)));
     }
 
     return returned;
@@ -115,12 +120,14 @@ int ktm_rdma_get_recv_comp(struct rdma_cm_id *id, struct ibv_wc *wc) {
     int returned = rdma_get_recv_comp(id, wc);
 
     if (returned < 0) {
-        throw "rdma_get_recv_comp(): error: " + std::string(strerror(errno));
+        throw std::runtime_error("rdma_get_recv_comp(): error: " +
+                                 std::string(strerror(errno)));
     }
 
     if (wc->status != IBV_WC_SUCCESS) {
-        throw "rdma_get_send_comp(): error: (completion with error) failed status " +
-            std::string(ibv_wc_status_str(wc->status));
+        throw std::runtime_error(
+            "rdma_get_send_comp(): error: (completion with error) failed status " +
+            std::string(ibv_wc_status_str(wc->status)));
     }
 
     return returned;
@@ -129,14 +136,14 @@ int ktm_rdma_get_recv_comp(struct rdma_cm_id *id, struct ibv_wc *wc) {
 void ktm_rdma_post_read(struct rdma_cm_id *id, void *context, void *addr, size_t length,
                         struct ibv_mr *mr, int flags, uint64_t remote_addr, uint32_t rkey) {
     if (rdma_post_read(id, context, addr, length, mr, flags, remote_addr, rkey) == -1) {
-        throw "rdma_post_read(): error: " + std::string(strerror(errno));
+        throw std::runtime_error("rdma_post_read(): error: " + std::string(strerror(errno)));
     }
 }
 
 void ktm_rdma_post_write(struct rdma_cm_id *id, void *context, void *addr, size_t length,
                          struct ibv_mr *mr, int flags, uint64_t remote_addr, uint32_t rkey) {
     if (rdma_post_write(id, context, addr, length, mr, flags, remote_addr, rkey) == -1) {
-        throw "rdma_post_write(): error: " + std::string(strerror(errno));
+        throw std::runtime_error("rdma_post_write(): error: " + std::string(strerror(errno)));
     }
 }
 

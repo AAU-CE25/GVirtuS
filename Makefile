@@ -2,7 +2,7 @@
 USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
 DOCKER_HUB_USERNAME ?= aauce25
 
-GVIRTUS_LOG_LEVEL ?= 20000
+GVIRTUS_LOG_LEVEL ?= 10000
 
 DOCKER_REPO_DEV := $(DOCKER_HUB_USERNAME)/gvirtus-dev
 DOCKER_REPO_TEST := $(DOCKER_HUB_USERNAME)/gvirtus-test
@@ -150,3 +150,55 @@ run-simple-matrix-test:
 
 stop-simple-matrix-test:
 	docker stop simple_matrix_test_container-$(USER) || true
+
+local-docker-build-backend:
+	docker buildx build \
+		--platform linux/amd64 \
+		--load \
+		--no-cache \
+		-f docker/dev/Dockerfile \
+		-t $(DOCKER_REPO_DEV):cuda12.6.3-cudnn-ubuntu22.04 \
+		.
+
+ench-gvs-tcp:
+	docker run --rm \
+		--name simple_matrix_bench_ucx_rdma_container-$(USER) \
+		$(SIMPLE_MATRIX_GPU_FLAGS) \
+		--network host \
+		--device /dev/infiniband \
+		--cap-add IPC_LOCK \
+		--ulimit memlock=-1 \
+		-e MODE_LABEL="gvs-tcp" \
+		-e VARIANT_LABEL="bench" \
+		-e GVIRTUS_CONFIG=/opt/GVirtuS/etc/properties.json \
+		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
+		-v ./examples/simple_matrix:/opt/GVirtuS/examples \
+		-v ./etc/properties.json:/opt/GVirtuS/etc/properties.json \
+		$(DOCKER_REPO_DEV)/simple_matrix_gvirtus:cuda12.6 \
+		bash /opt/GVirtuS/examples/benchmark.sh
+
+bench-gvs-rdma:
+	docker run --rm \
+		--name simple_matrix_bench_ucx_rdma_container-$(USER) \
+		$(SIMPLE_MATRIX_GPU_FLAGS) \
+		--network host \
+		--device /dev/infiniband \
+		--cap-add IPC_LOCK \
+		--ulimit memlock=-1 \
+		-e MODE_LABEL="gvs-rdma" \
+		-e VARIANT_LABEL="bench" \
+		-e GVIRTUS_CONFIG=/opt/GVirtuS/etc/properties.json \
+		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
+		-v ./examples/simple_matrix:/opt/GVirtuS/examples \
+		-v ./etc/properties.json:/opt/GVirtuS/etc/properties.json \
+		$(DOCKER_REPO_DEV)/simple_matrix_gvirtus:cuda12.6 \
+		bash /opt/GVirtuS/examples/benchmark.sh
+
+local-docker-build-simple-matrix:
+	docker buildx build \
+		--platform linux/amd64 \
+		--load \
+		--no-cache \
+		-f examples/simple_matrix/Dockerfile \
+		-t $(DOCKER_REPO_DEV)/simple_matrix_gvirtus:cuda12.6 \
+		.
