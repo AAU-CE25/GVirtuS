@@ -258,7 +258,7 @@ struct UcxContext {
         if (st != UCS_OK) throw std::runtime_error("ucp_init failed");
 
         ucp_worker_params_t wp{};
-        wp.field_mask = UCP_PARAM_FIELD_THREAD_MODE;
+        wp.field_mask = UCP_WORKER_PARAM_FIELD_THREAD_MODE;
         wp.thread_mode = UCS_THREAD_MODE_SINGLE;
         st = ucp_worker_create(context, &wp, &worker);
         if (st != UCS_OK) throw std::runtime_error("ucp_worker_create failed");
