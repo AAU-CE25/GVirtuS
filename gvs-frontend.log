@@ -1,0 +1,71 @@
+docker run --rm \
+	--name simple_matrix_bench_ucx_rdma_container-kz08ey \
+	 \
+	--network host \
+	--device /dev/infiniband \
+	--cap-add IPC_LOCK \
+	--ulimit memlock=-1 \
+	-e MODE_LABEL="gvs-rdma" \
+	-e VARIANT_LABEL="bench" \
+	-e GVIRTUS_CONFIG=/opt/GVirtuS/etc/properties.json \
+	-e GVIRTUS_LOGLEVEL=10000 \
+	-v ./examples/simple_matrix:/opt/GVirtuS/examples \
+	-v ./etc/properties.json:/opt/GVirtuS/etc/properties.json \
+	aauce25/gvirtus-dev/simple_matrix_gvirtus:cuda12.6 \
+	bash /opt/GVirtuS/examples/benchmark.sh
+
+==========
+== CUDA ==
+==========
+
+CUDA Version 12.6.3
+
+Container image Copyright (c) 2016-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+This container image and its contents are governed by the NVIDIA Deep Learning Container License.
+By pulling and using the container, you accept the terms and conditions of this license:
+https://developer.nvidia.com/ngc/nvidia-deep-learning-container-license
+
+A copy of this license is made available in this container at /NGC-DL-CONTAINER-LICENSE for your convenience.
+
+WARNING: The NVIDIA Driver was not detected.  GPU functionality will not be available.
+   Use the NVIDIA Container Toolkit to start this container with GPU support; see
+   https://docs.nvidia.com/datacenter/cloud-native/ .
+
+ERROR: No CSV line produced for size 1024 (exit=134)
+--- simple_matrix output ---
+INFO - Using properties file: /opt/GVirtuS/etc/properties.json
+INFO - Parsing endpoint config from: /opt/GVirtuS/etc/properties.json
+DEBUG - Full JSON dump:
+{
+    "communicator": [
+        {
+            "endpoint": {
+                "port": "35222",
+                "protocol": "ib",
+                "server_address": "25.25.25.1",
+                "suite": "infiniband-rdma"
+            },
+            "plugins": [
+                "cuda",
+                "cudart",
+                "cublas",
+                "curand",
+                "cudnn",
+                "cufft",
+                "cusolver",
+                "cusparse",
+                "nvrtc",
+                "nvml"
+            ]
+        }
+    ],
+    "secure_application": false
+}
+INFO - Parsed endpoint suite: infiniband-rdma
+DEBUG: protocol string is [ib]
+Called RdmaCommunicator(25.25.25.1, 35222, isRoce=0)
+Called Connect()
+addrinfo called
+terminate called after throwing an instance of 'std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >'
+make: *** [Makefile:181: bench-gvs-rdma] Error 1
