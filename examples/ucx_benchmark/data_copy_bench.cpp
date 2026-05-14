@@ -197,57 +197,97 @@ namespace ucx_transport {
 static constexpr ucp_tag_t TAG_DATA = 0x100;
 static constexpr ucp_tag_t TAG_MASK = 0xFFFFFFFFFFFFFFFF;
 
+// Timestamp helper for debug logs
+static std::string ts() {
+    auto now = std::chrono::system_clock::now();
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        now.time_since_epoch()).count() % 1000000;
+    char buf[32];
+    snprintf(buf, sizeof(buf), "[%06ld.%03ld] ", ms / 1000, ms % 1000);
+    return std::string(buf);
+}
+
 struct UcxRequest {
     std::atomic<bool> complete{false};
+    ucs_status_t status{UCS_OK};
 };
 
 static void request_init(void *request) {
     auto *req = static_cast<UcxRequest *>(request);
     req->complete.store(false);
+    req->status = UCS_OK;
 }
 
-static void send_cb(void *request, ucs_status_t, void *) {
-    static_cast<UcxRequest *>(request)->complete.store(true);
-}
-
-static void recv_cb(void *request, ucs_status_t, const ucp_tag_recv_info_t *, void *) {
-    static_cast<UcxRequest *>(request)->complete.store(true);
-}
-
-static void wait_request(ucp_worker_h worker, void *request) {
-    if (request == nullptr) return;  // immediate completion
-    if (UCS_PTR_IS_ERR(request))
-        throw std::runtime_error(std::string("UCX op failed: ") +
-                                 ucs_status_string(UCS_PTR_STATUS(request)));
+static void send_cb(void *request, ucs_status_t status, void *) {
     auto *req = static_cast<UcxRequest *>(request);
-    while (!req->complete.load()) ucp_worker_progress(worker);
+    req->status = status;
+    req->complete.store(true);
+}
+
+static void recv_cb(void *request, ucs_status_t status, const ucp_tag_recv_info_t *info, void *) {
+    auto *req = static_cast<UcxRequest *>(request);
+    req->status = status;
+    req->complete.store(true);
+}
+
+static void wait_request(ucp_worker_h worker, void *request, const char *op_name = "op") {
+    if (request == nullptr) {
+        std::cerr << ts() << op_name << ": immediate completion" << std::endl;
+        return;
+    }
+    if (UCS_PTR_IS_ERR(request)) {
+        std::string err = std::string(op_name) + " failed: " +
+                          ucs_status_string(UCS_PTR_STATUS(request));
+        std::cerr << ts() << err << std::endl;
+        throw std::runtime_error(err);
+    }
+    auto *req = static_cast<UcxRequest *>(request);
+    uint64_t spins = 0;
+    while (!req->complete.load()) {
+        ucp_worker_progress(worker);
+        spins++;
+        if (spins % 10000000 == 0) {
+            std::cerr << ts() << op_name << ": still waiting (spins=" << spins << ")" << std::endl;
+        }
+    }
+    if (req->status != UCS_OK) {
+        std::string err = std::string(op_name) + " completed with error: " +
+                          ucs_status_string(req->status);
+        std::cerr << ts() << err << std::endl;
+        ucp_request_free(request);
+        throw std::runtime_error(err);
+    }
+    std::cerr << ts() << op_name << ": done (spins=" << spins << ")" << std::endl;
     ucp_request_free(request);
 }
 
 static void ucx_send(ucp_worker_h worker, ucp_ep_h ep, const void *buf, size_t len) {
+    std::cerr << ts() << "ucx_send: len=" << len << std::endl;
     ucp_request_param_t param{};
     param.op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK | UCP_OP_ATTR_FIELD_DATATYPE;
     param.datatype = ucp_dt_make_contig(1);
     param.cb.send = send_cb;
     void *req = ucp_tag_send_nbx(ep, buf, len, TAG_DATA, &param);
-    wait_request(worker, req);
+    wait_request(worker, req, "send");
 }
 
 static void ucx_flush(ucp_worker_h worker, ucp_ep_h ep) {
+    std::cerr << ts() << "ucx_flush: start" << std::endl;
     ucp_request_param_t param{};
     param.op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK;
     param.cb.send = send_cb;
     void *req = ucp_ep_flush_nbx(ep, &param);
-    wait_request(worker, req);
+    wait_request(worker, req, "flush");
 }
 
 static void ucx_recv(ucp_worker_h worker, void *buf, size_t len) {
+    std::cerr << ts() << "ucx_recv: len=" << len << std::endl;
     ucp_request_param_t param{};
     param.op_attr_mask = UCP_OP_ATTR_FIELD_CALLBACK | UCP_OP_ATTR_FIELD_DATATYPE;
     param.datatype = ucp_dt_make_contig(1);
     param.cb.recv = recv_cb;
     void *req = ucp_tag_recv_nbx(worker, buf, len, TAG_DATA, TAG_MASK, &param);
-    wait_request(worker, req);
+    wait_request(worker, req, "recv");
 }
 
 struct UcxContext {
