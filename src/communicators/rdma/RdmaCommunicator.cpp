@@ -22,7 +22,7 @@ using gvirtus::communicators::RdmaCommunicator;
 
 namespace {
 constexpr size_t kPreRegisteredBufferSize = 1024 * 5;
-constexpr size_t kRdmaChunkSize = 16 * 1024 * 1024;  // 16 MiB
+constexpr size_t kRdmaChunkSize = 128 * 1024 * 1024;
 }  // namespace
 
 RdmaCommunicator::RdmaCommunicator(const std::string &hostname, const std::string &port,
@@ -105,10 +105,10 @@ void RdmaCommunicator::Serve() {
 
     ibv_qp_init_attr qpInitAttr;
     memset(&qpInitAttr, 0, sizeof(qpInitAttr));
-    qpInitAttr.cap.max_send_wr = 10;
-    qpInitAttr.cap.max_recv_wr = 10;
-    qpInitAttr.cap.max_send_sge = 10;
-    qpInitAttr.cap.max_recv_sge = 10;
+    qpInitAttr.cap.max_send_wr = 64;
+    qpInitAttr.cap.max_recv_wr = 64;
+    qpInitAttr.cap.max_send_sge = 1;
+    qpInitAttr.cap.max_recv_sge = 1;
     qpInitAttr.sq_sig_all = 1;
     qpInitAttr.qp_type = IBV_QPT_RC;
 
@@ -257,53 +257,60 @@ size_t RdmaCommunicator::Read(char *buffer, size_t size) {
 
 #ifdef DEBUG
     std::cout << "  -> RDMA recv chunked transfer total=" << size
-              << " chunk_size=" << kRdmaChunkSize << std::endl;
+              << " chunk_size=" << kRdmaChunkSize
+              << " full_mr=1" << std::endl;
 #endif
 
-    // Large payloads are chunked and reconstructed into one logical read.
+    // Large payload optimization:
+    // Register the full destination buffer once, then post chunked receives
+    // using the same MR. This avoids register/deregister per chunk.
+    ibv_mr *fullMr = ktm_rdma_reg_msgs(rdmaCmId, buffer, size);
+
     size_t total = 0;
 
-    while (total < size) {
-        const size_t remaining = size - total;
-        const size_t chunk = std::min(remaining, kRdmaChunkSize);
+    try {
+        while (total < size) {
+            const size_t remaining = size - total;
+            const size_t chunk = std::min(remaining, kRdmaChunkSize);
 
-        void *recvAddr = buffer + total;
-        ibv_mr *chunkMr = ktm_rdma_reg_msgs(rdmaCmId, recvAddr, chunk);
+            void *recvAddr = buffer + total;
 
-        ktm_rdma_post_recv(rdmaCmId, nullptr, recvAddr, chunk, chunkMr);
+            ktm_rdma_post_recv(rdmaCmId, nullptr, recvAddr, chunk, fullMr);
 
-        int num_comp;
-        do {
-            num_comp = ibv_poll_cq(rdmaCmId->recv_cq, 1, &workCompletion);
-        } while (num_comp == 0);
+            int num_comp;
+            do {
+                num_comp = ibv_poll_cq(rdmaCmId->recv_cq, 1, &workCompletion);
+            } while (num_comp == 0);
 
-        if (num_comp < 0) {
-            ibv_dereg_mr(chunkMr);
-            throw std::runtime_error("ibv_poll_cq() failed");
+            if (num_comp < 0) {
+                throw std::runtime_error("ibv_poll_cq() failed");
+            }
+
+            if (workCompletion.status == IBV_WC_WR_FLUSH_ERR) {
+                ibv_dereg_mr(fullMr);
+                return total;
+            }
+
+            if (workCompletion.status != IBV_WC_SUCCESS) {
+                throw std::runtime_error("Failed status: " +
+                                         std::string(ibv_wc_status_str(workCompletion.status)));
+            }
+
+            const size_t actual = static_cast<size_t>(workCompletion.byte_len);
+
+            if (actual == 0) {
+                ibv_dereg_mr(fullMr);
+                return total;
+            }
+
+            total += actual;
         }
-
-        if (workCompletion.status == IBV_WC_WR_FLUSH_ERR) {
-            ibv_dereg_mr(chunkMr);
-            return total;
-        }
-
-        if (workCompletion.status != IBV_WC_SUCCESS) {
-            ibv_dereg_mr(chunkMr);
-            throw std::runtime_error("Failed status: " +
-                                     std::string(ibv_wc_status_str(workCompletion.status)));
-        }
-
-        const size_t actual = static_cast<size_t>(workCompletion.byte_len);
-
-        ibv_dereg_mr(chunkMr);
-
-        if (actual == 0) {
-            return total;
-        }
-
-        total += actual;
+    } catch (...) {
+        ibv_dereg_mr(fullMr);
+        throw;
     }
 
+    ibv_dereg_mr(fullMr);
     return total;
 }
 
@@ -316,38 +323,25 @@ size_t RdmaCommunicator::Write(const char *buffer, size_t size) {
         return 0;
     }
 
+    // Small/control messages stay as before.
+    if (size <= kRdmaChunkSize) {
 #ifdef DEBUG
-    if (size > kRdmaChunkSize) {
-        std::cout << "  -> RDMA send chunked transfer total=" << size
-                  << " chunk_size=" << kRdmaChunkSize << std::endl;
-    }
-#endif
-
-    size_t total = 0;
-
-    while (total < size) {
-        const size_t remaining = size - total;
-        const size_t chunk = std::min(remaining, kRdmaChunkSize);
-
-#ifdef DEBUG
-        if (size <= kRdmaChunkSize) {
-            std::cout << "  -> posting send size=" << chunk << std::endl;
-        }
+        std::cout << "  -> posting send size=" << size << std::endl;
 #endif
 
         ibv_mr *chunkMr = nullptr;
         void *sendAddr = nullptr;
 
-        if (chunk <= kPreRegisteredBufferSize) {
-            memcpy(preregisteredBuffer, buffer + total, chunk);
+        if (size <= kPreRegisteredBufferSize) {
+            memcpy(preregisteredBuffer, buffer, size);
             sendAddr = preregisteredBuffer;
             chunkMr = preregisteredMr;
         } else {
-            sendAddr = const_cast<char *>(buffer + total);
-            chunkMr = ktm_rdma_reg_msgs(rdmaCmId, sendAddr, chunk);
+            sendAddr = const_cast<char *>(buffer);
+            chunkMr = ktm_rdma_reg_msgs(rdmaCmId, sendAddr, size);
         }
 
-        ktm_rdma_post_send(rdmaCmId, nullptr, sendAddr, chunk, chunkMr, IBV_SEND_SIGNALED);
+        ktm_rdma_post_send(rdmaCmId, nullptr, sendAddr, size, chunkMr, IBV_SEND_SIGNALED);
 
         int num_comp;
         do {
@@ -373,9 +367,54 @@ size_t RdmaCommunicator::Write(const char *buffer, size_t size) {
             ibv_dereg_mr(chunkMr);
         }
 
-        total += chunk;
+        return size;
     }
 
+#ifdef DEBUG
+    std::cout << "  -> RDMA send chunked transfer total=" << size
+              << " chunk_size=" << kRdmaChunkSize
+              << " full_mr=1" << std::endl;
+#endif
+
+    // Large payload optimization:
+    // Register the full source buffer once, then post chunked sends
+    // using the same MR. This avoids register/deregister per chunk.
+    void *fullSendAddr = const_cast<char *>(buffer);
+    ibv_mr *fullMr = ktm_rdma_reg_msgs(rdmaCmId, fullSendAddr, size);
+
+    size_t total = 0;
+
+    try {
+        while (total < size) {
+            const size_t remaining = size - total;
+            const size_t chunk = std::min(remaining, kRdmaChunkSize);
+
+            void *sendAddr = const_cast<char *>(buffer + total);
+
+            ktm_rdma_post_send(rdmaCmId, nullptr, sendAddr, chunk, fullMr, IBV_SEND_SIGNALED);
+
+            int num_comp;
+            do {
+                num_comp = ibv_poll_cq(rdmaCmId->send_cq, 1, &workCompletion);
+            } while (num_comp == 0);
+
+            if (num_comp < 0) {
+                throw std::runtime_error("ibv_poll_cq() failed");
+            }
+
+            if (workCompletion.status != IBV_WC_SUCCESS) {
+                throw std::runtime_error("Failed status: " +
+                                         std::string(ibv_wc_status_str(workCompletion.status)));
+            }
+
+            total += chunk;
+        }
+    } catch (...) {
+        ibv_dereg_mr(fullMr);
+        throw;
+    }
+
+    ibv_dereg_mr(fullMr);
     return total;
 }
 
