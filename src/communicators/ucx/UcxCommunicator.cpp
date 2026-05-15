@@ -1,11 +1,15 @@
 #include "UcxCommunicator.h"
 
 #include <arpa/inet.h>
+#include <atomic>
 #include <chrono>
+#include <unordered_map>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <dlfcn.h>
+#include <malloc.h>
 #include <mutex>
 #include <netdb.h>
 #include <sys/socket.h>
@@ -13,6 +17,7 @@
 #include <thread>
 
 #include "gvirtus/communicators/Endpoint_Ucx.h"
+#include "gvirtus/communicators/UcxAmProtocol.h"
 
 using gvirtus::communicators::UcxCommunicator;
 
@@ -41,6 +46,70 @@ void ucx_debug_log(const char *fmt, ...) {
 }
 
 // Pure AM path: tag transport is intentionally removed.
+
+// libcudart resolver — dlopen at runtime so the communicator does not need
+// to link against CUDA. Used only to allocate pinned host memory for the RX
+// pool; if CUDA isn't available we fall back to plain posix_memalign and
+// just lose the auto-DMA-fast-path benefit (cudaMemcpy from non-registered
+// memory) — the zero-init avoidance still applies.
+using cudaHostAlloc_t = int (*)(void **, size_t, unsigned);
+using cudaFreeHost_t  = int (*)(void *);
+
+std::once_flag g_cuda_once;
+std::atomic<cudaHostAlloc_t> g_cuda_host_alloc{nullptr};
+std::atomic<cudaFreeHost_t>  g_cuda_free_host{nullptr};
+
+void load_cuda_pinned_funcs() {
+    const char *candidates[] = {
+        "libcudart.so.12", "libcudart.so.11", "libcudart.so", nullptr,
+    };
+    for (int i = 0; candidates[i]; ++i) {
+        void *h = dlopen(candidates[i], RTLD_NOW | RTLD_LOCAL);
+        if (!h) continue;
+        auto a = reinterpret_cast<cudaHostAlloc_t>(dlsym(h, "cudaHostAlloc"));
+        auto f = reinterpret_cast<cudaFreeHost_t>(dlsym(h, "cudaFreeHost"));
+        if (a && f) {
+            g_cuda_host_alloc.store(a);
+            g_cuda_free_host.store(f);
+            ucx_debug_log("rx_pool: loaded cudaHostAlloc from %s", candidates[i]);
+            return;
+        }
+        dlclose(h);
+    }
+    ucx_debug_log("rx_pool: cudaHostAlloc unavailable, falling back to posix_memalign");
+}
+
+// Allocate `n` bytes of pinned host memory. is_cuda set to true if the buffer
+// was allocated via cudaHostAlloc (so cudaFreeHost is needed for release).
+unsigned char *alloc_pinned_host(size_t n, bool &is_cuda) {
+    std::call_once(g_cuda_once, load_cuda_pinned_funcs);
+    auto fn = g_cuda_host_alloc.load();
+    if (fn != nullptr) {
+        void *p = nullptr;
+        if (fn(&p, n, /*cudaHostAllocDefault*/ 0u) == 0 && p != nullptr) {
+            is_cuda = true;
+            return static_cast<unsigned char *>(p);
+        }
+    }
+    void *p = nullptr;
+    if (posix_memalign(&p, 4096, n) == 0 && p != nullptr) {
+        is_cuda = false;
+        return static_cast<unsigned char *>(p);
+    }
+    return nullptr;
+}
+
+void free_pinned_host(unsigned char *p, bool is_cuda) {
+    if (p == nullptr) return;
+    if (is_cuda) {
+        auto fn = g_cuda_free_host.load();
+        if (fn != nullptr) {
+            fn(p);
+            return;
+        }
+    }
+    std::free(p);
+}
 }
 
 UcxCommunicator::UcxCommunicator(const std::string &hostname, std::uint16_t port)
@@ -76,34 +145,80 @@ ucs_status_t UcxCommunicator::am_recv_handler(void *arg, const void *header,
         return UCS_OK;
     }
 
+    ucx_debug_log("am_recv_handler: self=%p length=%zu rndv=%d",
+                  (void *)self, length,
+                  (param != nullptr && (param->recv_attr & UCP_AM_RECV_ATTR_FLAG_RNDV)) ? 1 : 0);
+
     if (length == 0) {
-        self->enqueue_am_message({});
+        self->enqueue_am_message(PooledMsg{});
         return UCS_OK;
     }
 
+    // Quick peek at the envelope header (small messages only, always eager):
+    //   * RmaSetup → handshake message, unpack rkeys inline
+    //   * RmaPosted → data already RDMA-put into an RX slot, queue a
+    //                 PooledMsg pointing at that slot instead of acquiring
+    //                 a fresh one + memcpy'ing
+    if (length >= sizeof(gvirtus::communicators::ucxam::EnvelopeHeader) &&
+        (param == nullptr || !(param->recv_attr & UCP_AM_RECV_ATTR_FLAG_RNDV))) {
+        gvirtus::communicators::ucxam::EnvelopeHeader peek;
+        std::memcpy(&peek, data, sizeof(peek));
+        if (peek.magic == gvirtus::communicators::ucxam::kEnvelopeMagic) {
+            using gvirtus::communicators::ucxam::MessageType;
+            if (peek.message_type == static_cast<std::uint16_t>(MessageType::RmaSetup)) {
+                self->handle_rma_setup_am(data, length);
+                return UCS_OK;
+            }
+            if (peek.message_type == static_cast<std::uint16_t>(MessageType::RmaPosted)) {
+                const size_t slot_idx = static_cast<size_t>(peek.reserved0);
+                const size_t total = static_cast<size_t>(peek.payload_size);
+                std::lock_guard<std::mutex> lk(self->rx_pool_->mu);
+                if (slot_idx >= self->rx_pool_->slots.size()) {
+                    std::fprintf(stderr,
+                                 "RmaPosted: invalid slot_idx=%zu (pool=%zu)\n",
+                                 slot_idx, self->rx_pool_->slots.size());
+                    return UCS_OK;
+                }
+                self->rx_pool_->slots[slot_idx].in_use = true;
+                PooledMsg msg{self->rx_pool_->slots[slot_idx].addr, total, slot_idx};
+                self->enqueue_am_message(msg);
+                return UCS_OK;
+            }
+        }
+    }
+
+    // Acquire a pinned slot from the RX pool — slot capacity is pre-allocated,
+    // no per-message std::vector zero-init.
+    size_t slot_idx = self->acquire_rx_slot(length);
+    PinnedSlot &slot = self->rx_pool_->slots[slot_idx];
+    PooledMsg msg{slot.addr, length, slot_idx};
+
     if ((param != nullptr) && (param->recv_attr & UCP_AM_RECV_ATTR_FLAG_RNDV)) {
-        std::vector<unsigned char> buffer(length);
         ucp_request_param_t recv_param{};
         recv_param.op_attr_mask = UCP_OP_ATTR_FIELD_DATATYPE;
         recv_param.datatype = ucp_dt_make_contig(1);
+        if (slot.memh != nullptr) {
+            recv_param.op_attr_mask |= UCP_OP_ATTR_FIELD_MEMH;
+            recv_param.memh = slot.memh;
+        }
 
-        void *request = ucp_am_recv_data_nbx(self->worker_, data, buffer.data(), length,
+        void *request = ucp_am_recv_data_nbx(self->worker_, data, slot.addr, length,
                                              &recv_param);
         if (request == nullptr) {
-            self->enqueue_am_message(std::move(buffer));
+            self->enqueue_am_message(msg);
             return UCS_OK;
         }
         if (UCS_PTR_IS_ERR(request)) {
+            self->release_rx_slot(slot_idx);
             return UCS_PTR_STATUS(request);
         }
 
-        self->enqueue_am_rndv(request, std::move(buffer));
+        self->enqueue_am_rndv(request, msg);
         return UCS_INPROGRESS;
     }
 
-    std::vector<unsigned char> buffer(length);
-    std::memcpy(buffer.data(), data, length);
-    self->enqueue_am_message(std::move(buffer));
+    std::memcpy(slot.addr, data, length);
+    self->enqueue_am_message(msg);
 
     // For DATA callbacks we copy and return UCS_OK; UCX releases the data.
     return UCS_OK;
@@ -139,7 +254,9 @@ void UcxCommunicator::init_ucx() {
 
     ucp_params_t ucp_params{};
     ucp_params.field_mask = UCP_PARAM_FIELD_FEATURES;
-    ucp_params.features = UCP_FEATURE_AM;
+    // AM: small control + legacy data path. RMA: bulk data via ucp_put_nbx
+    // into pre-mem_map'd remote slots (avoids per-message rendezvous handshake).
+    ucp_params.features = UCP_FEATURE_AM | UCP_FEATURE_RMA;
 
     ucs_status_t status = ucp_init(&ucp_params, nullptr, &context_);
     if (status != UCS_OK) {
@@ -177,6 +294,10 @@ void UcxCommunicator::init_ucx() {
                                  std::string(ucs_status_string(status)));
     }
 
+    // Pre-allocate pinned RX pool so the AM handler doesn't have to
+    // zero-init a fresh std::vector for every incoming message.
+    init_rx_pool();
+
     initialized_ = true;
     ucx_debug_log("init_ucx completed host=%s port=%u mode=am", hostname_.c_str(), port_);
 }
@@ -205,17 +326,30 @@ void UcxCommunicator::destroy_ucx() {
         endpoint_ = nullptr;
     }
 
-    if (owns_context_worker_listener_ && listener_ != nullptr) {
+    // Release pre-registered TX scratch before tearing down the UCP
+    // context — ucp_mem_unmap needs context_ still alive.
+    {
+        std::lock_guard<std::mutex> worker_lock(*worker_mutex_);
+        release_tx_scratch_locked();
+    }
+
+    if (owns_listener_ && listener_ != nullptr) {
         ucp_listener_destroy(listener_);
         listener_ = nullptr;
     }
 
-    if (owns_context_worker_listener_ && worker_ != nullptr) {
+    // Destroy RMA state BEFORE the worker/context teardown — ucp_rkey_destroy
+    // needs an alive context, and destroy_rx_pool calls ucp_mem_unmap.
+    destroy_rma_state();
+    destroy_rx_pool();
+    current_frame_ = PooledMsg{};
+
+    if (owns_worker_ && worker_ != nullptr) {
         ucp_worker_destroy(worker_);
         worker_ = nullptr;
     }
 
-    if (owns_context_worker_listener_ && context_ != nullptr) {
+    if (owns_context_ && context_ != nullptr) {
         ucp_cleanup(context_);
         context_ = nullptr;
     }
@@ -299,19 +433,19 @@ void UcxCommunicator::wait_request_completion(void *request, const char *op_name
     ucx_debug_log("%s: completed status=%s", op_name, ucs_status_string(final_status));
 }
 
-void UcxCommunicator::enqueue_am_message(std::vector<unsigned char> message) {
-    // Store a completed AM payload for stream-style Read().
+void UcxCommunicator::enqueue_am_message(PooledMsg message) {
+    // Store a completed AM payload for stream-style Read() / TryAcquireFrame().
     {
         std::lock_guard<std::mutex> lock(am_state_->mutex);
-        am_state_->queue.push_back(std::move(message));
+        am_state_->queue.push_back(message);
     }
     am_state_->cv.notify_one();
 }
 
-void UcxCommunicator::enqueue_am_rndv(void *request, std::vector<unsigned char> buffer) {
+void UcxCommunicator::enqueue_am_rndv(void *request, PooledMsg msg) {
     // Track a rendezvous receive until UCX reports completion.
     std::lock_guard<std::mutex> lock(am_state_->mutex);
-    am_state_->rndv.push_back(PendingAmRecv{request, std::move(buffer)});
+    am_state_->rndv.push_back(PendingAmRecv{request, msg});
 }
 
 void UcxCommunicator::progress_am_rndv() {
@@ -319,7 +453,7 @@ void UcxCommunicator::progress_am_rndv() {
     std::lock_guard<std::mutex> lock(am_state_->mutex);
     for (auto it = am_state_->rndv.begin(); it != am_state_->rndv.end();) {
         if (it->request == nullptr) {
-            am_state_->queue.push_back(std::move(it->buffer));
+            am_state_->queue.push_back(it->msg);
             it = am_state_->rndv.erase(it);
             continue;
         }
@@ -332,11 +466,15 @@ void UcxCommunicator::progress_am_rndv() {
 
         ucp_request_free(it->request);
         if (status == UCS_OK) {
-            am_state_->queue.push_back(std::move(it->buffer));
+            am_state_->queue.push_back(it->msg);
             am_state_->cv.notify_one();
         } else {
             std::fprintf(stderr, "UCX AM rendezvous receive failed: %s\n",
                          ucs_status_string(status));
+            // Release the slot since the message was never delivered.
+            if (it->msg.slot_idx != static_cast<size_t>(-1)) {
+                release_rx_slot(it->msg.slot_idx);
+            }
         }
         it = am_state_->rndv.erase(it);
     }
@@ -382,13 +520,56 @@ const gvirtus::communicators::Communicator *const UcxCommunicator::Accept() cons
 
     auto *accepted = new UcxCommunicator(self->hostname_, self->port_);
     accepted->context_ = self->context_;
-    accepted->worker_ = self->worker_;
     accepted->initialized_ = true;
-    accepted->owns_context_worker_listener_ = false;
+    // Ownership split: shares the listener's UCX context (heavy to create
+    // and the rkeys we hand out are scoped to it), but owns a DEDICATED
+    // worker so error progress on one accepted connection doesn't poison
+    // the worker shared by other connections. Listener stays separate.
+    accepted->owns_context_ = false;
+    accepted->owns_worker_ = true;
+    accepted->owns_listener_ = false;
     accepted->running_ = true;
-    accepted->worker_mutex_ = self->worker_mutex_;
-    accepted->am_state_ = self->am_state_;
     accepted->endpoint_failed_.store(false);
+
+    // Per-connection worker. We don't reuse self->worker_; that one only
+    // services the listener's conn_handler. Each accepted's data path runs
+    // on its own worker -> its own ucp_worker_progress -> isolated request
+    // state machine.
+    ucp_worker_params_t worker_params{};
+    worker_params.field_mask = UCP_WORKER_PARAM_FIELD_THREAD_MODE;
+    worker_params.thread_mode = UCS_THREAD_MODE_MULTI;
+    ucs_status_t status = ucp_worker_create(self->context_, &worker_params,
+                                            &accepted->worker_);
+    if (status != UCS_OK) {
+        delete accepted;
+        throw std::runtime_error("UcxCommunicator: server ucp_worker_create failed: " +
+                                 std::string(ucs_status_string(status)));
+    }
+
+    // Per-connection AM state, RX pool, and worker mutex — no sharing with
+    // the listener or with other accepted connections.
+    accepted->worker_mutex_ = std::make_shared<std::mutex>();
+    accepted->am_state_ = std::make_shared<AmState>();
+    accepted->rx_pool_ = std::make_shared<RxPool>();
+
+    // AM handler bound to THIS accepted's worker, with `arg = accepted` so
+    // incoming messages land in its own am_state / rx_pool.
+    ucp_am_handler_param_t am_param{};
+    am_param.field_mask = UCP_AM_HANDLER_PARAM_FIELD_ID |
+                          UCP_AM_HANDLER_PARAM_FIELD_FLAGS |
+                          UCP_AM_HANDLER_PARAM_FIELD_CB |
+                          UCP_AM_HANDLER_PARAM_FIELD_ARG;
+    am_param.id = self->am_id_;
+    am_param.flags = UCP_AM_FLAG_WHOLE_MSG;
+    am_param.cb = &UcxCommunicator::am_recv_handler;
+    am_param.arg = accepted;
+    status = ucp_worker_set_am_recv_handler(accepted->worker_, &am_param);
+    if (status != UCS_OK) {
+        ucp_worker_destroy(accepted->worker_);
+        delete accepted;
+        throw std::runtime_error("UcxCommunicator: server AM handler register failed: " +
+                                 std::string(ucs_status_string(status)));
+    }
 
     ucp_ep_params_t ep_params{};
     ep_params.field_mask = UCP_EP_PARAM_FIELD_CONN_REQUEST |
@@ -397,16 +578,40 @@ const gvirtus::communicators::Communicator *const UcxCommunicator::Accept() cons
     ep_params.err_handler.cb = &UcxCommunicator::endpoint_error_handler;
     ep_params.err_handler.arg = accepted;
 
-    ucs_status_t status = ucp_ep_create(accepted->worker_, &ep_params, &accepted->endpoint_);
+    status = ucp_ep_create(accepted->worker_, &ep_params, &accepted->endpoint_);
     if (status != UCS_OK) {
+        ucp_worker_destroy(accepted->worker_);
         delete accepted;
         throw std::runtime_error("UcxCommunicator: server ucp_ep_create failed: " +
                                  std::string(ucs_status_string(status)));
     }
 
     std::printf("UCX control-plane accepted connection\n");
-    ucx_debug_log("server endpoint created endpoint=%p from request=%p",
-                  (void *)accepted->endpoint_, (void *)req);
+    ucx_debug_log("server endpoint created endpoint=%p worker=%p from request=%p",
+                  (void *)accepted->endpoint_, (void *)accepted->worker_, (void *)req);
+
+    // Parallel setup: init_rx_pool (~150ms: cudaHostAlloc + ucp_mem_map for
+    // each slot) and send_rma_setup (~50ms: pack rkeys + ucp_am_send_nbx)
+    // run in a detached thread. The listener can return from Accept()
+    // immediately and process the next conn_request while this thread
+    // finishes setting up the previous one. The lambda thread spawned by
+    // Process.cpp will block at its first incoming AM (via worker progress)
+    // until the AM handler can acquire a slot from rx_pool — which is
+    // exactly when this setup thread has finished init_rx_pool. Mutex on
+    // rx_pool_->mu and am_state_->mutex serialises any actual contention.
+    //
+    // The client's Connect() waits up to 2 s for server's RmaSetup, so
+    // even with setup taking ~250ms in the worst case the client doesn't
+    // time out. Net effect for N concurrent connects:
+    //   sequential: N × 350 ms serialised in the listener
+    //   parallel:   ~max(setup_i) wall time (cudaHostAlloc/ucp_mem_map
+    //               serialise at the CUDA/UCX driver level, so ~1.5-2x
+    //               speedup rather than perfect N×, but still big).
+    std::thread([accepted]() {
+        accepted->init_rx_pool();
+        accepted->send_rma_setup();
+    }).detach();
+
     return accepted;
 }
 
@@ -436,6 +641,37 @@ void UcxCommunicator::Connect() {
     endpoint_failed_.store(false);
     std::printf("UCX control-plane connected: Connect (%s:%u)\n", hostname_.c_str(), port_);
     ucx_debug_log("client endpoint created endpoint=%p", (void *)endpoint_);
+
+    // Drive worker progress until the server's RmaSetup AM lands. If it
+    // doesn't show up within the budget we silently fall back to the AM
+    // data path (rma_setup_received_ stays false → WriteIov picks the IOV
+    // branch). Useful when talking to an older server build that never
+    // sends RmaSetup.
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!rma_setup_received_.load() &&
+           std::chrono::steady_clock::now() < deadline) {
+        {
+            std::lock_guard<std::mutex> wl(*worker_mutex_);
+            ucp_worker_progress(worker_);
+        }
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
+    }
+    if (!rma_setup_received_.load()) {
+        ucx_debug_log("Connect: RmaSetup not received within timeout, RMA path disabled");
+    } else {
+        ucx_debug_log("Connect: RMA path enabled with %zu remote slots (server -> client)",
+                      remote_slots_.size());
+
+        // Bidirectional RMA: now that we know the server is RMA-capable
+        // (it sent us its rkeys), advertise our own rx_pool's rkeys so it
+        // can ucp_put_nbx into our slots for large responses (D2H 64MB
+        // etc). Without this the server's WriteIov for the response falls
+        // back to the AM-stream path, which is ~1.7s for 64MB without an
+        // rcache. With this it becomes a single RDMA write + tiny AM ≈
+        // ~10-15ms.
+        send_rma_setup();
+        ucx_debug_log("Connect: client rkeys advertised (client -> server done)");
+    }
 }
 
 size_t UcxCommunicator::Read(char *buffer, size_t size) {
@@ -450,16 +686,21 @@ size_t UcxCommunicator::Read(char *buffer, size_t size) {
     // Busy-poll to keep ucp_worker_progress() running continuously.
     size_t copied = 0;
     while (copied < size) {
-        if (pending_read_offset_ < pending_read_bytes_.size()) {
-            const size_t available = pending_read_bytes_.size() - pending_read_offset_;
+        if (pending_msg_.data != nullptr &&
+            pending_read_offset_ < pending_msg_.size) {
+            const size_t available = pending_msg_.size - pending_read_offset_;
             const size_t to_copy = std::min(size - copied, available);
             std::memcpy(buffer + copied,
-                        pending_read_bytes_.data() + pending_read_offset_,
+                        pending_msg_.data + pending_read_offset_,
                         to_copy);
             copied += to_copy;
             pending_read_offset_ += to_copy;
-            if (pending_read_offset_ == pending_read_bytes_.size()) {
-                pending_read_bytes_.clear();
+            if (pending_read_offset_ == pending_msg_.size) {
+                // Fully consumed — return the pool slot.
+                if (pending_msg_.slot_idx != static_cast<size_t>(-1)) {
+                    release_rx_slot(pending_msg_.slot_idx);
+                }
+                pending_msg_ = PooledMsg{};
                 pending_read_offset_ = 0;
             }
             continue;
@@ -468,7 +709,7 @@ size_t UcxCommunicator::Read(char *buffer, size_t size) {
         {
             std::unique_lock<std::mutex> lock(am_state_->mutex);
             if (!am_state_->queue.empty()) {
-                pending_read_bytes_ = std::move(am_state_->queue.front());
+                pending_msg_ = am_state_->queue.front();
                 am_state_->queue.pop_front();
                 pending_read_offset_ = 0;
                 continue;
@@ -491,6 +732,645 @@ size_t UcxCommunicator::Read(char *buffer, size_t size) {
     return size;
 }
 
+bool UcxCommunicator::TryAcquireFrame(const unsigned char *&data, size_t &size) {
+    if (endpoint_ == nullptr || worker_ == nullptr) return false;
+
+    // If we already hold a partially-consumed message, give up — the caller
+    // mixed stream Read() with frame mode. Conservative: refuse the handoff.
+    if (pending_msg_.data != nullptr && pending_read_offset_ > 0) {
+        return false;
+    }
+
+    // Drain into current_frame_ once a message is available, busy-polling
+    // the worker the same way Read() does.
+    for (;;) {
+        if (current_frame_.data != nullptr) {
+            data = current_frame_.data;
+            size = current_frame_.size;
+            return true;
+        }
+
+        // Inherit any message we may have moved into pending_msg_ already
+        // (e.g., partial consumption of zero bytes).
+        if (pending_msg_.data != nullptr && pending_read_offset_ == 0) {
+            current_frame_ = pending_msg_;
+            pending_msg_ = PooledMsg{};
+            continue;
+        }
+
+        {
+            std::unique_lock<std::mutex> lock(am_state_->mutex);
+            if (!am_state_->queue.empty()) {
+                current_frame_ = am_state_->queue.front();
+                am_state_->queue.pop_front();
+                continue;
+            }
+        }
+
+        if (worker_ != nullptr) {
+            std::lock_guard<std::mutex> worker_lock(*worker_mutex_);
+            ucp_worker_progress(worker_);
+        }
+        progress_am_rndv();
+
+        if (endpoint_failed_.load()) return false;
+    }
+}
+
+void UcxCommunicator::ReleaseFrame() {
+    if (current_frame_.slot_idx != static_cast<size_t>(-1)) {
+        release_rx_slot(current_frame_.slot_idx);
+    }
+    current_frame_ = PooledMsg{};
+}
+
+// Register `slot.addr/capacity` with the UCX context so subsequent
+// ucp_am_recv_data_nbx (true-rndv path) can use the memh hint and skip
+// the on-the-fly IB registration. Called with rx_pool_->mu held.
+void UcxCommunicator::map_slot_to_ucp(ucp_context_h ctx, PinnedSlot &slot) {
+    if (ctx == nullptr || slot.memh != nullptr || slot.addr == nullptr) return;
+    ucp_mem_map_params_t map_params{};
+    map_params.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS |
+                            UCP_MEM_MAP_PARAM_FIELD_LENGTH;
+    map_params.address = slot.addr;
+    map_params.length  = slot.capacity;
+    ucs_status_t st = ucp_mem_map(ctx, &map_params, &slot.memh);
+    if (st != UCS_OK) {
+        slot.memh = nullptr;  // continue without — UCX rcache will register on first use
+    }
+}
+
+void UcxCommunicator::unmap_slot_from_ucp(ucp_context_h ctx, PinnedSlot &slot) {
+    if (ctx != nullptr && slot.memh != nullptr) {
+        ucp_mem_unmap(ctx, slot.memh);
+        slot.memh = nullptr;
+    }
+}
+
+// Pre-allocate N RX slots of an initial size. Slots grow on demand later if
+// a message arrives that's bigger than the current capacity.
+void UcxCommunicator::init_rx_pool() {
+    // 2 slots is enough for the current synchronous request/response pattern
+    // (the request occupies slot 0 while the response is in flight; once the
+    // app receives the response, slot 0 is free for the next request). Was
+    // 4 originally but each cudaHostAlloc(64MB) + ucp_mem_map costs ~75ms;
+    // halving the count halves per-connection setup time.
+    constexpr size_t kInitialSlotCount = 2;
+    // 64MB payload + 1MB headroom: leaves room for the envelope header
+    // (~40B), the routine name (variable), and any pad bytes the protocol
+    // might tack on. Without this slack a 64MB cudaMemcpy lands at 64MB+N
+    // bytes total, exceeds rs.capacity, and WriteIovRma falls back to the
+    // AM-stream IOV path (silently losing the RMA fast path).
+    constexpr size_t kInitialSlotCap   = (1024u * 1024u + 1024u) * 1024u;  // 1025MB
+
+    std::lock_guard<std::mutex> lk(rx_pool_->mu);
+    if (!rx_pool_->slots.empty()) return;  // already initialized
+
+    rx_pool_->slots.resize(kInitialSlotCount);
+    for (size_t i = 0; i < kInitialSlotCount; ++i) {
+        bool is_cuda = false;
+        unsigned char *p = alloc_pinned_host(kInitialSlotCap, is_cuda);
+        if (p == nullptr) {
+            throw std::runtime_error("UcxCommunicator: failed to allocate RX pool slot");
+        }
+        rx_pool_->slots[i] = PinnedSlot{p, kInitialSlotCap, /*in_use*/false, is_cuda, nullptr};
+        map_slot_to_ucp(context_, rx_pool_->slots[i]);
+    }
+    ucx_debug_log("rx_pool: initialized %zu slots x %zu bytes",
+                  kInitialSlotCount, kInitialSlotCap);
+}
+
+void UcxCommunicator::destroy_rx_pool() {
+    std::lock_guard<std::mutex> lk(rx_pool_->mu);
+    for (auto &slot : rx_pool_->slots) {
+        unmap_slot_from_ucp(context_, slot);
+        free_pinned_host(slot.addr, slot.is_cuda_host);
+    }
+    rx_pool_->slots.clear();
+}
+
+// Find a free slot of at least `needed` bytes. Grows an existing in-use-free
+// slot's capacity if the largest is too small, or appends a new slot if all
+// are busy. Returns slot index.
+size_t UcxCommunicator::acquire_rx_slot(size_t needed) {
+    std::lock_guard<std::mutex> lk(rx_pool_->mu);
+
+    // Try to find a free slot big enough.
+    for (size_t i = 0; i < rx_pool_->slots.size(); ++i) {
+        if (!rx_pool_->slots[i].in_use && rx_pool_->slots[i].capacity >= needed) {
+            rx_pool_->slots[i].in_use = true;
+            return i;
+        }
+    }
+    // No free slot big enough — grow the first free one (or append if none free).
+    for (size_t i = 0; i < rx_pool_->slots.size(); ++i) {
+        if (!rx_pool_->slots[i].in_use) {
+            unmap_slot_from_ucp(context_, rx_pool_->slots[i]);
+            free_pinned_host(rx_pool_->slots[i].addr, rx_pool_->slots[i].is_cuda_host);
+            bool is_cuda = false;
+            unsigned char *p = alloc_pinned_host(needed, is_cuda);
+            if (p == nullptr) {
+                throw std::runtime_error("UcxCommunicator: rx_pool grow failed");
+            }
+            rx_pool_->slots[i] = PinnedSlot{p, needed, /*in_use*/true, is_cuda, nullptr};
+            map_slot_to_ucp(context_, rx_pool_->slots[i]);
+            ucx_debug_log("rx_pool: grew slot %zu to %zu bytes", i, needed);
+            return i;
+        }
+    }
+    // All slots in use — append a new one.
+    bool is_cuda = false;
+    unsigned char *p = alloc_pinned_host(needed, is_cuda);
+    if (p == nullptr) {
+        throw std::runtime_error("UcxCommunicator: rx_pool append failed");
+    }
+    rx_pool_->slots.push_back(PinnedSlot{p, needed, /*in_use*/true, is_cuda, nullptr});
+    size_t idx = rx_pool_->slots.size() - 1;
+    map_slot_to_ucp(context_, rx_pool_->slots[idx]);
+    ucx_debug_log("rx_pool: appended slot %zu (%zu bytes), total=%zu",
+                  idx, needed, rx_pool_->slots.size());
+    return idx;
+}
+
+void UcxCommunicator::release_rx_slot(size_t slot_idx) {
+    std::lock_guard<std::mutex> lk(rx_pool_->mu);
+    if (slot_idx >= rx_pool_->slots.size()) return;
+    rx_pool_->slots[slot_idx].in_use = false;
+}
+
+// Server-side: pack rkeys of every rx_slot, build an RmaSetup AM body, and
+// send it to the connected client. Called once per accepted connection,
+// right after the endpoint is created (so the client receives this before
+// any data traffic).
+void UcxCommunicator::send_rma_setup() {
+    if (endpoint_ == nullptr || context_ == nullptr) return;
+
+    // Snapshot rx slot metadata.
+    struct PackedSlot {
+        std::uint64_t addr;
+        std::uint64_t capacity;
+        void *rkey_buf{nullptr};
+        size_t rkey_len{0};
+    };
+    std::vector<PackedSlot> packed;
+    {
+        std::lock_guard<std::mutex> lk(rx_pool_->mu);
+        packed.reserve(rx_pool_->slots.size());
+        for (auto &slot : rx_pool_->slots) {
+            if (slot.memh == nullptr) continue;  // skip slots that failed mem_map
+            PackedSlot ps{};
+            ps.addr = reinterpret_cast<std::uint64_t>(slot.addr);
+            ps.capacity = slot.capacity;
+            ucs_status_t st = ucp_rkey_pack(context_, slot.memh,
+                                            &ps.rkey_buf, &ps.rkey_len);
+            if (st != UCS_OK) {
+                std::fprintf(stderr,
+                             "UCX rma_setup: ucp_rkey_pack failed (%s)\n",
+                             ucs_status_string(st));
+                continue;
+            }
+            packed.push_back(ps);
+        }
+    }
+
+    if (packed.empty()) {
+        ucx_debug_log("rma_setup: no slots to advertise; skipping");
+        return;
+    }
+
+    // Assemble AM body: [EnvelopeHeader] [N * RmaSlotDescriptor] [N * rkey blobs]
+    using gvirtus::communicators::ucxam::EnvelopeHeader;
+    using gvirtus::communicators::ucxam::MessageType;
+    using gvirtus::communicators::ucxam::RmaSlotDescriptor;
+    using gvirtus::communicators::ucxam::kEnvelopeMagic;
+    using gvirtus::communicators::ucxam::kEnvelopeVersion;
+
+    size_t descriptors_bytes = packed.size() * sizeof(RmaSlotDescriptor);
+    size_t rkeys_bytes = 0;
+    for (auto &p : packed) rkeys_bytes += p.rkey_len;
+    size_t total_bytes = sizeof(EnvelopeHeader) + descriptors_bytes + rkeys_bytes;
+
+    std::vector<unsigned char> buf(total_bytes);
+    auto *hdr = reinterpret_cast<EnvelopeHeader *>(buf.data());
+    hdr->magic = kEnvelopeMagic;
+    hdr->version = kEnvelopeVersion;
+    hdr->message_type = static_cast<std::uint16_t>(MessageType::RmaSetup);
+    hdr->header_size = sizeof(EnvelopeHeader);
+    hdr->reserved0 = 0;
+    hdr->status_code = 0;
+    hdr->request_id = 0;
+    hdr->routine_size = 0;
+    hdr->payload_size = static_cast<std::uint64_t>(packed.size());
+
+    size_t off = sizeof(EnvelopeHeader);
+    for (auto &p : packed) {
+        RmaSlotDescriptor d{};
+        d.remote_addr = p.addr;
+        d.slot_capacity = p.capacity;
+        d.rkey_size = static_cast<std::uint32_t>(p.rkey_len);
+        d.reserved0 = 0;
+        std::memcpy(buf.data() + off, &d, sizeof(d));
+        off += sizeof(d);
+    }
+    for (auto &p : packed) {
+        std::memcpy(buf.data() + off, p.rkey_buf, p.rkey_len);
+        off += p.rkey_len;
+    }
+
+    // Send as a single AM.
+    {
+        std::lock_guard<std::mutex> worker_lock(*worker_mutex_);
+        ucp_request_param_t request_param{};
+        request_param.op_attr_mask = UCP_OP_ATTR_FIELD_DATATYPE;
+        request_param.datatype = ucp_dt_make_contig(1);
+        void *request = ucp_am_send_nbx(endpoint_, am_id_, nullptr, 0,
+                                        buf.data(), buf.size(), &request_param);
+        wait_request_completion(request, "rma_setup_send");
+    }
+
+    // Release the packed rkey buffers.
+    for (auto &p : packed) {
+        if (p.rkey_buf != nullptr) {
+            ucp_rkey_buffer_release(p.rkey_buf);
+        }
+    }
+    ucx_debug_log("rma_setup: advertised %zu slots (%zu rkey bytes)",
+                  packed.size(), rkeys_bytes);
+}
+
+// Client-side: parse an incoming RmaSetup AM body, unpack each rkey, and
+// populate remote_slots_. After this returns the data path can use ucp_put.
+void UcxCommunicator::handle_rma_setup_am(const void *data, size_t length) {
+    using gvirtus::communicators::ucxam::EnvelopeHeader;
+    using gvirtus::communicators::ucxam::RmaSlotDescriptor;
+
+    if (length < sizeof(EnvelopeHeader)) {
+        std::fprintf(stderr, "RmaSetup: body too short (%zu)\n", length);
+        return;
+    }
+    EnvelopeHeader hdr;
+    std::memcpy(&hdr, data, sizeof(hdr));
+    const size_t num_slots = static_cast<size_t>(hdr.payload_size);
+    const size_t descriptors_bytes = num_slots * sizeof(RmaSlotDescriptor);
+    if (length < sizeof(hdr) + descriptors_bytes) {
+        std::fprintf(stderr, "RmaSetup: descriptors truncated\n");
+        return;
+    }
+
+    const auto *base = static_cast<const unsigned char *>(data);
+    const auto *desc_ptr = reinterpret_cast<const RmaSlotDescriptor *>(
+        base + sizeof(hdr));
+    const unsigned char *rkey_cursor = base + sizeof(hdr) + descriptors_bytes;
+    const unsigned char *rkey_end = base + length;
+
+    std::vector<RemoteSlot> new_slots;
+    new_slots.reserve(num_slots);
+    for (size_t i = 0; i < num_slots; ++i) {
+        if (rkey_cursor + desc_ptr[i].rkey_size > rkey_end) {
+            std::fprintf(stderr, "RmaSetup: rkey blob %zu truncated\n", i);
+            break;
+        }
+        ucp_rkey_h rkey = nullptr;
+        ucs_status_t st = ucp_ep_rkey_unpack(endpoint_, rkey_cursor, &rkey);
+        if (st != UCS_OK) {
+            std::fprintf(stderr,
+                         "RmaSetup: ucp_ep_rkey_unpack[%zu] failed (%s)\n",
+                         i, ucs_status_string(st));
+            rkey = nullptr;
+        }
+        new_slots.push_back(RemoteSlot{desc_ptr[i].remote_addr,
+                                       desc_ptr[i].slot_capacity, rkey});
+        rkey_cursor += desc_ptr[i].rkey_size;
+    }
+
+    {
+        std::lock_guard<std::mutex> lk(rma_state_mu_);
+        remote_slots_ = std::move(new_slots);
+        next_remote_slot_idx_ = 0;
+        rma_setup_received_.store(true);
+    }
+    rma_setup_cv_.notify_all();
+    ucx_debug_log("rma_setup: received %zu remote slots", remote_slots_.size());
+}
+
+void UcxCommunicator::destroy_rma_state() {
+    std::lock_guard<std::mutex> lk(rma_state_mu_);
+    for (auto &rs : remote_slots_) {
+        if (rs.rkey != nullptr) ucp_rkey_destroy(rs.rkey);
+    }
+    remote_slots_.clear();
+    rma_setup_received_.store(false);
+    next_remote_slot_idx_ = 0;
+}
+
+// RMA-mode send. Two paths, selected by env var GVIRTUS_RMA_ZEROCOPY:
+//
+//  * "staged" (GVIRTUS_RMA_ZEROCOPY=0): copy ALL iov fragments into the
+//     pre-registered local tx_scratch_, then one ucp_put_nbx of the
+//     contiguous buffer. Simple, predictable. Pays a host-RAM memcpy of
+//     ~2.5ms for a 64MB payload, but no per-call buffer registration.
+//
+//  * "zerocopy" (default, or GVIRTUS_RMA_ZEROCOPY=1): only the small
+//     fragments (header, routine) are staged into tx_scratch_; the large
+//     fragment (the user's payload) is ucp_put_nbx'd directly from the
+//     caller's buffer. Two puts in flight in parallel. UCX rcache caches
+//     the user buffer's registration after first use — steady state is
+//     ~2.5ms faster per call. First call against a fresh user buffer pays
+//     a one-time registration cost (typically ~10ms for 64MB).
+//
+// Both paths end with a tiny RmaPosted AM carrying the slot index.
+size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
+                                    size_t total) {
+    // Pick a remote slot. Round-robin keeps things simple; the synchronous
+    // request/response pattern guarantees the previous slot has already
+    // been consumed by the server before we get here for the next message.
+    size_t slot_idx;
+    RemoteSlot rs;
+    {
+        std::lock_guard<std::mutex> lk(rma_state_mu_);
+        if (remote_slots_.empty()) return 0;
+        slot_idx = next_remote_slot_idx_;
+        next_remote_slot_idx_ = (next_remote_slot_idx_ + 1) % remote_slots_.size();
+        rs = remote_slots_[slot_idx];
+    }
+
+    if (rs.rkey == nullptr || total > rs.capacity) {
+        // Caller will fall back to the IOV path.
+        return 0;
+    }
+
+    // Env-var gated zerocopy: default OFF (set GVIRTUS_RMA_ZEROCOPY=1 to
+    // enable). The zerocopy path relies on UCX's registration cache to
+    // make repeated ucp_put_nbx(h_user_buf, ...) cheap. In this container
+    // build UCX logs "could not create UCP registration cache: Unsupported
+    // operation" at init, which means every put re-registers the source
+    // buffer (~25ms for 64MB) — regressing write from ~8ms to ~31ms.
+    // The staged path uses a pre-mem_map'd tx_scratch and is rcache-
+    // independent, so it stays ~8ms warm regardless. Keep zerocopy behind
+    // a flag for builds where rcache works (e.g., once nvidia-peermem and
+    // UCM event handling are properly set up in the container).
+    static const bool zerocopy_enabled = []() {
+        const char *v = std::getenv("GVIRTUS_RMA_ZEROCOPY");
+        return v != nullptr && std::strcmp(v, "0") != 0;
+    }();
+
+    // Find the biggest iov fragment regardless of position. The zerocopy
+    // path treats it as the payload to ucp_put directly from caller memory
+    // and stages every other fragment through tx_scratch_. With the legacy
+    // 3-entry layout [header][routine][payload] the biggest sits at index
+    // iov_count-1, matching the prior behavior. With the Fase 5 layout
+    // [header][routine][input_pre][user_src][input_post] the biggest sits
+    // at an interior index — argmax catches both.
+    size_t biggest_idx = 0;
+    size_t big_size = 0;
+    for (size_t i = 0; i < iov_count; ++i) {
+        if (iov[i].iov_len > big_size) {
+            big_size = iov[i].iov_len;
+            biggest_idx = i;
+        }
+    }
+    const size_t small_size = (big_size <= total) ? (total - big_size) : 0;
+    // Bytes from iov fragments that appear BEFORE the biggest one — they
+    // get put to rs.addr + 0. Bytes AFTER the biggest go to
+    // rs.addr + pre_size + big_size to preserve wire order.
+    size_t pre_size = 0;
+    for (size_t i = 0; i < biggest_idx; ++i) pre_size += iov[i].iov_len;
+    const size_t post_size = small_size - pre_size;
+    // Only worth splitting when the "big" fragment is genuinely big and the
+    // "small" prefix isn't empty (otherwise we'd just be issuing one put).
+    const bool use_zerocopy = zerocopy_enabled &&
+                              iov_count >= 2 &&
+                              big_size >= (16u * 1024u) &&
+                              small_size > 0;
+
+    std::lock_guard<std::mutex> worker_lock(*worker_mutex_);
+
+    if (use_zerocopy) {
+        // Stage all fragments except the biggest into the registered
+        // scratch, contiguously in iov order (pre first, then post).
+        ensure_tx_scratch_locked(small_size);
+        {
+            char *dst = static_cast<char *>(tx_scratch_.addr);
+            size_t off = 0;
+            for (size_t i = 0; i < iov_count; ++i) {
+                if (i == biggest_idx) continue;
+                std::memcpy(dst + off, iov[i].iov_base, iov[i].iov_len);
+                off += iov[i].iov_len;
+            }
+        }
+
+        ucx_debug_log("WriteIovRma(zerocopy) slot=%zu pre=%zu big=%zu post=%zu biggest_idx=%zu",
+                      slot_idx, pre_size, big_size, post_size, biggest_idx);
+
+        // Issue up to three puts non-blocking. UCX progresses them in
+        // parallel; their completions are awaited together at the end.
+        ucp_request_param_t p_scratch{};
+        p_scratch.op_attr_mask = UCP_OP_ATTR_FIELD_MEMH;
+        p_scratch.memh = tx_scratch_.memh;
+
+        void *req_pre = nullptr;
+        if (pre_size > 0) {
+            req_pre = ucp_put_nbx(endpoint_,
+                                  tx_scratch_.addr, pre_size,
+                                  rs.addr, rs.rkey, &p_scratch);
+        }
+
+        void *req_post = nullptr;
+        if (post_size > 0) {
+            req_post = ucp_put_nbx(endpoint_,
+                                   static_cast<char *>(tx_scratch_.addr) + pre_size,
+                                   post_size,
+                                   rs.addr + pre_size + big_size,
+                                   rs.rkey, &p_scratch);
+        }
+
+        ucp_request_param_t p_big{};
+
+        // Manual host-buffer registration cache. UCX rcache fails to
+        // init in this container ("rcache failed to install UCM event
+        // handler: Unsupported operation"), so we mem_map ptr->memh
+        // ourselves and pass it explicitly. Saves ~25ms re-register
+        // cost per 64MB put on the warm path.
+        //
+        // SIZE-THRESHOLD GUARD (added for OpenPose-style workloads):
+        // The cache keys by virtual address. If the user frees and reallocs
+        // at the same address (Caffe blobs, repeated cudaMallocHost cycles)
+        // we'd return a stale memh → IB QP Local Protection error. For
+        // small buffers (typical of inference frameworks) we skip the cache
+        // and pay ucp_mem_map+unmap per call (~ms penalty). Large stable
+        // buffers (simple_matrix-style 4 MB+) still cache for big wins.
+        static constexpr size_t kCacheThreshold = 2u * 1024u * 1024u;  // 2 MB
+        const bool use_memh_cache = (big_size >= kCacheThreshold);
+
+        static thread_local std::unordered_map<const void *, ucp_mem_h>
+            user_memh_cache;
+
+        const void *user_addr = iov[biggest_idx].iov_base;
+        ucp_mem_h user_memh = nullptr;
+        bool memh_owned = false;  // true iff we own this memh and must unmap after the put
+
+        if (use_memh_cache) {
+            auto cit = user_memh_cache.find(user_addr);
+
+            if (cit != user_memh_cache.end()) {
+                user_memh = cit->second;
+            } else {
+                ucp_mem_map_params_t mp{};
+                mp.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS |
+                                UCP_MEM_MAP_PARAM_FIELD_LENGTH;
+                mp.address = const_cast<void *>(user_addr);
+                mp.length  = big_size;
+
+                if (ucp_mem_map(context_, &mp, &user_memh) == UCS_OK) {
+                    user_memh_cache.emplace(user_addr, user_memh);
+                } else {
+                    user_memh = nullptr;
+                }
+            }
+        } else {
+            // Small buffer path: register fresh each call, unmap after wait.
+            ucp_mem_map_params_t mp{};
+            mp.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS |
+                            UCP_MEM_MAP_PARAM_FIELD_LENGTH;
+            mp.address = const_cast<void *>(user_addr);
+            mp.length  = big_size;
+
+            if (ucp_mem_map(context_, &mp, &user_memh) == UCS_OK) {
+                memh_owned = true;
+            } else {
+                user_memh = nullptr;
+            }
+        }
+
+        if (user_memh != nullptr) {
+            p_big.op_attr_mask = UCP_OP_ATTR_FIELD_MEMH;
+            p_big.memh = user_memh;
+        } else {
+            p_big.op_attr_mask = 0;
+        }
+
+        void *req_big = ucp_put_nbx(endpoint_,
+                                    iov[biggest_idx].iov_base, big_size,
+                                    rs.addr + pre_size, rs.rkey, &p_big);
+
+        wait_request_completion(req_pre,  "rma_put_pre");
+        wait_request_completion(req_big,  "rma_put_big");
+        wait_request_completion(req_post, "rma_put_post");
+
+        // Per-call ownership cleanup: unmap fresh registrations so the next
+        // call sees a clean state. Cached memh (>= kCacheThreshold) stays
+        // mapped for amortization across calls.
+        if (memh_owned && user_memh != nullptr) {
+            ucp_mem_unmap(context_, user_memh);
+        }
+    } else {
+        // Staged path: copy everything into the scratch, single put.
+        ensure_tx_scratch_locked(total);
+        {
+            char *dst = static_cast<char *>(tx_scratch_.addr);
+            size_t off = 0;
+            for (size_t i = 0; i < iov_count; ++i) {
+                std::memcpy(dst + off, iov[i].iov_base, iov[i].iov_len);
+                off += iov[i].iov_len;
+            }
+        }
+
+        ucx_debug_log("WriteIovRma(staged) slot=%zu total=%zu", slot_idx, total);
+
+        ucp_request_param_t put_param{};
+        put_param.op_attr_mask = UCP_OP_ATTR_FIELD_MEMH;
+        put_param.memh = tx_scratch_.memh;
+        void *put_req = ucp_put_nbx(endpoint_,
+                                    tx_scratch_.addr, total,
+                                    rs.addr, rs.rkey, &put_param);
+        wait_request_completion(put_req, "rma_put");
+    }
+
+    // Tiny RmaPosted notification — same protocol bytes regardless of which
+    // data path filled the remote slot.
+    {
+        gvirtus::communicators::ucxam::EnvelopeHeader notif{};
+        notif.magic = gvirtus::communicators::ucxam::kEnvelopeMagic;
+        notif.version = gvirtus::communicators::ucxam::kEnvelopeVersion;
+        notif.message_type = static_cast<std::uint16_t>(
+            gvirtus::communicators::ucxam::MessageType::RmaPosted);
+        notif.header_size = sizeof(notif);
+        notif.reserved0 = static_cast<std::uint16_t>(slot_idx);
+        notif.status_code = 0;
+        notif.request_id = 0;
+        notif.routine_size = 0;
+        notif.payload_size = static_cast<std::uint64_t>(total);
+
+        ucp_request_param_t send_param{};
+        send_param.op_attr_mask = UCP_OP_ATTR_FIELD_DATATYPE;
+        send_param.datatype = ucp_dt_make_contig(1);
+        void *send_req = ucp_am_send_nbx(endpoint_, am_id_, nullptr, 0,
+                                         &notif, sizeof(notif), &send_param);
+        wait_request_completion(send_req, "rma_posted_notify");
+    }
+
+    ucx_debug_log("WriteIovRma done slot=%zu total=%zu", slot_idx, total);
+    return total;
+}
+
+// Grow the pre-registered TX scratch to at least `needed` bytes. Must be
+// called with worker_mutex_ held. Rounds capacity up to a power of two
+// (≥4MB) so consecutive WriteIovs of the same size class hit the warm path.
+void UcxCommunicator::ensure_tx_scratch_locked(size_t needed) {
+    if (tx_scratch_.capacity >= needed) return;
+
+    // Free previous registration + allocation if any.
+    if (tx_scratch_.memh != nullptr && context_ != nullptr) {
+        ucp_mem_unmap(context_, tx_scratch_.memh);
+        tx_scratch_.memh = nullptr;
+    }
+    if (tx_scratch_.addr != nullptr) {
+        std::free(tx_scratch_.addr);
+        tx_scratch_.addr = nullptr;
+    }
+    tx_scratch_.capacity = 0;
+
+    // Round up to power of two, minimum 4MB.
+    size_t cap = 4u * 1024u * 1024u;
+    while (cap < needed) cap <<= 1;
+
+    void *addr = nullptr;
+    if (posix_memalign(&addr, 4096, cap) != 0 || addr == nullptr) {
+        throw std::runtime_error("UcxCommunicator: posix_memalign failed for tx scratch");
+    }
+
+    ucp_mem_map_params_t map_params{};
+    map_params.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS |
+                            UCP_MEM_MAP_PARAM_FIELD_LENGTH;
+    map_params.address = addr;
+    map_params.length = cap;
+
+    ucp_mem_h memh = nullptr;
+    ucs_status_t status = ucp_mem_map(context_, &map_params, &memh);
+    if (status != UCS_OK) {
+        std::free(addr);
+        throw std::runtime_error("UcxCommunicator: ucp_mem_map failed: " +
+                                 std::string(ucs_status_string(status)));
+    }
+
+    tx_scratch_.addr = addr;
+    tx_scratch_.capacity = cap;
+    tx_scratch_.memh = memh;
+    ucx_debug_log("tx_scratch grown capacity=%zu", cap);
+}
+
+void UcxCommunicator::release_tx_scratch_locked() {
+    if (tx_scratch_.memh != nullptr && context_ != nullptr) {
+        ucp_mem_unmap(context_, tx_scratch_.memh);
+        tx_scratch_.memh = nullptr;
+    }
+    if (tx_scratch_.addr != nullptr) {
+        std::free(tx_scratch_.addr);
+        tx_scratch_.addr = nullptr;
+    }
+    tx_scratch_.capacity = 0;
+}
+
 size_t UcxCommunicator::Write(const char *buffer, size_t size) {
     if (endpoint_ == nullptr || worker_ == nullptr) {
         throw std::runtime_error("UcxCommunicator: Write called without an active endpoint");
@@ -509,6 +1389,96 @@ size_t UcxCommunicator::Write(const char *buffer, size_t size) {
     wait_request_completion(request, "am_send");
     ucx_debug_log("Write(AM) done bytes=%zu", size);
     return size;
+}
+
+// Two-mode gather-send. For small payloads (under kStagingThreshold) the
+// fragments are passed straight to UCX via UCP_DATATYPE_IOV — eager AM
+// handles short messages efficiently and the iov metadata cost is
+// negligible. For large payloads the fragments are concatenated into a
+// pre-registered tx_scratch_ buffer and sent as one contiguous chunk with
+// the memh hint, which lets UCX bypass its internal RNDV-fragment staging
+// (UCX_RNDV_FRAG_SIZE) and DMA directly from the registered memory.
+size_t UcxCommunicator::WriteIov(const struct iovec *iov, size_t iov_count) {
+    if (endpoint_ == nullptr || worker_ == nullptr) {
+        throw std::runtime_error("UcxCommunicator: WriteIov called without an active endpoint");
+    }
+    if (iov == nullptr || iov_count == 0) return 0;
+
+    size_t total = 0;
+    for (size_t i = 0; i < iov_count; ++i) total += iov[i].iov_len;
+
+    // RMA fast path: if the server advertised its RX slot rkeys (via
+    // RmaSetup at connect time) and the payload is large enough to amortise
+    // the staging memcpy, push the bytes via ucp_put_nbx directly into the
+    // remote slot and notify with a tiny AM. Avoids UCX's per-message
+    // rendezvous handshake (which doesn't amortise in our sync pattern).
+    if (total >= (64u * 1024u) && rma_setup_received_.load()) {
+        size_t put = WriteIovRma(iov, iov_count, total);
+        if (put == total) return put;  // RMA path completed
+        // else: fall through to the IOV/AM path (slot too small or no rkey)
+    }
+
+    // Staging via the local TX scratch (with memh hint) regresses on this
+    // UCX 1.20 + RoCE combo because it forces true-rendezvous over AM.
+    // Kept disabled — see commit history for the measurement campaign.
+    constexpr size_t kStagingThreshold = static_cast<size_t>(-1);
+
+    std::lock_guard<std::mutex> worker_lock(*worker_mutex_);
+
+    if (total < kStagingThreshold) {
+        // Fast path: IOV directly, eager AM.
+        std::vector<ucp_dt_iov_t> ucx_iov(iov_count);
+        for (size_t i = 0; i < iov_count; ++i) {
+            ucx_iov[i].buffer = iov[i].iov_base;
+            ucx_iov[i].length = iov[i].iov_len;
+        }
+        ucx_debug_log("WriteIov(AM,iov) begin frags=%zu total=%zu", iov_count, total);
+
+        ucp_request_param_t request_param{};
+        request_param.op_attr_mask = UCP_OP_ATTR_FIELD_DATATYPE;
+        request_param.datatype = UCP_DATATYPE_IOV;
+
+        void *request = ucp_am_send_nbx(endpoint_, am_id_,
+                                        nullptr, 0,
+                                        ucx_iov.data(), iov_count,
+                                        &request_param);
+        wait_request_completion(request, "am_send_iov");
+        ucx_debug_log("WriteIov(AM,iov) done total=%zu", total);
+        return total;
+    }
+
+    // Staging path: gather into the pre-registered TX scratch and send
+    // as one contiguous, memh-hinted, AM rendezvous message.
+    ensure_tx_scratch_locked(total);
+
+    {
+        char *dst = static_cast<char *>(tx_scratch_.addr);
+        size_t off = 0;
+        for (size_t i = 0; i < iov_count; ++i) {
+            std::memcpy(dst + off, iov[i].iov_base, iov[i].iov_len);
+            off += iov[i].iov_len;
+        }
+    }
+
+    ucx_debug_log("WriteIov(AM,pool) begin frags=%zu total=%zu cap=%zu",
+                  iov_count, total, tx_scratch_.capacity);
+
+    // No memh hint: that flag pushes UCX into the slow true-rendezvous
+    // path (RTS/RTR + fragmented RDMA) which doesn't amortize over a
+    // single 64MB sync request. Without the hint UCX still picks up the
+    // ucp_mem_map'd registration via its rcache. The win we're after here
+    // is the contiguous buffer (vs IOV) — same protocol, fewer iov ops.
+    ucp_request_param_t request_param{};
+    request_param.op_attr_mask = UCP_OP_ATTR_FIELD_DATATYPE;
+    request_param.datatype = ucp_dt_make_contig(1);
+
+    void *request = ucp_am_send_nbx(endpoint_, am_id_,
+                                    nullptr, 0,
+                                    tx_scratch_.addr, total,
+                                    &request_param);
+    wait_request_completion(request, "am_send_pool");
+    ucx_debug_log("WriteIov(AM,pool) done total=%zu", total);
+    return total;
 }
 
 void UcxCommunicator::Sync() {

@@ -34,6 +34,7 @@
 #include <gvirtus/common/SignalState.h>
 #include <pthread.h>
 #include <signal.h>
+#include <sys/uio.h>
 #include <unistd.h>
 
 #include <functional>
@@ -86,10 +87,79 @@ bool read_exact(Communicator *c, char *buffer, size_t size) {
     return true;
 }
 
+// Reads one AM request from the communicator. Two modes:
+//
+//   1. Frame mode (UcxCommunicator): TryAcquireFrame returns a pointer to
+//      the pinned RX-pool slot containing [header][routine][payload]. We
+//      parse those views in-place. `owns_frame` is set to true and the
+//      caller MUST call client_comm->ReleaseFrame() once it's done with
+//      payload_data (i.e., after the handler returns and the response is
+//      built — we already copied the routine string out, so only payload
+//      stays in the slot).
+//
+//   2. Stream fallback (TCP, IB, hybrid, …): byte-stream Read() into
+//      `fallback_storage`, exposed via payload_data/payload_size.
+//      `owns_frame` is set to false.
 bool read_ucx_am_request(Communicator *client_comm,
                          gvirtus::communicators::ucxam::EnvelopeHeader &header,
-                         std::string &routine, std::vector<unsigned char> &payload,
+                         std::string &routine,
+                         std::vector<unsigned char> &fallback_storage,
+                         const unsigned char *&payload_data,
+                         size_t &payload_size,
+                         bool &owns_frame,
                          std::string &error) {
+    owns_frame = false;
+    payload_data = nullptr;
+    payload_size = 0;
+
+    const unsigned char *frame = nullptr;
+    size_t frame_size = 0;
+    if (client_comm->TryAcquireFrame(frame, frame_size)) {
+        // Frame mode: validate frame is big enough for the header.
+        if (frame_size < sizeof(header)) {
+            client_comm->ReleaseFrame();
+            error = "AM frame smaller than header";
+            return false;
+        }
+        std::memcpy(&header, frame, sizeof(header));
+
+        if (header.magic != gvirtus::communicators::ucxam::kEnvelopeMagic ||
+            header.version != gvirtus::communicators::ucxam::kEnvelopeVersion ||
+            header.header_size != sizeof(header)) {
+            client_comm->ReleaseFrame();
+            error = "invalid AM header";
+            return false;
+        }
+        if (header.message_type !=
+            static_cast<uint16_t>(gvirtus::communicators::ucxam::MessageType::Request)) {
+            client_comm->ReleaseFrame();
+            error = "unexpected AM message type";
+            return false;
+        }
+
+        const size_t want = sizeof(header) +
+                            static_cast<size_t>(header.routine_size) +
+                            static_cast<size_t>(header.payload_size);
+        if (frame_size < want) {
+            client_comm->ReleaseFrame();
+            error = "AM frame truncated";
+            return false;
+        }
+
+        // Copy out the routine name (small, simpler than dealing with pool lifetime).
+        routine.assign(reinterpret_cast<const char *>(frame + sizeof(header)),
+                       static_cast<size_t>(header.routine_size));
+
+        // Payload stays in the pool slot — caller releases when done.
+        payload_data = frame + sizeof(header) + header.routine_size;
+        payload_size = static_cast<size_t>(header.payload_size);
+        owns_frame = true;
+
+        error.clear();
+        return true;
+    }
+
+    // Stream fallback (non-UCX transports).
     if (!read_exact(client_comm, reinterpret_cast<char *>(&header), sizeof(header))) {
         error = "unable to read AM header";
         return false;
@@ -114,12 +184,15 @@ bool read_ucx_am_request(Communicator *client_comm,
         return false;
     }
 
-    payload.assign(static_cast<size_t>(header.payload_size), 0);
-    if (!payload.empty() &&
-        !read_exact(client_comm, reinterpret_cast<char *>(payload.data()), payload.size())) {
+    fallback_storage.assign(static_cast<size_t>(header.payload_size), 0);
+    if (!fallback_storage.empty() &&
+        !read_exact(client_comm, reinterpret_cast<char *>(fallback_storage.data()),
+                    fallback_storage.size())) {
         error = "unable to read AM payload bytes";
         return false;
     }
+    payload_data = fallback_storage.data();
+    payload_size = fallback_storage.size();
 
     error.clear();
     return true;
@@ -138,16 +211,6 @@ bool write_ucx_am_response(Communicator *client_comm,
     }
 
     const size_t payload_size = sizeof(double) + sizeof(size_t) + out_size;
-    std::vector<unsigned char> payload(payload_size);
-
-    size_t off = 0;
-    std::memcpy(payload.data() + off, &server_exec_sec, sizeof(double));
-    off += sizeof(double);
-    std::memcpy(payload.data() + off, &out_size, sizeof(size_t));
-    off += sizeof(size_t);
-    if (out_size > 0 && out_data != nullptr) {
-        std::memcpy(payload.data() + off, out_data, out_size);
-    }
 
     gvirtus::communicators::ucxam::EnvelopeHeader response_header{};
     response_header.magic = gvirtus::communicators::ucxam::kEnvelopeMagic;
@@ -160,11 +223,29 @@ bool write_ucx_am_response(Communicator *client_comm,
     response_header.routine_size = 0;
     response_header.payload_size = static_cast<uint64_t>(payload_size);
 
+    // Gather-send response via WriteIov — eliminates the std::vector staging
+    // copy of the entire output payload (was the dual of the frontend's
+    // request-side ~27ms marshal). UCX backend maps this to a single
+    // ucp_am_send_nbx with UCP_DATATYPE_IOV.
+    struct iovec iov[4];
+    int n = 0;
+    iov[n].iov_base = &response_header;
+    iov[n].iov_len  = sizeof(response_header);
+    ++n;
+    iov[n].iov_base = &server_exec_sec;
+    iov[n].iov_len  = sizeof(double);
+    ++n;
+    iov[n].iov_base = &out_size;
+    iov[n].iov_len  = sizeof(size_t);
+    ++n;
+    if (out_size > 0 && out_data != nullptr) {
+        iov[n].iov_base = const_cast<char *>(out_data);
+        iov[n].iov_len  = out_size;
+        ++n;
+    }
+
     try {
-        client_comm->Write(reinterpret_cast<const char *>(&response_header), sizeof(response_header));
-        if (!payload.empty()) {
-            client_comm->Write(reinterpret_cast<const char *>(payload.data()), payload.size());
-        }
+        client_comm->WriteIov(iov, static_cast<size_t>(n));
         client_comm->Sync();
     } catch (const std::exception &e) {
         error = e.what();
@@ -285,18 +366,29 @@ void Process::Start() {
                 for (;;) {
                     gvirtus::communicators::ucxam::EnvelopeHeader request_header{};
                     std::string am_routine;
-                    std::vector<unsigned char> am_payload;
+                    std::vector<unsigned char> am_payload_fallback;
+                    const unsigned char *am_payload_data = nullptr;
+                    size_t am_payload_size = 0;
+                    bool owns_frame = false;
                     std::string read_error;
 
-                    if (!read_ucx_am_request(client_comm, request_header, am_routine, am_payload, read_error)) {
+                    if (!read_ucx_am_request(client_comm, request_header, am_routine,
+                                             am_payload_fallback, am_payload_data,
+                                             am_payload_size, owns_frame, read_error)) {
                         LOG4CPLUS_INFO(logger,
                                        "Client disconnected (UCX AM): " << read_error);
                         break;
                     }
 
                     std::shared_ptr<Buffer> am_input = std::make_shared<Buffer>();
-                    if (!am_payload.empty()) {
-                        am_input = std::make_shared<Buffer>(reinterpret_cast<char *>(am_payload.data()), am_payload.size());
+                    if (am_payload_size > 0 && am_payload_data != nullptr) {
+                        // Non-owning Buffer wrap — the bytes live either in
+                        // am_payload_fallback (stream mode) or in the
+                        // communicator's pinned RX-pool slot (frame mode).
+                        // Either way, lifetime extends past h->Execute().
+                        am_input = std::make_shared<Buffer>(
+                            reinterpret_cast<char *>(const_cast<unsigned char *>(am_payload_data)),
+                            am_payload_size);
                     }
 
                     std::shared_ptr<Handler> h = nullptr;
@@ -322,8 +414,16 @@ void Process::Start() {
                     }
 
                     std::string write_error;
-                    if (!write_ucx_am_response(client_comm, request_header, result->GetExitCode(), result->TimeTaken(),
-                                               result->GetOutputBuffer(), write_error)) {
+                    bool response_ok = write_ucx_am_response(client_comm, request_header,
+                                                             result->GetExitCode(), result->TimeTaken(),
+                                                             result->GetOutputBuffer(), write_error);
+
+                    // Release the pinned RX-pool slot now that the handler is
+                    // done with it and the response has been sent. Must happen
+                    // AFTER h->Execute() returns (am_input points into the slot).
+                    if (owns_frame) client_comm->ReleaseFrame();
+
+                    if (!response_ok) {
                         LOG4CPLUS_WARN(logger,
                                        "UCX AM response write failed: " << write_error);
                         break;

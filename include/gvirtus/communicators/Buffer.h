@@ -128,6 +128,24 @@ class Buffer {
         mBackOffset = mLength;
     }
 
+    // Bulk-append raw bytes with NO size prefix (unlike Add<T*>(item, n)
+    // which prepends an 8-byte size header). Used by Frontend.cpp to flush
+    // a large response payload (e.g. 64MB cudaMemcpy D2H) into the output
+    // buffer in a single memcpy. Replacing this with the per-byte Add<char>
+    // loop costs ~67M function calls + repeated reallocs = ~1.3s for 64MB;
+    // this is ~3ms instead.
+    void AppendBytes(const char *src, size_t n) {
+        if (n == 0 || src == NULL) return;
+        if ((mLength + n) >= mSize) {
+            mSize = ((mLength + n) / mBlockSize + 1) * mBlockSize;
+            if ((mpBuffer = (char *)realloc(mpBuffer, mSize)) == NULL)
+                throw std::runtime_error("Buffer::AppendBytes: Can't reallocate memory.");
+        }
+        std::memcpy(mpBuffer + mLength, src, n);
+        mLength += n;
+        mBackOffset = mLength;
+    }
+
     template <class T>
     void AddConst(const T item) {
         if ((mLength + safe_sizeof<T>()) >= mSize) {
