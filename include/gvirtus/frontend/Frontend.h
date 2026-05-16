@@ -122,8 +122,23 @@ class Frontend {
     // buffer offset. Caller must NOT mutate ptr until Execute() returns.
     // Pattern (matches AddHostPointerForArguments wire format):
     //     [size_t = n*sizeof(T)] [n*sizeof(T) bytes of ptr]
+    //
+    // Only the UCX path in Execute() honours the iov-split. Plain-TCP /
+    // HybridCommunicator go through input_buffer->Dump() which serializes
+    // mpInputBuffer as-is and would send the truncated buffer (header-only,
+    // missing the user payload) — backend AssignAll<char> then throws
+    // "Can't read char" and cudaMemcpy returns cudaErrorMemoryAllocation(2).
+    // Fall back to the legacy in-buffer marshal in that case so non-UCX
+    // transports keep working; UCX retains the zero-copy fast path.
     template <class T>
     void AddHostPointerForArgumentsDirect(const T *ptr, size_t n = 1) {
+        const bool ucx =
+            _communicator && _communicator->obj_ptr() &&
+            _communicator->obj_ptr()->to_string() == "ucxcommunicator";
+        if (!ucx) {
+            mpInputBuffer->Add<T>(const_cast<T *>(ptr), n);
+            return;
+        }
         if (ptr == nullptr) {
             mpInputBuffer->Add((size_t)0);
             return;
