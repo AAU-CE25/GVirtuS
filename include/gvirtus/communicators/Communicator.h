@@ -90,6 +90,16 @@ class Communicator {
     }
     virtual void ReleaseFrame() {}
 
+    // GPUDirect (Variant B Step B4): after a successful TryAcquireFrame, a
+    // transport that supports GPU-resident payload landing (UCX with
+    // GPUDirect) may have an additional GPU pointer + size associated with
+    // the current frame. Default implementation returns no GPU payload —
+    // stream-oriented transports never have one.
+    virtual void current_frame_gpu(void *&gpu, std::size_t &size) const {
+        gpu = nullptr;
+        size = 0;
+    }
+
     virtual void Sync() = 0;
 
     /**

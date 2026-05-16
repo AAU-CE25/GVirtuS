@@ -29,10 +29,54 @@
 #include "CudaRtHandler.h"
 #include "CudaUtil.h"
 
+#include <algorithm>
+#include <cstdlib>
+
 using namespace log4cplus;
 using namespace std;
 
 using gvirtus::common::mappedPointer;
+
+namespace {
+// GPUDirect status (Step 3 of GVIRTUS_GPUDIRECT rollout). The UCX communicator
+// sets the env var GVIRTUS_GPUDIRECT_ACTIVE to "1" or "0" at backend startup
+// based on the probe result. We read it once per process and cache. Going via
+// env var (instead of an extern "C" symbol) avoids RTLD_GLOBAL coupling
+// between libgvirtus-communicators-ucx.so and this dlopen'd plugin.
+bool gvirtus_gpudirect_enabled() {
+    static const bool active = []() {
+        const char *v = std::getenv("GVIRTUS_GPUDIRECT_ACTIVE");
+        return v != nullptr && v[0] == '1';
+    }();
+    return active;
+}
+
+// Thread-local GPU scratch used by the D2H handler when GPUDirect is active.
+// Grows on demand (2× growth to amortize cudaMalloc cost). Each backend
+// worker thread has its own scratch so there's no cross-thread synchronization.
+// Lifetime: process lifetime (cudaFree at destructor).
+thread_local void *tls_gpu_scratch       = nullptr;
+thread_local size_t tls_gpu_scratch_size = 0;
+
+void *get_tls_gpu_scratch(size_t needed) {
+    if (tls_gpu_scratch_size >= needed && tls_gpu_scratch != nullptr) {
+        return tls_gpu_scratch;
+    }
+    if (tls_gpu_scratch != nullptr) {
+        cudaFree(tls_gpu_scratch);
+        tls_gpu_scratch = nullptr;
+        tls_gpu_scratch_size = 0;
+    }
+    const size_t new_size = std::max(needed, tls_gpu_scratch_size * 2);
+    if (cudaMalloc(&tls_gpu_scratch, new_size) != cudaSuccess) {
+        tls_gpu_scratch = nullptr;
+        tls_gpu_scratch_size = 0;
+        return nullptr;
+    }
+    tls_gpu_scratch_size = new_size;
+    return tls_gpu_scratch;
+}
+}  // namespace
 
 // This is for HostRegister support
 // Key: Frontend pointer that was malloc’d on client side.
@@ -237,9 +281,29 @@ CUDA_ROUTINE_HANDLER(Memcpy) {
                 // This should never happen
                 result = NULL;
                 break;
-            case cudaMemcpyHostToDevice:
+            case cudaMemcpyHostToDevice: {
                 try {
                     dst = input_buffer->GetFromMarshal<void *>();
+                } catch (const std::exception &e) {
+                    cerr << e.what() << endl;
+                    return std::make_shared<Result>(cudaErrorMemoryAllocation);
+                }
+                // GPUDirect Variant B Step B4: if the peer routed the payload
+                // into the slot's GPU shadow (peer-DMA via peermem), the
+                // Buffer carries a GPU-resident tail pointer. Skip the host
+                // AssignAll (which would read garbage from the host slot's
+                // hole) and cudaMemcpy D2D from the GPU shadow directly —
+                // saves one PCIe round-trip per H2D call.
+                void *gpu_src = input_buffer->GetGpuPayload();
+                size_t gpu_src_size = input_buffer->GetGpuPayloadSize();
+                if (gpu_src != nullptr && gpu_src_size >= count) {
+                    exit_code = cudaMemcpy(dst, gpu_src, count,
+                                           cudaMemcpyDeviceToDevice);
+                    result = std::make_shared<Result>(exit_code);
+                    break;
+                }
+
+                try {
                     src = input_buffer->AssignAll<char>();
                 } catch (const std::exception &e) {
                     cerr << e.what() << endl;
@@ -248,9 +312,8 @@ CUDA_ROUTINE_HANDLER(Memcpy) {
                 exit_code = cudaMemcpy(dst, src, count, kind);
                 result = std::make_shared<Result>(exit_code);
                 break;
-            case cudaMemcpyDeviceToHost:
-                // FIXME: use buffer delegate
-                dst = new char[count];
+            }
+            case cudaMemcpyDeviceToHost: {
                 /* skipping a char for fake host pointer */
                 try {
                     input_buffer->Assign<char>();
@@ -259,17 +322,63 @@ CUDA_ROUTINE_HANDLER(Memcpy) {
                     cerr << e.what() << endl;
                     return std::make_shared<Result>(cudaErrorMemoryAllocation);
                 }
+
+                // GPUDirect fast path: cudaMemcpy D2D into a TLS GPU scratch,
+                // attach the GPU pointer to the Result as a side-channel. The
+                // UCX-AM response writer splits iov into [host_prefix][gpu_payload]
+                // and WriteIovRma puts the GPU fragment directly via peer-DMA.
+                // Saves the backend D2H copy through host pinned mem (~4.78 ms
+                // warm at 64 MB on L40S/Gen4) and the redundant host buffer.
+                //
+                // 4 MB threshold (mirrors Variant B's threshold in WriteIovRma).
+                // Below this size the per-call setup cost (TLS scratch alloc/check,
+                // cudaMemcpy D2D launch overhead, dual-iov response orchestration
+                // in Process.cpp) exceeds the savings from skipping the host
+                // bounce. Empirically observed: at N=256 (256 KB) and N=512 (1 MB)
+                // host_ms regressed from ~0.7/1.1 ms (pre-GPUDirect) to ~1.5/1.9 ms
+                // with GPUDirect on. 4 MB matches Variant B and protects small RPCs.
+                constexpr size_t kGpuDirectD2HThreshold = 4u * 1024u * 1024u;
+                if (gvirtus_gpudirect_enabled() && count >= kGpuDirectD2HThreshold) {
+                    void *gpu_scratch = get_tls_gpu_scratch(count);
+                    if (gpu_scratch != nullptr) {
+                        exit_code = cudaMemcpy(gpu_scratch, src, count,
+                                               cudaMemcpyDeviceToDevice);
+                        if (exit_code == cudaSuccess) {
+                            try {
+                                // Wire format matches Add<char>(p,n): [size_t count][bytes].
+                                // We emit only the size_t prefix here; the count bytes
+                                // come via Result::GetGpuPayload() in Process.cpp.
+                                out = std::make_shared<Buffer>();
+                                out->Add<size_t>(count);
+                            } catch (const std::exception &e) {
+                                cerr << e.what() << endl;
+                                return std::make_shared<Result>(cudaErrorMemoryAllocation);
+                            }
+                            result = std::make_shared<Result>(exit_code, out);
+                            result->SetGpuPayload(gpu_scratch, count);
+                            break;
+                        }
+                        // cudaMemcpy D2D failed: fall through to host path.
+                    }
+                }
+
+                // Legacy host path (also used when GPUDirect probe failed
+                // or scratch alloc failed).
+                // FIXME: use buffer delegate
+                dst = new char[count];
                 exit_code = cudaMemcpy(dst, src, count, kind);
                 try {
                     out = std::make_shared<Buffer>();
                     out->Add<char>((char *)dst, count);
                 } catch (const std::exception &e) {
                     cerr << e.what() << endl;
+                    delete[] (char *)dst;
                     return std::make_shared<Result>(cudaErrorMemoryAllocation);
                 }
                 delete[] (char *)dst;
                 result = std::make_shared<Result>(exit_code, out);
                 break;
+            }
             case cudaMemcpyDeviceToDevice:
                 dst = input_buffer->GetFromMarshal<void *>();
                 src = input_buffer->GetFromMarshal<void *>();

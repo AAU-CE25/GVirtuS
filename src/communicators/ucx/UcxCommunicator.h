@@ -41,6 +41,17 @@ class UcxCommunicator : public Communicator {
     // skipping the per-message std::vector allocation in the Read() byte
     // stream. Must be paired with ReleaseFrame() once the caller is done.
     bool TryAcquireFrame(const unsigned char *&data, size_t &size) override;
+
+    // GPUDirect (Variant B Step B4). After a successful TryAcquireFrame the
+    // current frame may have an associated GPU-resident payload (set by
+    // am_recv_handler when the peer used the Step B3 GPU-split wire format).
+    // Process.cpp reads these via the virtual Communicator::current_frame_gpu
+    // and attaches them to the input Buffer; GPU-aware handlers route via
+    // cudaMemcpyDeviceToDevice instead of HostToDevice, skipping the host bounce.
+    void current_frame_gpu(void *&gpu, std::size_t &size) const override {
+        gpu  = current_frame_.gpu_data;
+        size = current_frame_.gpu_size;
+    }
     void ReleaseFrame() override;
 
     std::string to_string() override { return "ucxcommunicator"; }
@@ -72,6 +83,16 @@ class UcxCommunicator : public Communicator {
         bool in_use{false};
         bool is_cuda_host{false};
         ucp_mem_h memh{nullptr};
+
+        // Optional GPU shadow region for GPUDirect (Variant B, Step B1).
+        // Allocated only when GVIRTUS_GPUDIRECT=1 and probe passed. Lives
+        // alongside the host `addr`. Frontend will eventually be told the
+        // gpu_addr+rkey via RmaSetup (Step B2) and route big payloads here
+        // directly via NIC peer-DMA (Step B3). Step B1 only allocates +
+        // registers — nothing reads/writes gpu_addr yet.
+        unsigned char *gpu_addr{nullptr};
+        size_t gpu_capacity{0};
+        ucp_mem_h gpu_memh{nullptr};
     };
 
     // Message handed off from the AM handler to consumers (Read or
@@ -81,6 +102,16 @@ class UcxCommunicator : public Communicator {
         unsigned char *data{nullptr};
         size_t size{0};
         size_t slot_idx{static_cast<size_t>(-1)};  // -1 if not from pool (e.g., empty)
+
+        // GPUDirect Step B3: when the peer split the payload across host +
+        // GPU shadows, this points into the slot's GPU region. The byte range
+        // [data + (size - gpu_size), data + size) of the LOGICAL message lives
+        // in gpu_data[0 .. gpu_size). Consumers can either: (a) consolidate
+        // via cudaMemcpy D2H into the host hole (B3 default — preserves the
+        // existing parser path at a cost of ~3ms warm), or (b) read GPU
+        // directly via Buffer's dual-aware AssignAll (B4 optimization).
+        unsigned char *gpu_data{nullptr};
+        size_t gpu_size{0};
     };
 
     struct PendingAmRecv {
@@ -155,6 +186,15 @@ class UcxCommunicator : public Communicator {
         std::uint64_t addr{0};       // remote address (server's view)
         std::uint64_t capacity{0};
         ucp_rkey_h rkey{nullptr};    // unpacked on this side
+
+        // Optional GPU shadow advertised by peer (Variant B, Step B2). When
+        // gpu_rkey != nullptr the client can ucp_put_nbx big payloads to
+        // gpu_addr (with this rkey) and the NIC will peer-DMA into the
+        // server's GPU memory (peermem). nullptr / 0 → peer didn't advertise
+        // a GPU shadow → keep host-only path.
+        std::uint64_t gpu_addr{0};
+        std::uint64_t gpu_capacity{0};
+        ucp_rkey_h gpu_rkey{nullptr};
     };
 
     std::vector<RemoteSlot> remote_slots_;
