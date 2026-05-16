@@ -401,68 +401,76 @@ Two separate paths in our stack trigger GPU mem ucp_puts:
 | **Variant A (backend D2H)** | Backend has `tls_gpu_scratch` (CUDA mem). `is_gpu_pointer(iov[biggest])` returns true → `big_is_gpu = true` forces zerocopy → `ucp_put_nbx` from GPU → frontend host slot. | YES — fails on TCP transport. |
 | **Variant B (frontend H2D)** | Frontend has user host buffer. Routes big put to `rs.gpu_addr` (remote GPU) with `rs.gpu_rkey`. `ucp_ep_rkey_unpack` returns UCS_OK even for TCP endpoints (no transport check at unpack time), so `route_big_to_gpu = true`. Put fails at execution time. | YES — fails on TCP transport. |
 
-#### Fix
+#### Fix (initial: process-level gate)
 
-Both paths now check whether the negotiated UCX transport actually
-supports CUDA memory operations. The check is process-level: if `UCX_TLS`
-env doesn't include any RDMA-class transport (`rc_mlx5`, `dc_mlx5`,
-`ud_mlx5`, `ib`), GPUDirect is disabled for that process — even when
-`GVIRTUS_GPUDIRECT=1` is set.
+The first version of the fix was a process-level check at `init_ucx`:
+if `UCX_TLS` env didn't include any RDMA-class transport, GPUDirect was
+disabled for the whole process even when `GVIRTUS_GPUDIRECT=1`. This
+required running separate backends for different transports — a single
+backend serving mixed RDMA + TCP frontends would still try Variant A
+on the TCP connections and fail.
 
-##### Frontend side (`WriteIovRma`)
+#### Fix (current: per-connection gate)
 
-```cpp
-static const bool transport_supports_cuda = []() {
-    const char *tls = std::getenv("UCX_TLS");
-    if (tls == nullptr) return true;  // default UCX selection
-    std::string s(tls);
-    return s.find("rc_mlx5") != std::string::npos ||
-           s.find("dc_mlx5") != std::string::npos ||
-           s.find("ud_mlx5") != std::string::npos ||
-           s.find("ib")      != std::string::npos;
-}();
-const bool route_big_to_gpu = (rs.gpu_rkey != nullptr) &&
-                              (rs.gpu_addr != 0) &&
-                              (big_size >= (4u * 1024u * 1024u)) &&
-                              transport_supports_cuda;
-```
+The gate is now per-connection. A single backend with
+`UCX_TLS=rc_mlx5,ud_mlx5,tcp,self` accepts both RDMA and TCP frontends
+concurrently — GPUDirect activates only on the connections that
+actually negotiated an RDMA lane.
 
-##### Backend side (`init_ucx` — gates the whole GPUDirect activation)
+Three coordinated changes:
 
-```cpp
-const bool tls_supports_cuda = /* same lambda as above */;
-const bool gpudirect_requested = gpudirect_env_set && tls_supports_cuda;
-if (!gpudirect_requested) {
-    g_gpudirect_enabled.store(false);
-    setenv("GVIRTUS_GPUDIRECT_ACTIVE", "0", 1);
-    if (gpudirect_env_set && !tls_supports_cuda) {
-        fprintf(stderr,
-            "[GVS] GPUDirect=disabled (UCX_TLS=%s has no CUDA-capable transport)\n",
-            ...);
-    }
-    return;
-}
-// ... probe ...
-```
+1. **`Communicator::current_connection_supports_cuda()` virtual** (default
+   `false`). `UcxCommunicator` overrides it with a lazy
+   `ucp_ep_query(UCP_EP_ATTR_FIELD_TRANSPORTS)` on `endpoint_`, cached
+   in `supports_cuda_cached_` after the first successful query.
+   `ucp_ep_query` may return `UCS_ERR_NOT_CONNECTED` before wire-up
+   completes; on failure we don't cache, so a later call retries. The
+   first call happens well after wire-up (first cudaMemcpy ≥ 4 MB).
+
+2. **`thread_local bool tls_connection_supports_cuda`** declared `extern`
+   in `Communicator.h`, defined in `CommunicatorFactory.cpp` (part of
+   `libgvirtus-communicators` which both backend and plugins link
+   against). `Process.cpp`'s UCX-AM dispatch loop sets it immediately
+   before each `Handler::Execute()` from
+   `client_comm->current_connection_supports_cuda()`, and resets to
+   `false` after Execute returns.
+
+3. **`CudaRtHandler_memory::gvirtus_gpudirect_enabled()`** AND-s the
+   process-wide cached env flag (`GVIRTUS_GPUDIRECT_ACTIVE`) with
+   `gvirtus::communicators::tls_connection_supports_cuda`. Both layers
+   must be true for the Variant A handler path to activate.
+
+`UcxCommunicator::WriteIovRma`'s `route_big_to_gpu` decision uses the
+same `current_connection_supports_cuda()` accessor directly (it's on the
+same class).
+
+##### Why two layers (process + per-connection)?
+
+- **Process layer** (`GVIRTUS_GPUDIRECT_ACTIVE`) captures system-level
+  preconditions: backend was started with the feature on, `nvidia-peermem`
+  is loaded, the probe at `init_ucx` succeeded.
+- **Per-connection layer** (`tls_connection_supports_cuda`) captures the
+  negotiated lane for THIS endpoint.
+
+A failure of the process layer short-circuits without even creating the
+GPU slot shadows. A failure of the per-connection layer just routes the
+specific call through the host path while keeping the shadows allocated
+for other connections that can use them.
 
 #### Operational consequence
 
-For multi-regime benchmarks, **run a separate backend per regime**:
+A single backend serves all regimes:
 
 ```bash
-# UCX-RDMA backend (GPUDirect ON):
 GVIRTUS_GPUDIRECT=1 UCX_TLS=rc_mlx5,ud_mlx5,tcp,self ... make run-gvirtus-backend-dev
-
-# UCX-TCP backend (GPUDirect OFF, automatic via the gate):
-GVIRTUS_GPUDIRECT=1 UCX_TLS=tcp,self ... make run-gvirtus-backend-dev
-# (or just leave GVIRTUS_GPUDIRECT unset — same effect)
 ```
 
-The gate is at process startup, not per-connection. A single backend
-serving mixed RDMA/TCP frontends would still try Variant A on TCP
-connections and fail. Per-connection gating is a separate future
-improvement that would require querying each accepted endpoint's
-transport via `ucp_ep_query`.
+- RDMA frontend (`UCX_TLS=rc_mlx5,...`) negotiates rc_mlx5 → GPUDirect on.
+- TCP frontend (`UCX_TLS=tcp,self`) negotiates tcp → GPUDirect off for
+  that connection (host path), other connections unaffected.
+- Plain TCP (`TcpCommunicator`, `properties.json`) → `to_string() !=
+  "ucxcommunicator"` so the base virtual returns `false`. GPUDirect off,
+  as expected.
 
 #### Generalization
 
@@ -725,6 +733,157 @@ When `GVIRTUS_GPUDIRECT=1`:
   `cudaPointerGetAttributes` from `libcudart.so.12`.
 - ConnectX-7 (or compatible NIC with PeerDirect support).
 
+### Quickstart launchers
+
+Copy-paste-ready commands for the four combinations of transport × GPUDirect.
+Backend on `es-dpu-01`, frontend on `es-dpu-02`. Run from the `~/GVirtuS`
+working directory on each node. All four use the **same backend image** —
+the per-connection gate (§5) handles the transport-specific decisions at
+runtime, so a single backend serves any combination of frontends concurrently.
+
+The frontend commands assume the `examples/simple_matrix` benchmark and
+the `run-simple-matrix-test` Makefile target. For other frontends (OpenPose,
+torchvision, etc.), drop the `MATRIX_SIZE`/`ITERATIONS`/`WARMUP` env vars
+and point at the appropriate target / docker run wrapper — the
+transport / GPUDirect env vars are the same.
+
+#### (1) UCX-TCP without GPUDirect — slowest, useful as TCP baseline
+
+**Backend node** (`es-dpu-01`):
+
+```bash
+make stop-gvirtus || true
+GVIRTUS_UCX_DATAPATH=am \
+UCX_TLS=tcp,self \
+UCX_NET_DEVICES=ens1f1np1 \
+UCX_SOCKADDR_TLS_PRIORITY=tcp \
+UCX_LOG_LEVEL=info \
+make run-gvirtus-backend-dev
+```
+
+**Frontend node** (`es-dpu-02`):
+
+```bash
+GVIRTUS_UCX_DATAPATH=am \
+UCX_TLS=tcp,self \
+UCX_NET_DEVICES=ens1f1np1 \
+UCX_SOCKADDR_TLS_PRIORITY=tcp \
+UCX_LOG_LEVEL=info \
+make run-simple-matrix-test
+```
+
+#### (2) UCX-RDMA without GPUDirect — RDMA wire, no peer-DMA from CUDA
+
+**Backend node**:
+
+```bash
+make stop-gvirtus || true
+GVIRTUS_RMA_ZEROCOPY=1 \
+GVIRTUS_UCX_DATAPATH=am \
+UCX_TLS=rc_mlx5,ud_mlx5,tcp,self \
+UCX_NET_DEVICES=mlx5_1:1,ens1f1np1 \
+UCX_SOCKADDR_TLS_PRIORITY=tcp \
+UCX_IB_GID_INDEX=3 \
+UCX_LOG_LEVEL=info \
+make run-gvirtus-backend-dev
+```
+
+**Frontend node**:
+
+```bash
+GVIRTUS_RMA_ZEROCOPY=1 \
+GVIRTUS_UCX_DATAPATH=am \
+UCX_TLS=rc_mlx5,ud_mlx5,tcp,self \
+UCX_NET_DEVICES=mlx5_1:1,ens1f1np1 \
+UCX_SOCKADDR_TLS_PRIORITY=tcp \
+UCX_IB_GID_INDEX=3 \
+UCX_LOG_LEVEL=info \
+make run-simple-matrix-test
+```
+
+#### (3) UCX-TCP with GPUDirect-enabled backend — per-connection gate keeps GPUDirect OFF for this connection
+
+This is the **mixed-deployment scenario**: backend is configured with
+GPUDirect on (allocates GPU slot shadows, advertises `gpu_rkey`), but a
+frontend connects with `UCX_TLS=tcp,self`. UCX negotiates a TCP lane for
+that connection. The per-connection gate (`current_connection_supports_cuda()`
+inspecting `ucp_ep_print_info` output) returns `false` for the TCP
+endpoint, so backend skips Variant A and frontend skips Variant B —
+the connection runs the host-bounce path cleanly. Performance is the
+same as scenario (1); the value is that this exact backend can also
+serve RDMA frontends with full GPUDirect concurrently.
+
+**Backend node**:
+
+```bash
+make stop-gvirtus || true
+GVIRTUS_GPUDIRECT=1 \
+GVIRTUS_RMA_ZEROCOPY=1 \
+GVIRTUS_UCX_DATAPATH=am \
+UCX_TLS=rc_mlx5,ud_mlx5,tcp,self \
+UCX_NET_DEVICES=mlx5_1:1,ens1f1np1 \
+UCX_SOCKADDR_TLS_PRIORITY=tcp \
+UCX_IB_GID_INDEX=3 \
+UCX_LOG_LEVEL=info \
+make run-gvirtus-backend-dev
+```
+
+**Frontend node** (TCP only — `UCX_TLS=tcp,self`):
+
+```bash
+GVIRTUS_UCX_DATAPATH=am \
+UCX_TLS=tcp,self \
+UCX_NET_DEVICES=ens1f1np1 \
+UCX_SOCKADDR_TLS_PRIORITY=tcp \
+UCX_LOG_LEVEL=info \
+make run-simple-matrix-test
+```
+
+#### (4) UCX-RDMA with GPUDirect — full peer-DMA, headline numbers
+
+**Backend node** (identical to scenario (3) — same backend serves both):
+
+```bash
+make stop-gvirtus || true
+GVIRTUS_GPUDIRECT=1 \
+GVIRTUS_RMA_ZEROCOPY=1 \
+GVIRTUS_UCX_DATAPATH=am \
+UCX_TLS=rc_mlx5,ud_mlx5,tcp,self \
+UCX_NET_DEVICES=mlx5_1:1,ens1f1np1 \
+UCX_SOCKADDR_TLS_PRIORITY=tcp \
+UCX_IB_GID_INDEX=3 \
+UCX_LOG_LEVEL=info \
+make run-gvirtus-backend-dev
+```
+
+**Frontend node**:
+
+```bash
+GVIRTUS_GPUDIRECT=1 \
+GVIRTUS_RMA_ZEROCOPY=1 \
+GVIRTUS_UCX_DATAPATH=am \
+UCX_TLS=rc_mlx5,ud_mlx5,tcp,self \
+UCX_NET_DEVICES=mlx5_1:1,ens1f1np1 \
+UCX_SOCKADDR_TLS_PRIORITY=tcp \
+UCX_IB_GID_INDEX=3 \
+UCX_LOG_LEVEL=info \
+make run-simple-matrix-test
+```
+
+#### Expected performance at N=4096 (64 MB, simple_matrix)
+
+| Scenario | host_ms / iter |
+|---|---|
+| (1) UCX-TCP no GPUDirect | ~167 |
+| (2) UCX-RDMA no GPUDirect | ~27–38 |
+| (3) UCX-TCP on GPUDirect backend (gate active) | ~167 |
+| (4) UCX-RDMA + GPUDirect | **~17** |
+
+Scenarios (3) and (1) are within run-to-run noise of each other — the
+per-connection gate makes the GPUDirect-enabled backend transparent to
+TCP frontends. Scenario (4) is the headline 16.69× speedup vs Aponte
+PPAM 2024 (287 ms baseline).
+
 ---
 
 ## 8. Measurements
@@ -911,15 +1070,6 @@ critical paths.
 ---
 
 ## 10. Known limitations
-
-### Per-connection transport awareness
-
-The GPUDirect activation is process-level (env-gated at `init_ucx`).
-A single backend serving mixed UCX-RDMA + UCX-TCP frontends would still
-try Variant A on TCP connections and fail. Workaround: run separate
-backends per transport regime. Permanent fix would query each accepted
-endpoint via `ucp_ep_query` and store a `endpoint_supports_cuda` flag
-on the communicator.
 
 ### Handler GPU-awareness coverage
 

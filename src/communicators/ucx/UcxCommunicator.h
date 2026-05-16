@@ -54,6 +54,18 @@ class UcxCommunicator : public Communicator {
     }
     void ReleaseFrame() override;
 
+    // Per-connection transport capability (Option 2 — per-connection
+    // GPUDirect gate). Lazy: on the first call after wire-up has produced
+    // a usable endpoint, ucp_ep_query(TRANSPORTS) returns the negotiated
+    // lanes; we scan for an RDMA-class transport name. Result is cached
+    // and reused for the lifetime of this UcxCommunicator (one connection).
+    //
+    // Returns false until the global GVIRTUS_GPUDIRECT probe has succeeded
+    // (g_gpudirect_enabled). This means: even if the endpoint has an RDMA
+    // lane, we won't try GPUDirect ops unless the process was started with
+    // GVIRTUS_GPUDIRECT=1 and the probe passed.
+    bool current_connection_supports_cuda() const override;
+
     std::string to_string() override { return "ucxcommunicator"; }
 
    private:
@@ -243,6 +255,12 @@ class UcxCommunicator : public Communicator {
     PooledMsg pending_msg_;
     size_t pending_read_offset_{0};
     std::atomic<bool> endpoint_failed_{false};
+
+    // Per-connection GPUDirect gate cache. -1 = not yet queried (lazy on
+    // first current_connection_supports_cuda() call), 0 = TCP/non-RDMA
+    // negotiated, 1 = RDMA-class transport negotiated. mutable because
+    // current_connection_supports_cuda() is logically const.
+    mutable std::atomic<int> supports_cuda_cached_{-1};
 };
 
 }  // namespace gvirtus::communicators

@@ -29,6 +29,8 @@
 #include "CudaRtHandler.h"
 #include "CudaUtil.h"
 
+#include <gvirtus/communicators/Communicator.h>
+
 #include <algorithm>
 #include <cstdlib>
 
@@ -38,17 +40,33 @@ using namespace std;
 using gvirtus::common::mappedPointer;
 
 namespace {
-// GPUDirect status (Step 3 of GVIRTUS_GPUDIRECT rollout). The UCX communicator
-// sets the env var GVIRTUS_GPUDIRECT_ACTIVE to "1" or "0" at backend startup
-// based on the probe result. We read it once per process and cache. Going via
-// env var (instead of an extern "C" symbol) avoids RTLD_GLOBAL coupling
-// between libgvirtus-communicators-ucx.so and this dlopen'd plugin.
+// GPUDirect gate. Two layers:
+//
+//   (1) Process-wide: GVIRTUS_GPUDIRECT_ACTIVE env var, set by the UCX
+//       communicator's init_ucx based on the cudaMalloc + ucp_mem_map(CUDA)
+//       probe. False unless the backend was started with GVIRTUS_GPUDIRECT=1
+//       AND nvidia-peermem is loaded AND UCX can register CUDA memory.
+//
+//   (2) Per-connection (Option 2 — supersedes the prior process-only gate):
+//       Process.cpp's UCX-AM dispatch loop sets
+//       gvirtus::communicators::tls_connection_supports_cuda just before
+//       calling Handler::Execute, derived from the active endpoint's
+//       negotiated transport. False on UCX-TCP endpoints (which cannot
+//       peer-DMA from CUDA memory) and on the brief window before
+//       Process.cpp sets it.
+//
+// Both must be true for GPUDirect to activate on a given call. (1) is
+// cached at process start; (2) is read fresh each call so a single
+// backend with UCX_TLS=rc_mlx5,ud_mlx5,tcp,self can serve mixed
+// RDMA + TCP frontends, only routing through the GPU shadow on the
+// connections that negotiated an RDMA lane.
 bool gvirtus_gpudirect_enabled() {
-    static const bool active = []() {
+    static const bool process_active = []() {
         const char *v = std::getenv("GVIRTUS_GPUDIRECT_ACTIVE");
         return v != nullptr && v[0] == '1';
     }();
-    return active;
+    return process_active &&
+           gvirtus::communicators::tls_connection_supports_cuda;
 }
 
 // Thread-local GPU scratch used by the D2H handler when GPUDirect is active.
@@ -75,6 +93,39 @@ void *get_tls_gpu_scratch(size_t needed) {
     }
     tls_gpu_scratch_size = new_size;
     return tls_gpu_scratch;
+}
+
+// Fase 1+2 TLS host slot for the D2H legacy path. Replaces the per-call
+// `new char[count]` allocation: first call faults all pages via memset(0),
+// subsequent calls reuse the warm slot. Combined with the non-owning
+// Buffer(char*, size_t) view (mOwnBuffer=false), eliminates two of the
+// three 64 MB copies the naive implementation does (alloc-with-page-fault,
+// cudaMemcpy into it, Add<char> realloc+memmove into Buffer's mpBuffer,
+// delete[]) -> handler latency drops from ~80 ms to ~4.7 ms at 64 MB.
+//
+// Layout: slot[0..8) = size_t prefix (count), slot[8..8+count) = data.
+// Matches Add<char>(ptr, n) wire format so the frontend's Assign<char>
+// reads the prefix correctly. Grows monotonically by 2x; never shrinks.
+thread_local char *tls_d2h_slot      = nullptr;
+thread_local size_t tls_d2h_slot_cap = 0;
+
+char *get_tls_d2h_slot(size_t needed_bytes_for_data) {
+    const size_t needed_total = sizeof(size_t) + needed_bytes_for_data;
+    if (tls_d2h_slot != nullptr && tls_d2h_slot_cap >= needed_total) {
+        return tls_d2h_slot;
+    }
+    delete[] tls_d2h_slot;
+    const size_t new_cap = std::max(needed_total, tls_d2h_slot_cap * 2);
+    tls_d2h_slot = new (std::nothrow) char[new_cap];
+    if (tls_d2h_slot == nullptr) {
+        tls_d2h_slot_cap = 0;
+        return nullptr;
+    }
+    tls_d2h_slot_cap = new_cap;
+    // Pre-fault: touch every page so subsequent cudaMemcpy doesn't pay
+    // page-fault cost on first access. memset is the simplest portable way.
+    std::memset(tls_d2h_slot, 0, new_cap);
+    return tls_d2h_slot;
 }
 }  // namespace
 
@@ -363,19 +414,27 @@ CUDA_ROUTINE_HANDLER(Memcpy) {
                 }
 
                 // Legacy host path (also used when GPUDirect probe failed
-                // or scratch alloc failed).
-                // FIXME: use buffer delegate
-                dst = new char[count];
-                exit_code = cudaMemcpy(dst, src, count, kind);
-                try {
-                    out = std::make_shared<Buffer>();
-                    out->Add<char>((char *)dst, count);
-                } catch (const std::exception &e) {
-                    cerr << e.what() << endl;
-                    delete[] (char *)dst;
+                // or scratch alloc failed). Uses Fase 1+2 TLS pre-faulted
+                // slot to avoid per-call new[]+page-faults, and a non-owning
+                // Buffer view to skip Add<char>'s 64 MB memmove into mpBuffer.
+                //
+                // Wire layout matches Add<char>(p, n):
+                //   slot[0..8)        = size_t prefix == count
+                //   slot[8..8+count)  = data bytes
+                // Buffer is constructed non-owning over slot for length
+                // sizeof(size_t)+count; dtor will NOT free the slot.
+                char *slot = get_tls_d2h_slot(count);
+                if (slot == nullptr) {
                     return std::make_shared<Result>(cudaErrorMemoryAllocation);
                 }
-                delete[] (char *)dst;
+                *reinterpret_cast<size_t *>(slot) = count;
+                exit_code = cudaMemcpy(slot + sizeof(size_t), src, count, kind);
+                try {
+                    out = std::make_shared<Buffer>(slot, sizeof(size_t) + count);
+                } catch (const std::exception &e) {
+                    cerr << e.what() << endl;
+                    return std::make_shared<Result>(cudaErrorMemoryAllocation);
+                }
                 result = std::make_shared<Result>(exit_code, out);
                 break;
             }

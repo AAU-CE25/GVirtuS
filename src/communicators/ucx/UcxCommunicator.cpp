@@ -1053,6 +1053,79 @@ void UcxCommunicator::ReleaseFrame() {
     current_frame_ = PooledMsg{};
 }
 
+// Per-connection GPUDirect gate (Option 2). Returns true iff THIS
+// endpoint negotiated an RDMA-class transport (rc_mlx5 / dc_mlx5 /
+// ud_mlx5 / ib) capable of carrying CUDA memory operations.
+//
+// This is a property of the TRANSPORT, not of the local process. In
+// particular it does NOT depend on g_gpudirect_enabled (= local probe
+// of cudaMalloc + ucp_mem_map(CUDA), which requires nvidia-peermem
+// loaded on this host). Reason: frontend Variant B (host → remote GPU
+// shadow) puts data FROM host memory, so the local NIC doesn't need
+// peer-DMA-from-CUDA capability — only RDMA-class transport plus the
+// backend's gpu_rkey suffice.
+//
+// The "process can locally do CUDA peer-DMA" precondition is enforced
+// separately in places where the local side IS the CUDA mem source —
+// notably gvirtus_gpudirect_enabled() in CudaRtHandler_memory.cpp,
+// which AND-s GVIRTUS_GPUDIRECT_ACTIVE (env, set by init_ucx based
+// on the probe) with tls_connection_supports_cuda (this method).
+//
+// Lazy + cached: ucp_ep_query returns the negotiated lanes only after
+// wire-up completes (async, after first AM exchange). The first caller
+// (WriteIovRma at the first cudaMemcpy >= 4 MB, or Process.cpp's pre-
+// Execute set of tls_connection_supports_cuda) happens well after
+// wire-up. ucp_ep_query failures don't cache so a later call retries.
+bool UcxCommunicator::current_connection_supports_cuda() const {
+    int cached = supports_cuda_cached_.load(std::memory_order_acquire);
+    if (cached != -1) return cached == 1;
+
+    if (endpoint_ == nullptr) {
+        return false;  // don't cache — endpoint may still be assigned later
+    }
+
+    // We use ucp_ep_print_info instead of ucp_ep_query(TRANSPORTS) because
+    // in UCX 1.20 (this container) ucp_ep_query returns UCS_OK with
+    // num_entries>0 but transport_name/device_name as NULL pointers — a
+    // quirk likely tied to lane wire-up state or an ABI mismatch between
+    // the pinned header and the loaded .so. ucp_ep_print_info renders the
+    // lane info as text to a FILE* and is the API used by ucx_info and
+    // verbose UCX logs, so its output is well tested across builds.
+    //
+    // Captured via open_memstream and grep'd for RDMA-class transport
+    // tokens. Expected output lines look like:
+    //   #     lane[1]: 2:rc_mlx5/mlx5_1:1.0 md[2] -> md[2]/ib/sysdev[3] ... rma_bw#0 am
+    // Tokens rc_mlx5 / dc_mlx5 / ud_mlx5 (mlx5 driver) and rc_verbs /
+    // dc_verbs / ud_verbs (generic verbs) indicate an RDMA-class lane.
+    char *buf = nullptr;
+    size_t buf_size = 0;
+    FILE *fp = open_memstream(&buf, &buf_size);
+    if (fp == nullptr) {
+        return false;  // memstream alloc failed — retry next call
+    }
+    ucp_ep_print_info(endpoint_, fp);
+    std::fclose(fp);
+
+    if (buf == nullptr || buf_size == 0) {
+        if (buf) std::free(buf);
+        return false;
+    }
+
+    const bool supports = (std::strstr(buf, "rc_mlx5") != nullptr) ||
+                          (std::strstr(buf, "dc_mlx5") != nullptr) ||
+                          (std::strstr(buf, "ud_mlx5") != nullptr) ||
+                          (std::strstr(buf, "rc_verbs") != nullptr) ||
+                          (std::strstr(buf, "dc_verbs") != nullptr) ||
+                          (std::strstr(buf, "ud_verbs") != nullptr);
+    std::free(buf);
+
+    supports_cuda_cached_.store(supports ? 1 : 0, std::memory_order_release);
+    ucx_debug_log("current_connection_supports_cuda: endpoint=%p -> %s",
+                  (void *)endpoint_,
+                  supports ? "RDMA (CUDA-capable)" : "non-RDMA (TCP-class)");
+    return supports;
+}
+
 // Register `slot.addr/capacity` (host) AND `slot.gpu_addr/gpu_capacity` (if
 // present) with the UCX context so subsequent ucp_am_recv_data_nbx and
 // ucp_put_nbx can use the memh hints and skip on-the-fly IB registration.
@@ -1742,21 +1815,15 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
         // blob; transport check happens at put time). If we then attempt
         // ucp_put_nbx to GPU memory over a TCP endpoint, UCX errors out or
         // hangs, killing the connection. Defensive check at WriteIovRma init
-        // time: probe UCX_TLS env for at least one RDMA-class transport.
-        // If UCX is forced to pure TCP, skip GPU routing — the put would fail.
-        static const bool transport_supports_cuda = []() {
-            const char *tls = std::getenv("UCX_TLS");
-            if (tls == nullptr) return true;  // default UCX selection — likely RDMA if available
-            std::string s(tls);
-            return s.find("rc_mlx5") != std::string::npos ||
-                   s.find("dc_mlx5") != std::string::npos ||
-                   s.find("ud_mlx5") != std::string::npos ||
-                   s.find("ib")      != std::string::npos;
-        }();
+        // time: query THIS endpoint's negotiated lanes via ucp_ep_query
+        // (lazy + cached). Supersedes the previous process-wide UCX_TLS env
+        // probe, so a single backend with UCX_TLS=rc_mlx5,ud_mlx5,tcp,self
+        // serves mixed RDMA + TCP frontends correctly — GPUDirect activates
+        // only on connections that actually negotiated an RDMA lane.
         const bool route_big_to_gpu = (rs.gpu_rkey != nullptr) &&
                                       (rs.gpu_addr != 0) &&
                                       (big_size >= (4u * 1024u * 1024u)) &&
-                                      transport_supports_cuda;
+                                      current_connection_supports_cuda();
         std::uint64_t big_target_addr = route_big_to_gpu
                                         ? rs.gpu_addr
                                         : (rs.addr + pre_size);

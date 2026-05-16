@@ -444,6 +444,18 @@ void Process::Start() {
                         LOG4CPLUS_ERROR(logger, "[Process " << getpid() << "]: Requested unknown routine '" << am_routine << "'.");
                         result = std::make_shared<communicators::Result>(-1, std::make_shared<Buffer>());
                     } else {
+                        // Per-connection GPUDirect gate (Option 2): publish
+                        // this endpoint's transport capability into a
+                        // thread-local that GPU-aware handlers read in lieu
+                        // of the process-wide GVIRTUS_GPUDIRECT_ACTIVE env.
+                        // Reset to false after Execute() to avoid leaking
+                        // across dispatches (defensive — in the current
+                        // single-threaded per-connection model the worker
+                        // thread is reused for the next request on the
+                        // same connection, so the flag would be re-set
+                        // identically anyway).
+                        gvirtus::communicators::tls_connection_supports_cuda =
+                            client_comm->current_connection_supports_cuda();
                         auto start = steady_clock::now();
                         result = h->Execute(am_routine, am_input);
                         result->TimeTaken(
@@ -451,6 +463,7 @@ void Process::Start() {
                                 steady_clock::now() - start)
                                 .count() /
                             1000.0);
+                        gvirtus::communicators::tls_connection_supports_cuda = false;
                     }
 
                     std::string write_error;
