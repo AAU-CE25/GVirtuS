@@ -22,9 +22,16 @@ else
 endif
 
 # Defaults if no profile was loaded (override on CLI).
-UCX_DEV      ?= mlx5_0:1
-UCX_GID_IDX  ?= 1
-UCX_TLS      ?= rc_verbs,tcp
+UCX_DEV          ?= mlx5_0:1
+UCX_GID_IDX      ?= 1
+UCX_TLS          ?= rc_verbs,tcp
+HOST_NETDEV      ?= ens1f0np0
+# Eager/rendezvous crossover (bytes). Below this size UCX uses EAGER (1-copy
+# send); at/above it switches to RENDEZVOUS (zero-copy RDMA READ for the
+# RDMA transports, or larger TCP buffers for tcp). Override on CLI:
+#   make run-matrix-bench-ucx-rdma UCX_RNDV_THRESH=65536
+# Set to 0 to force rendezvous for every message.
+UCX_RNDV_THRESH  ?= 8192
 
 # Single source of truth for GVirtuS endpoint config (server_address + port live
 # inside the JSON; edit those files by hand if you need to change them).
@@ -130,7 +137,7 @@ run-gvirtus-backend-ucx:
 		-e UCX_TLS=$(UCX_TLS) \
 		-e UCX_NET_DEVICES=$(UCX_DEV) \
 		-e UCX_IB_GID_INDEX=$(UCX_GID_IDX) \
-		-e UCX_RNDV_THRESH=8192 \
+		-e UCX_RNDV_THRESH=$(UCX_RNDV_THRESH) \
 		$(DOCKER_REPO_DEV):cuda12.6.3-cudnn-ubuntu22.04
 
 run-gvirtus-tests:
@@ -246,7 +253,7 @@ run-ucx-benchmark-server-ucx:
 		--network host \
 		-e UCX_TLS=rc_x,tcp \
 		-e UCX_NET_DEVICES=all \
-		-e UCX_RNDV_THRESH=8192 \
+		-e UCX_RNDV_THRESH=$(UCX_RNDV_THRESH) \
 		$(DOCKER_HUB_USERNAME)/ucx_benchmark_gvirtus:cuda12.6 \
 		bash -c "g++ -O2 -DUSE_UCX -o /tmp/data_copy_bench /opt/GVirtuS/examples/ucx_benchmark/data_copy_bench.cpp -lucp -lucs -lpthread && /tmp/data_copy_bench server ucx $(BENCH_PORT)"
 
@@ -286,7 +293,7 @@ run-ucx-benchmark-ucx:
 		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
 		-e UCX_TLS=rc_x,tcp \
 		-e UCX_NET_DEVICES=all \
-		-e UCX_RNDV_THRESH=8192 \
+		-e UCX_RNDV_THRESH=$(UCX_RNDV_THRESH) \
 		$(DOCKER_HUB_USERNAME)/ucx_benchmark_gvirtus:cuda12.6 \
 		bash /opt/GVirtuS/examples/ucx_benchmark/frontend.sh
 
@@ -318,7 +325,7 @@ run-ucx-matrix-single:
 		-e UCX_TLS=$(UCX_TLS) \
 		-e UCX_NET_DEVICES=$(UCX_DEV) \
 		-e UCX_IB_GID_INDEX=$(UCX_GID_IDX) \
-		-e UCX_RNDV_THRESH=8192 \
+		-e UCX_RNDV_THRESH=$(UCX_RNDV_THRESH) \
 		$(DOCKER_HUB_USERNAME)/ucx_benchmark_gvirtus:cuda12.6 \
 		bash /opt/GVirtuS/examples/ucx_benchmark/frontend_matrix_only.sh
 # ===== Matrix-mul transport comparison sweep =====
@@ -370,10 +377,10 @@ run-gvirtus-backend-tcp:
 		$(DOCKER_REPO_DEV):cuda12.6.3-cudnn-ubuntu22.04
 
 # UCX backend forced to TCP transport (no RDMA): isolates UCX framing overhead
-# from the network medium. Same image as run-gvirtus-backend-ucx with UCX_TLS
-# overridden.
+# from the network medium. The UCX `tcp` transport works on a kernel netdev,
+# not an IB device, so we override UCX_DEV to HOST_NETDEV here.
 run-gvirtus-backend-ucx-tcp:
-	$(MAKE) run-gvirtus-backend-ucx UCX_TLS=tcp
+	$(MAKE) run-gvirtus-backend-ucx UCX_TLS=tcp UCX_DEV=$(HOST_NETDEV)
 
 # UCX backend over RDMA (RoCE v2 via rc_verbs).
 run-gvirtus-backend-ucx-rdma:
@@ -411,9 +418,9 @@ run-matrix-bench-ucx-tcp:
 		-e BENCH_TAG=ucx-tcp \
 		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
 		-e UCX_TLS=tcp \
-		-e UCX_NET_DEVICES=$(UCX_DEV) \
+		-e UCX_NET_DEVICES=$(HOST_NETDEV) \
 		-e UCX_IB_GID_INDEX=$(UCX_GID_IDX) \
-		-e UCX_RNDV_THRESH=8192 \
+		-e UCX_RNDV_THRESH=$(UCX_RNDV_THRESH) \
 		$(DOCKER_HUB_USERNAME)/ucx_benchmark_gvirtus:cuda12.6 \
 		bash /opt/GVirtuS/examples/ucx_benchmark/frontend_matrix_sweep.sh
 
@@ -434,6 +441,6 @@ run-matrix-bench-ucx-rdma:
 		-e UCX_TLS=rc_verbs \
 		-e UCX_NET_DEVICES=$(UCX_DEV) \
 		-e UCX_IB_GID_INDEX=$(UCX_GID_IDX) \
-		-e UCX_RNDV_THRESH=8192 \
+		-e UCX_RNDV_THRESH=$(UCX_RNDV_THRESH) \
 		$(DOCKER_HUB_USERNAME)/ucx_benchmark_gvirtus:cuda12.6 \
 		bash /opt/GVirtuS/examples/ucx_benchmark/frontend_matrix_sweep.sh
