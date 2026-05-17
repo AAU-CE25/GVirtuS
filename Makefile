@@ -275,6 +275,8 @@ run-ucx-matrix-single:
 		--shm-size=8G \
 		-v ./examples/ucx_benchmark:/opt/GVirtuS/examples/ucx_benchmark \
 		-v ./examples/ucx_benchmark/properties_ucx.json:/opt/GVirtuS/etc/properties.json \
+		-v ./lib:/opt/GVirtuS/lib \
+		-v ./include:/opt/GVirtuS/include \
 		-e N=$(N) \
 		-e RUNS=$(RUNS) \
 		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
