@@ -1,12 +1,33 @@
-.PHONY: docker-build-push-dev docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-backend-ucx run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test docker-build-ucx-benchmark run-ucx-benchmark-server-tcp run-ucx-benchmark-server-ucx run-ucx-benchmark-tcp run-ucx-benchmark-ucx stop-ucx-benchmark run-ucx-matrix-single
+.PHONY: docker-build-push-dev docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-backend-ucx run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test docker-build-ucx-benchmark run-ucx-benchmark-server-tcp run-ucx-benchmark-server-ucx run-ucx-benchmark-tcp run-ucx-benchmark-ucx stop-ucx-benchmark run-ucx-matrix-single ucx-config
 USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
 DOCKER_HUB_USERNAME ?= aauce25
 
 GVIRTUS_LOG_LEVEL ?= 20000
 
-# UCX transport tuning (override per host: e.g. UCX_DEV=mlx5_2:1 on dpu-01)
-UCX_DEV     ?= mlx5_0:1
-UCX_GID_IDX ?= 1
+# ---------------------------------------------------------------------------
+# UCX per-host profile
+#
+# Auto-loaded from etc/ucx/<hostname>.env if it exists. Each profile pins the
+# RDMA device name, GID index, the host's 24.24.24.x IP, and the peer's IP.
+# Override on the CLI to bypass: make ... UCX_PROFILE=etc/ucx/es-dpu-02.env
+# ---------------------------------------------------------------------------
+SHORT_HOST  := $(shell hostname -s)
+UCX_PROFILE ?= etc/ucx/$(SHORT_HOST).env
+ifneq ("$(wildcard $(UCX_PROFILE))","")
+    include $(UCX_PROFILE)
+    $(info [ucx] loaded profile: $(UCX_PROFILE) (HOST_IP=$(HOST_IP) UCX_DEV=$(UCX_DEV) UCX_TLS=$(UCX_TLS)))
+else
+    $(warning [ucx] no profile for host '$(SHORT_HOST)' at $(UCX_PROFILE); using defaults)
+endif
+
+# Defaults if no profile was loaded (override on CLI).
+UCX_DEV      ?= mlx5_0:1
+UCX_GID_IDX  ?= 1
+UCX_TLS      ?= rc_verbs,tcp
+HOST_IP      ?= 24.24.24.1
+HOST_IP_PEER ?= 24.24.24.2
+HOST_NETDEV  ?= ens7f0np0
+UCX_PORT     ?= 7676
 
 DOCKER_REPO_DEV := $(DOCKER_HUB_USERNAME)/gvirtus-dev
 DOCKER_REPO_TEST := $(DOCKER_HUB_USERNAME)/gvirtus-test
@@ -74,7 +95,16 @@ run-gvirtus-backend-dev:
 attach-gvirtus-bash:
 		docker exec -it gvirtus-$(USER) bash
 
-run-gvirtus-backend-ucx:
+# Regenerate the UCX properties JSON files from the active profile so the
+# backend binds to HOST_IP and the client dials HOST_IP_PEER on UCX_PORT.
+# Called automatically before any UCX run target.
+ucx-config:
+	@echo "[ucx] writing etc/properties_ucx.json (bind $(HOST_IP):$(UCX_PORT))"
+	@printf '{\n  "communicator": [\n    {\n      "endpoint": {\n        "suite": "ucx",\n        "protocol": "ucx",\n        "server_address": "$(HOST_IP)",\n        "port": "$(UCX_PORT)"\n      },\n      "plugins": ["cuda","cudart","cublas","curand","cudnn","cufft","cusolver","cusparse","nvrtc","nvml"]\n    }\n  ],\n  "secure_application": false\n}\n' > etc/properties_ucx.json
+	@echo "[ucx] writing examples/ucx_benchmark/properties_ucx.json (dial $(HOST_IP_PEER):$(UCX_PORT))"
+	@printf '{\n  "communicator": [\n    {\n      "endpoint": {\n        "suite": "ucx",\n        "protocol": "ucx",\n        "server_address": "$(HOST_IP_PEER)",\n        "port": "$(UCX_PORT)"\n      },\n      "plugins": ["cuda","cudart","cublas","curand","cudnn","cufft","cusolver","cusparse","nvrtc","nvml"]\n    }\n  ],\n  "secure_application": false\n}\n' > examples/ucx_benchmark/properties_ucx.json
+
+run-gvirtus-backend-ucx: ucx-config
 	docker run \
 		--rm \
 		-it \
@@ -96,7 +126,7 @@ run-gvirtus-backend-ucx:
 		--shm-size=8G \
 		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
 		-e GVIRTUS_CONFIG=/gvirtus/etc/properties_ucx.json \
-		-e UCX_TLS=rc_verbs,tcp \
+		-e UCX_TLS=$(UCX_TLS) \
 		-e UCX_NET_DEVICES=$(UCX_DEV) \
 		-e UCX_IB_GID_INDEX=$(UCX_GID_IDX) \
 		-e UCX_RNDV_THRESH=8192 \
@@ -271,7 +301,7 @@ stop-ucx-benchmark:
 # Override N / RUNS on the CLI: `make run-ucx-matrix-single N=256 RUNS=1`
 N    ?= 128
 RUNS ?= 1
-run-ucx-matrix-single:
+run-ucx-matrix-single: ucx-config
 	docker run --rm \
 		--name ucx_matrix_ucx-$(USER) \
 		--network host \
@@ -284,7 +314,7 @@ run-ucx-matrix-single:
 		-e N=$(N) \
 		-e RUNS=$(RUNS) \
 		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
-		-e UCX_TLS=rc_verbs,tcp \
+		-e UCX_TLS=$(UCX_TLS) \
 		-e UCX_NET_DEVICES=$(UCX_DEV) \
 		-e UCX_IB_GID_INDEX=$(UCX_GID_IDX) \
 		-e UCX_RNDV_THRESH=8192 \
