@@ -30,17 +30,17 @@ cd "$(dirname "$0")"
 
 case "$LABEL" in
     tcp)
-        BIN=./data_copy_bench
+        BIN=./build/data_copy_bench
         TRANSPORT=tcp
         ENV_PREFIX=""
         ;;
     ucx-tcp)
-        BIN=./data_copy_bench_ucx
+        BIN=./build/data_copy_bench_ucx
         TRANSPORT=ucx
         ENV_PREFIX="UCX_TLS=tcp UCX_IB_GID_INDEX=1"
         ;;
     ucx-rdma)
-        BIN=./data_copy_bench_ucx
+        BIN=./build/data_copy_bench_ucx
         TRANSPORT=ucx
         ENV_PREFIX="UCX_TLS=rc_verbs,tcp UCX_IB_GID_INDEX=1"
         ;;
@@ -51,7 +51,7 @@ case "$LABEL" in
 esac
 
 if [[ ! -x "$BIN" ]]; then
-    echo "Missing binary: $BIN — build first (make build-tcp / make build-ucx)" >&2
+    echo "Missing binary: $BIN \u2014 build first with: make tcp / make ucx" >&2
     exit 1
 fi
 

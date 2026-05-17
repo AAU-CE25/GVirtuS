@@ -31,6 +31,7 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <sys/resource.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -47,6 +48,36 @@
 #ifdef USE_UCX
 #include <ucp/api/ucp.h>
 #endif
+
+// Raise RLIMIT_MEMLOCK so UCX can pin large buffers for zero-copy RDMA.
+// Without this, UCX silently falls back to bounce-buffer copies for transfers
+// that exceed the per-process locked-memory limit (commonly 64 KiB).
+static void raise_memlock_limit() {
+    struct rlimit rl{};
+    if (getrlimit(RLIMIT_MEMLOCK, &rl) != 0) return;
+    rlim_t old_cur = rl.rlim_cur;
+    rl.rlim_cur = RLIM_INFINITY;
+    rl.rlim_max = RLIM_INFINITY;
+    if (setrlimit(RLIMIT_MEMLOCK, &rl) != 0) {
+        // Try matching the hard limit if we can't go unlimited.
+        struct rlimit rl2{};
+        if (getrlimit(RLIMIT_MEMLOCK, &rl2) == 0 && rl2.rlim_max > rl2.rlim_cur) {
+            rl2.rlim_cur = rl2.rlim_max;
+            setrlimit(RLIMIT_MEMLOCK, &rl2);
+            std::cerr << "[memlock] raised RLIMIT_MEMLOCK to hard cap "
+                      << (unsigned long)rl2.rlim_max << " bytes" << std::endl;
+        } else if (old_cur != RLIM_INFINITY) {
+            std::cerr << "[memlock] WARNING: could not raise RLIMIT_MEMLOCK (current="
+                      << (unsigned long)old_cur
+                      << " bytes). Large RDMA transfers may fall back to bounce "
+                         "buffers. Run with `ulimit -l unlimited` or set\n"
+                         "          *  soft  memlock  unlimited\n"
+                         "          *  hard  memlock  unlimited\n"
+                         "        in /etc/security/limits.conf"
+                      << std::endl;
+        }
+    }
+}
 
 // ============================================================================
 // TCP Transport
@@ -381,6 +412,37 @@ struct UcxContext {
     }
 };
 
+// Pin a buffer once with ucp_mem_map so subsequent transfers hit the
+// registration cache and use zero-copy paths instead of bounce buffers.
+// This is the key fix for large-payload (>1 MiB) throughput collapse:
+// without it, each transfer can re-register a fresh memory region.
+struct UcxMemHandle {
+    ucp_context_h context = nullptr;
+    ucp_mem_h memh = nullptr;
+
+    void map(ucp_context_h ctx, void *addr, size_t length) {
+        context = ctx;
+        ucp_mem_map_params_t mp{};
+        mp.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS |
+                        UCP_MEM_MAP_PARAM_FIELD_LENGTH |
+                        UCP_MEM_MAP_PARAM_FIELD_FLAGS;
+        mp.address = addr;
+        mp.length = length;
+        mp.flags = 0;  // address is non-null, so no allocation requested
+        ucs_status_t st = ucp_mem_map(ctx, &mp, &memh);
+        if (st != UCS_OK) {
+            std::cerr << "[ucx] WARNING: ucp_mem_map(" << length
+                      << " bytes) failed: " << ucs_status_string(st)
+                      << " \u2014 transfers may fall back to bounce buffers" << std::endl;
+            memh = nullptr;
+        }
+    }
+
+    ~UcxMemHandle() {
+        if (memh && context) ucp_mem_unmap(context, memh);
+    }
+};
+
 struct ConnRequest {
     ucp_conn_request_h req = nullptr;
     std::atomic<bool> ready{false};
@@ -466,6 +528,14 @@ static void run_server(uint16_t port) {
         }
         std::cerr << "[UCX server] Wireup complete, starting echo loop" << std::endl;
 
+        // Reusable, pre-pinned echo buffer. Allocated once at MAX_PAYLOAD so the
+        // address never changes \u2014 every recv/send hits the UCX registration
+        // cache, keeping the zero-copy RDMA path active for large transfers.
+        constexpr size_t MAX_PAYLOAD = 256ULL * 1024 * 1024;  // 256 MiB
+        std::vector<char> buf(MAX_PAYLOAD);
+        UcxMemHandle echo_mem;
+        echo_mem.map(ctx.context, buf.data(), MAX_PAYLOAD);
+
         // Echo loop: recv 8-byte size header, recv payload, send payload back
         while (true) {
             uint64_t payload_size = 0;
@@ -480,13 +550,13 @@ static void run_server(uint16_t port) {
                 std::cerr << "[UCX server] Got 0-size header, ending session" << std::endl;
                 break;
             }
-            if (payload_size > (1ULL << 32)) {
-                std::cerr << "[UCX server] Bogus payload_size=" << payload_size
+            if (payload_size > MAX_PAYLOAD) {
+                std::cerr << "[UCX server] payload_size=" << payload_size
+                          << " exceeds MAX_PAYLOAD=" << MAX_PAYLOAD
                           << ", aborting" << std::endl;
                 break;
             }
 
-            std::vector<char> buf(payload_size);
             ucx_stream_recv_all(ctx.worker, ep, buf.data(), payload_size);
             ucx_stream_send(ctx.worker, ep, buf.data(), payload_size);
             ucx_flush(ctx.worker, ep);
@@ -551,6 +621,12 @@ static void run_client(const std::string &host, uint16_t port, size_t n_bytes, i
     std::vector<char> send_buf(n_bytes);
     std::vector<char> recv_buf(n_bytes);
     for (size_t i = 0; i < n_bytes; i++) send_buf[i] = static_cast<char>(i & 0xFF);
+
+    // Pre-pin both buffers so every transfer hits the registration cache.
+    // Critical for keeping the zero-copy RDMA path active on large messages.
+    UcxMemHandle send_mem, recv_mem;
+    send_mem.map(ctx.context, send_buf.data(), n_bytes);
+    recv_mem.map(ctx.context, recv_buf.data(), n_bytes);
 
     // Warmup
     uint64_t size_header = n_bytes;
@@ -629,6 +705,10 @@ int main(int argc, char *argv[]) {
         usage();
         return 1;
     }
+
+    // Best-effort: raise locked-memory limit before UCX init so large RDMA
+    // transfers can use zero-copy instead of bounce buffers.
+    raise_memlock_limit();
 
     std::string mode = argv[1];
     std::string transport = argv[2];
