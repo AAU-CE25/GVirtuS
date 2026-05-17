@@ -31,7 +31,7 @@ HOST_NETDEV      ?= ens1f0np0
 # RDMA transports, or larger TCP buffers for tcp). Override on CLI:
 #   make run-matrix-bench-ucx-rdma UCX_RNDV_THRESH=65536
 # Set to 0 to force rendezvous for every message.
-UCX_RNDV_THRESH  ?= 8192
+UCX_RNDV_THRESH  ?= 0
 
 # Single source of truth for GVirtuS endpoint config (server_address + port live
 # inside the JSON; edit those files by hand if you need to change them).
