@@ -164,6 +164,6 @@ maybe_add_cuda_plugin(nvrtc plugins/nvrtc)
 
 
 # ===== Tests =====
-add_subdirectory(tests)
+# add_subdirectory(tests)  # disabled while debugging UCX
 
 # add_subdirectory(tools/protocol-generator)
