@@ -49,9 +49,10 @@ for N in "${NS[@]}"; do
     N="${N// /}"
     [[ -z "${N}" ]] && continue
     echo "--- N=${N} ---"
-    # matrix_mul_bench prints its own header on stdout; strip it and prefix tag.
-    /tmp/matrix_mul_bench "${N}" "${RUNS}" \
-        | tail -n +2 \
+    # matrix_mul_bench prints its own header on stdout; strip it, prefix tag,
+    # and filter out any GVirtuS log lines that leak into stdout/stderr.
+    /tmp/matrix_mul_bench "${N}" "${RUNS}" 2>/dev/null \
+        | grep -E '^[0-9]+,' \
         | awk -v t="${BENCH_TAG}" '{print t","$0}' \
         | tee -a "${OUT}"
 done

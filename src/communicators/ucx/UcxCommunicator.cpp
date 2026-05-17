@@ -500,11 +500,6 @@ size_t UcxCommunicator::Write(const char *buffer, size_t size) {
     LOG4CPLUS_TRACE(logger, "Write() size=" << size);
     if (mPeerClosed.load()) return 0;
     try {
-        if (size >= kStagingThreshold && mContext) {
-            ensureStaging(size);
-            memcpy(mStagingBuf, buffer, size);
-            return stream_send(mWorker, mEndpoint, mStagingBuf, size);
-        }
         return stream_send(mWorker, mEndpoint, buffer, size);
     } catch (const std::exception &e) {
         mPeerClosed.store(true);
