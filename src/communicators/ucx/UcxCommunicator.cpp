@@ -184,24 +184,41 @@ void UcxCommunicator::init_ucx() {
 void UcxCommunicator::destroy_ucx() {
     if (!initialized_) return;
 
-    // Tear down UCX resources in reverse order of creation.
     ucx_debug_log("destroy_ucx begin endpoint=%p listener=%p worker=%p context=%p",
                   (void *)endpoint_, (void *)listener_, (void *)worker_, (void *)context_);
 
+    /*
+     * Frontend client fast close.
+     *
+     * A frontend client owns worker/context and has no listener. During process
+     * teardown, UCX/RoCE can hang even inside ucp_ep_destroy(), after the CUDA
+     * workload has already completed and printed the benchmark result.
+     *
+     * For short-lived frontend benchmark processes, skip UCX endpoint/worker/
+     * context cleanup and let process exit release resources.
+     */
+    const bool fast_client_close = owns_context_worker_listener_ && listener_ == nullptr;
+
+    if (fast_client_close) {
+        ucx_debug_log("destroy_ucx: fast client close; skipping endpoint/worker/context cleanup");
+        endpoint_ = nullptr;
+        worker_ = nullptr;
+        context_ = nullptr;
+        initialized_ = false;
+        endpoint_failed_.store(false);
+        ucx_debug_log("destroy_ucx completed (fast client close)");
+        return;
+    }
+
+    /*
+     * Backend accepted endpoints: avoid blocking in ucp_ep_close_nbx().
+     * ucp_ep_destroy() may still emit UCX reset warnings, but should not wait
+     * for graceful close completion.
+     */
     if (endpoint_ != nullptr) {
         std::lock_guard<std::mutex> worker_lock(*worker_mutex_);
-
-        ucp_request_param_t close_params{};
-        close_params.op_attr_mask = UCP_OP_ATTR_FIELD_FLAGS;
-        close_params.flags = endpoint_failed_.load() ? UCP_EP_CLOSE_FLAG_FORCE : 0;
-
-        void *close_req = ucp_ep_close_nbx(endpoint_, &close_params);
-        if (UCS_PTR_IS_ERR(close_req)) {
-            std::fprintf(stderr, "UCX endpoint close failed: %s\n",
-                         ucs_status_string(UCS_PTR_STATUS(close_req)));
-        } else {
-            wait_request_completion(close_req, "ep_close");
-        }
+        ucx_debug_log("destroy_ucx: destroying endpoint without blocking close");
+        ucp_ep_destroy(endpoint_);
         endpoint_ = nullptr;
     }
 

@@ -86,7 +86,7 @@ make run-gvirtus-backend-dev
 ./examples/simple_matrix/benchmark.sh ucx_tcp 5
 ```
 
-### plain_rdma ### This does not work currently
+### plain_rdma
 
 ```bash
 # es-dpu-01 — start backend
