@@ -34,13 +34,17 @@
 #include <gvirtus/common/SignalState.h>
 #include <pthread.h>
 #include <signal.h>
+#include <sys/uio.h>
 #include <unistd.h>
 
 #include <functional>
+#include <cstring>
 #include <iostream>
 #include <thread>
+#include <vector>
 
 #include "communicators/hybrid/HybridCommunicator.h"
+#include "gvirtus/communicators/UcxAmProtocol.h"
 
 // DEBUG replaced with log4cplus, so that all diagnostics respect GVIRTUS_LOGLEVEL and share the unified format.
 
@@ -70,6 +74,189 @@ Process::Process(std::shared_ptr<LD_Lib<Communicator, std::shared_ptr<Endpoint>>
 static log4cplus::Logger gs_logger =
     log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("Process.getstring"));
 
+namespace {
+bool read_exact(Communicator *c, char *buffer, size_t size) {
+    size_t copied = 0;
+    while (copied < size) {
+        size_t n = c->Read(buffer + copied, size - copied);
+        if (n == 0) {
+            return false;
+        }
+        copied += n;
+    }
+    return true;
+}
+
+// Reads one AM request from the communicator. Two modes:
+//
+//   1. Frame mode (UcxCommunicator): TryAcquireFrame returns a pointer to
+//      the pinned RX-pool slot containing [header][routine][payload]. We
+//      parse those views in-place. `owns_frame` is set to true and the
+//      caller MUST call client_comm->ReleaseFrame() once it's done with
+//      payload_data (i.e., after the handler returns and the response is
+//      built — we already copied the routine string out, so only payload
+//      stays in the slot).
+//
+//   2. Stream fallback (TCP, IB, hybrid, …): byte-stream Read() into
+//      `fallback_storage`, exposed via payload_data/payload_size.
+//      `owns_frame` is set to false.
+bool read_ucx_am_request(Communicator *client_comm,
+                         gvirtus::communicators::ucxam::EnvelopeHeader &header,
+                         std::string &routine,
+                         std::vector<unsigned char> &fallback_storage,
+                         const unsigned char *&payload_data,
+                         size_t &payload_size,
+                         bool &owns_frame,
+                         std::string &error) {
+    owns_frame = false;
+    payload_data = nullptr;
+    payload_size = 0;
+
+    const unsigned char *frame = nullptr;
+    size_t frame_size = 0;
+    if (client_comm->TryAcquireFrame(frame, frame_size)) {
+        // Frame mode: validate frame is big enough for the header.
+        if (frame_size < sizeof(header)) {
+            client_comm->ReleaseFrame();
+            error = "AM frame smaller than header";
+            return false;
+        }
+        std::memcpy(&header, frame, sizeof(header));
+
+        if (header.magic != gvirtus::communicators::ucxam::kEnvelopeMagic ||
+            header.version != gvirtus::communicators::ucxam::kEnvelopeVersion ||
+            header.header_size != sizeof(header)) {
+            client_comm->ReleaseFrame();
+            error = "invalid AM header";
+            return false;
+        }
+        if (header.message_type !=
+            static_cast<uint16_t>(gvirtus::communicators::ucxam::MessageType::Request)) {
+            client_comm->ReleaseFrame();
+            error = "unexpected AM message type";
+            return false;
+        }
+
+        const size_t want = sizeof(header) +
+                            static_cast<size_t>(header.routine_size) +
+                            static_cast<size_t>(header.payload_size);
+        if (frame_size < want) {
+            client_comm->ReleaseFrame();
+            error = "AM frame truncated";
+            return false;
+        }
+
+        // Copy out the routine name (small, simpler than dealing with pool lifetime).
+        routine.assign(reinterpret_cast<const char *>(frame + sizeof(header)),
+                       static_cast<size_t>(header.routine_size));
+
+        // Payload stays in the pool slot — caller releases when done.
+        payload_data = frame + sizeof(header) + header.routine_size;
+        payload_size = static_cast<size_t>(header.payload_size);
+        owns_frame = true;
+
+        error.clear();
+        return true;
+    }
+
+    // Stream fallback (non-UCX transports).
+    if (!read_exact(client_comm, reinterpret_cast<char *>(&header), sizeof(header))) {
+        error = "unable to read AM header";
+        return false;
+    }
+
+    if (header.magic != gvirtus::communicators::ucxam::kEnvelopeMagic ||
+        header.version != gvirtus::communicators::ucxam::kEnvelopeVersion ||
+        header.header_size != sizeof(gvirtus::communicators::ucxam::EnvelopeHeader)) {
+        error = "invalid AM header";
+        return false;
+    }
+
+    if (header.message_type !=static_cast<uint16_t>(gvirtus::communicators::ucxam::MessageType::Request)) {
+        error = "unexpected AM message type";
+        return false;
+    }
+
+    routine.assign(static_cast<size_t>(header.routine_size), '\0');
+    if (!routine.empty() &&
+        !read_exact(client_comm, routine.data(), static_cast<size_t>(header.routine_size))) {
+        error = "unable to read AM routine bytes";
+        return false;
+    }
+
+    fallback_storage.assign(static_cast<size_t>(header.payload_size), 0);
+    if (!fallback_storage.empty() &&
+        !read_exact(client_comm, reinterpret_cast<char *>(fallback_storage.data()),
+                    fallback_storage.size())) {
+        error = "unable to read AM payload bytes";
+        return false;
+    }
+    payload_data = fallback_storage.data();
+    payload_size = fallback_storage.size();
+
+    error.clear();
+    return true;
+}
+
+bool write_ucx_am_response(Communicator *client_comm,
+                           const gvirtus::communicators::ucxam::EnvelopeHeader &request_header,
+                           int exit_code, double server_exec_sec,
+                           const std::shared_ptr<Buffer> &output_buffer,
+                           std::string &error) {
+    size_t out_size = 0;
+    const char *out_data = nullptr;
+    if (output_buffer != nullptr) {
+        out_size = output_buffer->GetBufferSize();
+        out_data = output_buffer->GetBuffer();
+    }
+
+    const size_t payload_size = sizeof(double) + sizeof(size_t) + out_size;
+
+    gvirtus::communicators::ucxam::EnvelopeHeader response_header{};
+    response_header.magic = gvirtus::communicators::ucxam::kEnvelopeMagic;
+    response_header.version = gvirtus::communicators::ucxam::kEnvelopeVersion;
+    response_header.message_type = static_cast<uint16_t>(gvirtus::communicators::ucxam::MessageType::Response);
+    response_header.header_size = static_cast<uint16_t>(sizeof(gvirtus::communicators::ucxam::EnvelopeHeader));
+    response_header.reserved0 = 0;
+    response_header.status_code = static_cast<uint32_t>(exit_code);
+    response_header.request_id = request_header.request_id;
+    response_header.routine_size = 0;
+    response_header.payload_size = static_cast<uint64_t>(payload_size);
+
+    // Gather-send response via WriteIov — eliminates the std::vector staging
+    // copy of the entire output payload (was the dual of the frontend's
+    // request-side ~27ms marshal). UCX backend maps this to a single
+    // ucp_am_send_nbx with UCP_DATATYPE_IOV.
+    struct iovec iov[4];
+    int n = 0;
+    iov[n].iov_base = &response_header;
+    iov[n].iov_len  = sizeof(response_header);
+    ++n;
+    iov[n].iov_base = &server_exec_sec;
+    iov[n].iov_len  = sizeof(double);
+    ++n;
+    iov[n].iov_base = &out_size;
+    iov[n].iov_len  = sizeof(size_t);
+    ++n;
+    if (out_size > 0 && out_data != nullptr) {
+        iov[n].iov_base = const_cast<char *>(out_data);
+        iov[n].iov_len  = out_size;
+        ++n;
+    }
+
+    try {
+        client_comm->WriteIov(iov, static_cast<size_t>(n));
+        client_comm->Sync();
+    } catch (const std::exception &e) {
+        error = e.what();
+        return false;
+    }
+
+    error.clear();
+    return true;
+}
+}
+
 bool getstring(Communicator *c, string &s) {
     // TRACE: fires on every routine call, too noisy for DEBUG
     // RTTI diagnostics merged into one TRACE log.
@@ -92,7 +279,8 @@ bool getstring(Communicator *c, string &s) {
     }
 
     // TODO: FIX LISKOV SUBSTITUTION AND DIPENDENCE INVERSION!!!!!
-    if (c->to_string() == "tcpcommunicator") {
+    if (c->to_string() == "tcpcommunicator" ||
+        c->to_string() == "ucxstreamcommunicator") {
         s = "";
         char ch = 0;
         while (c->Read(&ch, 1) == 1) {
@@ -131,15 +319,7 @@ bool getstring(Communicator *c, string &s) {
         }
         return false;
     } else if (c->to_string() == "ucxcommunicator") {
-        s.clear();
-        char ch = 0;
-        while (c->Read(&ch, 1) == 1) {
-            if (ch == 0) {
-                return true;
-            }
-            s += ch;
-        }
-        return false;
+        throw runtime_error("Not available for UCX anymore. Delete later this else if.");
     }
 
     throw runtime_error("Communicator getstring read error... Unknown communicator type...");
@@ -180,67 +360,152 @@ void Process::Start() {
 
         string routine;
         std::shared_ptr<Buffer> input_buffer = std::make_shared<Buffer>();
+        const bool ucx_am_mode = client_comm != nullptr && client_comm->to_string() == "ucxcommunicator";
 
-        while (getstring(client_comm, routine)) {
-            LOG4CPLUS_TRACE(logger, "Received routine " << routine);
+        if (ucx_am_mode) {
+            try {
+                for (;;) {
+                    gvirtus::communicators::ucxam::EnvelopeHeader request_header{};
+                    std::string am_routine;
+                    std::vector<unsigned char> am_payload_fallback;
+                    const unsigned char *am_payload_data = nullptr;
+                    size_t am_payload_size = 0;
+                    bool owns_frame = false;
+                    std::string read_error;
 
-            // === before reading buffer, chose the protocol of this round by rountine ===
-            gvirtus::communicators::HybridCommunicator *hybrid = nullptr;
-            if (client_comm && client_comm->to_string() == "hybridcommunicator") {
-                hybrid = dynamic_cast<gvirtus::communicators::HybridCommunicator *>(client_comm);
+                    if (!read_ucx_am_request(client_comm, request_header, am_routine,
+                                             am_payload_fallback, am_payload_data,
+                                             am_payload_size, owns_frame, read_error)) {
+                        LOG4CPLUS_INFO(logger,
+                                       "Client disconnected (UCX AM): " << read_error);
+                        break;
+                    }
+
+                    std::shared_ptr<Buffer> am_input = std::make_shared<Buffer>();
+                    if (am_payload_size > 0 && am_payload_data != nullptr) {
+                        // Non-owning Buffer wrap — the bytes live either in
+                        // am_payload_fallback (stream mode) or in the
+                        // communicator's pinned RX-pool slot (frame mode).
+                        // Either way, lifetime extends past h->Execute().
+                        am_input = std::make_shared<Buffer>(
+                            reinterpret_cast<char *>(const_cast<unsigned char *>(am_payload_data)),
+                            am_payload_size);
+                    }
+
+                    std::shared_ptr<Handler> h = nullptr;
+                    for (auto &ptr_el : _handlers) {
+                        if (ptr_el->obj_ptr()->CanExecute(am_routine)) {
+                            h = ptr_el->obj_ptr();
+                            break;
+                        }
+                    }
+
+                    std::shared_ptr<communicators::Result> result;
+                    if (h == nullptr) {
+                        LOG4CPLUS_ERROR(logger, "[Process " << getpid() << "]: Requested unknown routine '" << am_routine << "'.");
+                        result = std::make_shared<communicators::Result>(-1, std::make_shared<Buffer>());
+                    } else {
+                        auto start = steady_clock::now();
+                        result = h->Execute(am_routine, am_input);
+                        result->TimeTaken(
+                            std::chrono::duration_cast<std::chrono::milliseconds>(
+                                steady_clock::now() - start)
+                                .count() /
+                            1000.0);
+                    }
+
+                    std::string write_error;
+                    bool response_ok = write_ucx_am_response(client_comm, request_header,
+                                                             result->GetExitCode(), result->TimeTaken(),
+                                                             result->GetOutputBuffer(), write_error);
+
+                    // Release the pinned RX-pool slot now that the handler is
+                    // done with it and the response has been sent. Must happen
+                    // AFTER h->Execute() returns (am_input points into the slot).
+                    if (owns_frame) client_comm->ReleaseFrame();
+
+                    if (!response_ok) {
+                        LOG4CPLUS_WARN(logger,
+                                       "UCX AM response write failed: " << write_error);
+                        break;
+                    }
+
+                    LOG4CPLUS_DEBUG(logger,
+                                    "[Process " << getpid() << "]: AM routine '" << am_routine
+                                                << "' returned " << result->GetExitCode()
+                                                << " [req_id=" << request_header.request_id
+                                                << "].");
+                }
+            } catch (const std::exception &e) {
+                LOG4CPLUS_WARN(logger, "UCX AM client loop exception: " << e.what());
             }
-            if (hybrid) {
-                // all those function payload will transfer by RDMA
-                const bool use_rdma = routine.rfind("cudaRegisterFatBinary", 0) == 0 ||
-                                      routine.rfind("cudaRegisterFatBinaryEnd", 0) == 0 ||
-                                      routine.rfind("cudaMemcpyAsync", 0) == 0 ||
-                                      routine.rfind("cudaMemcpy", 0) == 0;
 
-                if (use_rdma) {
-                    // bytes_hint if >0 ,then trigger the first 8B under TCP moniter.
-                    // real payload size after 8B head.
-                    hybrid->begin_call(routine, gvirtus::communicators::Transport::RDMA,
-                                       /*bytes_hint*/ 1);
+            LOG4CPLUS_INFO(logger, "Client disconnected");
+            Notify("process-ended");
+            return;
+        }
+
+        try {
+            while (getstring(client_comm, routine)) {
+                LOG4CPLUS_TRACE(logger, "Received routine " << routine);
+
+                // === before reading buffer, chose the protocol of this round by rountine ===
+                gvirtus::communicators::HybridCommunicator *hybrid = nullptr;
+                if (client_comm && client_comm->to_string() == "hybridcommunicator") {
+                    hybrid = dynamic_cast<gvirtus::communicators::HybridCommunicator *>(client_comm);
+                }
+                if (hybrid) {
+                    // all those function payload will transfer by RDMA
+                    const bool use_rdma = routine.rfind("cudaRegisterFatBinary", 0) == 0 || routine.rfind("cudaRegisterFatBinaryEnd", 0) == 0 || routine.rfind("cudaMemcpyAsync", 0) == 0 || routine.rfind("cudaMemcpy", 0) == 0;
+
+                    if (use_rdma) {
+                        // bytes_hint if >0 ,then trigger the first 8B under TCP moniter.
+                        // real payload size after 8B head.
+                        hybrid->begin_call(routine, gvirtus::communicators::Transport::RDMA, /*bytes_hint*/ 1);
+                    } else {
+                        hybrid->begin_call(routine, gvirtus::communicators::Transport::TCP, 0);
+                    }
+                }
+
+                // now reading buffer：8B from TCP, payload will transfer by the selected protocol
+                input_buffer->Reset(client_comm);
+
+                std::shared_ptr<Handler> h = nullptr;
+                for (auto &ptr_el : _handlers) {
+                    if (ptr_el->obj_ptr()->CanExecute(routine)) {
+                        h = ptr_el->obj_ptr();
+                        break;
+                    }
+                }
+
+                std::shared_ptr<communicators::Result> result;
+                if (h == nullptr) {
+                    LOG4CPLUS_ERROR(logger, "[Process " << getpid() << "]: Requested unknown routine '"
+                                                        << routine << "'.");
+                    result = std::make_shared<communicators::Result>(-1, std::make_shared<Buffer>());
                 } else {
-                    hybrid->begin_call(routine, gvirtus::communicators::Transport::TCP, 0);
+                    auto start = steady_clock::now();
+                    result = h->Execute(routine, input_buffer);
+                    result->TimeTaken(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                          steady_clock::now() - start)
+                                          .count() /
+                                      1000.0);
                 }
-            }
 
-            // now reading buffer：8B from TCP, payload will transfer by the selected protocol
-            input_buffer->Reset(client_comm);
+                // return info：control the head transfer by TCP，then payload RDMA
+                result->Dump(client_comm);
 
-            std::shared_ptr<Handler> h = nullptr;
-            for (auto &ptr_el : _handlers) {
-                if (ptr_el->obj_ptr()->CanExecute(routine)) {
-                    h = ptr_el->obj_ptr();
-                    break;
+                // stop this round, and clean all context
+                if (hybrid) {
+                    hybrid->end_call();
                 }
+
+                LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "]: Routine '" << routine
+                                                     << "' returned " << result->GetExitCode()
+                                                     << ".");
             }
-
-            std::shared_ptr<communicators::Result> result;
-            if (h == nullptr) {
-                LOG4CPLUS_ERROR(logger, "[Process " << getpid() << "]: Requested unknown routine '"
-                                                    << routine << "'.");
-                result = std::make_shared<communicators::Result>(-1, std::make_shared<Buffer>());
-            } else {
-                auto start = steady_clock::now();
-                result = h->Execute(routine, input_buffer);
-                result->TimeTaken(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                      steady_clock::now() - start)
-                                      .count() /
-                                  1000.0);
-            }
-
-            // return info：control the head transfer by TCP，then payload RDMA
-            result->Dump(client_comm);
-
-            // stop this round, and clean all context
-            if (hybrid) {
-                hybrid->end_call();
-            }
-
-            LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "]: Routine '" << routine
-                                                << "' returned " << result->GetExitCode() << ".");
+        } catch (const std::exception &e) {
+            LOG4CPLUS_WARN(logger, "Client stream closed with exception: " << e.what());
         }
 
         LOG4CPLUS_INFO(logger, "Client disconnected");

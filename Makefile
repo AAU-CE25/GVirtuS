@@ -1,4 +1,4 @@
-.PHONY: docker-build-push-dev docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-backend-tcp run-gvirtus-backend-ucx run-gvirtus-backend-ucx-tcp run-gvirtus-backend-ucx-rdma run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test docker-build-ucx-benchmark run-ucx-benchmark-server-tcp run-ucx-benchmark-server-ucx run-ucx-benchmark-tcp run-ucx-benchmark-ucx stop-ucx-benchmark run-ucx-matrix-single run-matrix-bench-tcp run-matrix-bench-ucx-tcp run-matrix-bench-ucx-rdma
+.PHONY: docker-build-push-dev docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-backend-tcp run-gvirtus-backend-ucx run-gvirtus-backend-ucx-tcp run-gvirtus-backend-ucx-rdma run-gvirtus-backend-ucx-stream-tcp run-gvirtus-backend-ucx-stream-rdma run-matrix-bench-ucx-stream-tcp run-matrix-bench-ucx-stream-rdma run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test docker-build-ucx-benchmark run-ucx-benchmark-server-tcp run-ucx-benchmark-server-ucx run-ucx-benchmark-tcp run-ucx-benchmark-ucx stop-ucx-benchmark run-ucx-matrix-single run-matrix-bench-tcp run-matrix-bench-ucx-tcp run-matrix-bench-ucx-rdma
 USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
 DOCKER_HUB_USERNAME ?= aauce25
 
@@ -386,6 +386,20 @@ run-gvirtus-backend-ucx-tcp:
 run-gvirtus-backend-ucx-rdma:
 	$(MAKE) run-gvirtus-backend-ucx UCX_TLS=rc_verbs
 
+# UCX-STREAM backend (alternative UCP Stream API impl) — RDMA.
+# Uses the parallel libgvirtus-communicators-ucxstream.so via suite=ucxstream
+# in the JSON. Same env-var contract as run-gvirtus-backend-ucx so the
+# transport / device / GID / RNDV controls work identically.
+run-gvirtus-backend-ucx-stream-rdma:
+	$(MAKE) run-gvirtus-backend-ucx \
+	    GVIRTUS_UCX_CONFIG=$(CURDIR)/examples/ucx_benchmark/properties_ucx_stream.json \
+	    UCX_TLS=rc_verbs
+
+run-gvirtus-backend-ucx-stream-tcp:
+	$(MAKE) run-gvirtus-backend-ucx \
+	    GVIRTUS_UCX_CONFIG=$(CURDIR)/examples/ucx_benchmark/properties_ucx_stream.json \
+	    UCX_TLS=tcp UCX_DEV=$(HOST_NETDEV)
+
 # ---- clients ----
 
 run-matrix-bench-tcp:
@@ -440,6 +454,50 @@ run-matrix-bench-ucx-rdma:
 		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
 		-e UCX_TLS=rc_verbs \
 		-e UCX_NET_DEVICES=$(UCX_DEV) \
+		-e UCX_IB_GID_INDEX=$(UCX_GID_IDX) \
+		-e UCX_RNDV_THRESH=$(UCX_RNDV_THRESH) \
+		$(DOCKER_HUB_USERNAME)/ucx_benchmark_gvirtus:cuda12.6 \
+		bash /opt/GVirtuS/examples/ucx_benchmark/frontend_matrix_sweep.sh
+
+# --- ucx-stream clients (UCP Stream API impl, suite=ucxstream) ---
+
+run-matrix-bench-ucx-stream-rdma:
+	docker run --rm \
+		--name matrix_bench_ucxstream_rdma-$(USER) \
+		--network host \
+		--runtime=nvidia \
+		--privileged \
+		--ulimit memlock=-1 \
+		--shm-size=8G \
+		-v ./examples/ucx_benchmark:/opt/GVirtuS/examples/ucx_benchmark \
+		-v ./examples/ucx_benchmark/properties_ucx_stream.json:/opt/GVirtuS/etc/properties.json \
+		-e BENCH_NS=$(BENCH_NS) \
+		-e RUNS=$(BENCH_RUNS) \
+		-e BENCH_TAG=ucxstream-rdma \
+		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
+		-e UCX_TLS=rc_verbs \
+		-e UCX_NET_DEVICES=$(UCX_DEV) \
+		-e UCX_IB_GID_INDEX=$(UCX_GID_IDX) \
+		-e UCX_RNDV_THRESH=$(UCX_RNDV_THRESH) \
+		$(DOCKER_HUB_USERNAME)/ucx_benchmark_gvirtus:cuda12.6 \
+		bash /opt/GVirtuS/examples/ucx_benchmark/frontend_matrix_sweep.sh
+
+run-matrix-bench-ucx-stream-tcp:
+	docker run --rm \
+		--name matrix_bench_ucxstream_tcp-$(USER) \
+		--network host \
+		--runtime=nvidia \
+		--privileged \
+		--ulimit memlock=-1 \
+		--shm-size=8G \
+		-v ./examples/ucx_benchmark:/opt/GVirtuS/examples/ucx_benchmark \
+		-v ./examples/ucx_benchmark/properties_ucx_stream.json:/opt/GVirtuS/etc/properties.json \
+		-e BENCH_NS=$(BENCH_NS) \
+		-e RUNS=$(BENCH_RUNS) \
+		-e BENCH_TAG=ucxstream-tcp \
+		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
+		-e UCX_TLS=tcp \
+		-e UCX_NET_DEVICES=$(HOST_NETDEV) \
 		-e UCX_IB_GID_INDEX=$(UCX_GID_IDX) \
 		-e UCX_RNDV_THRESH=$(UCX_RNDV_THRESH) \
 		$(DOCKER_HUB_USERNAME)/ucx_benchmark_gvirtus:cuda12.6 \

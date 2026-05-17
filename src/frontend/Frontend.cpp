@@ -40,14 +40,19 @@
 #include <stdlib.h> /* getenv */
 #include <sys/syscall.h>
 #include <sys/types.h>
+#include <sys/uio.h>
 #include <unistd.h>
 
 #include <chrono>
+#include <cstring>
 #include <filesystem>
 #include <iostream>
 #include <mutex>
+#include <atomic>
+#include <vector>
 
 #include "communicators/hybrid/HybridCommunicator.h"
+#include "gvirtus/communicators/UcxAmProtocol.h"
 #include "log4cplus/configurator.h"
 #include "log4cplus/logger.h"
 #include "log4cplus/loggingmacros.h"
@@ -69,8 +74,23 @@ static Frontend msFrontend;
 std::mutex gFrontendMutex;
 map<pthread_t, Frontend *> *Frontend::mpFrontends = NULL;
 static bool initialized = false;
+static std::atomic<std::uint64_t> gUcxAmRequestId{1};
 
 Logger logger;
+
+namespace {
+bool read_exact(gvirtus::communicators::Communicator *c, char *buffer, size_t size) {
+    size_t copied = 0;
+    while (copied < size) {
+        size_t n = c->Read(buffer + copied, size - copied);
+        if (n == 0) {
+            return false;
+        }
+        copied += n;
+    }
+    return true;
+}
+}
 
 std::string getEnvVar(std::string const &key) {
     char *env_var = getenv(key.c_str());
@@ -128,6 +148,20 @@ void Frontend::Init(Communicator *c) {
 
     LOG4CPLUS_INFO(logger, "Using properties file: " + config_path);
 
+    // Allocate buffers BEFORE Connect(). During Connect() the UCX
+    // communicator runs ucp_init, which dlopens libuct_cuda; libuct_cuda's
+    // module init then calls cuInit and other cu* probing functions on the
+    // GVirtuS frontend (because LD_LIBRARY_PATH puts ours first). Those
+    // functions reach Frontend::Prepare() -> Buffer::Reset(). If buffers
+    // haven't been allocated yet, that derefs nullptr and SIGSEGVs.
+    // mpInitialized stays false here and is set to true only at the end —
+    // Frontend::Execute() reads it as a reentrancy guard to short-circuit
+    // RPC calls coming from libuct_cuda's init.
+    mpFrontends->find(tid)->second->mpInputBuffer = std::make_shared<Buffer>();
+    mpFrontends->find(tid)->second->mpOutputBuffer = std::make_shared<Buffer>();
+    mpFrontends->find(tid)->second->mpLaunchBuffer = std::make_shared<Buffer>();
+    mpFrontends->find(tid)->second->mExitCode = -1;
+
     try {
         auto endpoint = EndpointFactory::get_endpoint(config_path);
 
@@ -141,10 +175,6 @@ void Frontend::Init(Communicator *c) {
         exit(EXIT_FAILURE);
     }
 
-    mpFrontends->find(tid)->second->mpInputBuffer = std::make_shared<Buffer>();
-    mpFrontends->find(tid)->second->mpOutputBuffer = std::make_shared<Buffer>();
-    mpFrontends->find(tid)->second->mpLaunchBuffer = std::make_shared<Buffer>();
-    mpFrontends->find(tid)->second->mExitCode = -1;
     mpFrontends->find(tid)->second->mpInitialized = true;
 }
 
@@ -220,6 +250,19 @@ Frontend *Frontend::GetFrontend(Communicator *c) {
 }
 
 void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
+    // Reentrancy guard for libuct_cuda's module init firing cu* calls during
+    // ucp_init() (which itself runs inside Frontend::Init -> Connect). At
+    // that point _communicator->obj_ptr() is set but not yet Connected; if
+    // we tried to send we would throw on the null endpoint. Return a
+    // harmless error so libuct_cuda concludes "no CUDA support" and lets
+    // UCX continue picking rc_mlx5 for the data path.
+    if (!mpInitialized) {
+        // 3 == CUDA_ERROR_NOT_INITIALIZED (driver API) == cudaErrorInitializationError
+        // (runtime API). Same numeric value on both APIs.
+        mExitCode = 3;
+        return;
+    }
+
     if (input_buffer == nullptr) input_buffer = mpInputBuffer.get();
 
     pid_t tid = syscall(SYS_gettid);
@@ -245,6 +288,287 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
                                                         << ", tid=" << tid << "]");
 
     frontend->mRoutinesExecuted++;
+
+    const bool ucx_am_mode = frontend->_communicator->obj_ptr()->to_string() == "ucxcommunicator";
+
+    if (ucx_am_mode) {
+        auto start_send = steady_clock::now();
+
+        const std::uint64_t request_id = gUcxAmRequestId.fetch_add(1);
+        const std::size_t routine_size = std::strlen(routine);
+        const std::size_t payload_size = input_buffer->GetBufferSize();
+
+        gvirtus::communicators::ucxam::EnvelopeHeader req_header{};
+        req_header.magic = gvirtus::communicators::ucxam::kEnvelopeMagic;
+        req_header.version = gvirtus::communicators::ucxam::kEnvelopeVersion;
+        req_header.message_type = static_cast<std::uint16_t>(gvirtus::communicators::ucxam::MessageType::Request);
+        req_header.header_size = static_cast<std::uint16_t>(sizeof(gvirtus::communicators::ucxam::EnvelopeHeader));
+        req_header.reserved0 = 0;
+        req_header.status_code = 0;
+        req_header.request_id = request_id;
+        req_header.routine_size = static_cast<std::uint64_t>(routine_size);
+        req_header.payload_size = static_cast<std::uint64_t>(payload_size);
+
+        // PROFILE: timing breakdown for transfers >= 1MB.
+        // Fase 5: when the caller uses AddHostPointerForArgumentsDirect, the
+        // user payload bypasses mpInputBuffer entirely — payload_size alone
+        // becomes tiny (just the marshaled headers / scalars). Include the
+        // direct chunk so big transfers still trip the gate.
+        // Fase 4 (D2H): the big payload is in the RESPONSE, not the request.
+        // mDirectOutputCount is the count the caller pre-registered via
+        // SetOutputDestination — include it so D2H also gets profiled.
+        const std::size_t effective_payload =
+            payload_size + frontend->mDirectInputBytes
+                         + frontend->mDirectOutputCount;
+        const bool profile = effective_payload >= (1u << 20);
+        auto tA = steady_clock::now();
+
+        // Gather-send via Communicator::WriteIov - UCX backend maps this to
+        // ucp_am_send_nbx with UCP_DATATYPE_IOV, avoiding the staging memcpy
+        // of the entire payload (was ~27ms per 64MB on Connect-7). Fase 5
+        // zero-copy: when the caller used AddHostPointerForArgumentsDirect,
+        // splice the user buffer at the recorded offset so the 64MB never
+        // touches mpInputBuffer. Wire payload bytes are identical either way.
+        const bool has_direct = frontend->HasDirectInput();
+        if (has_direct) {
+            req_header.payload_size =
+                static_cast<std::uint64_t>(payload_size + frontend->mDirectInputBytes);
+        }
+        struct iovec iov[5];
+        int n = 0;
+        iov[n].iov_base = &req_header;
+        iov[n].iov_len  = sizeof(req_header);
+        ++n;
+        if (routine_size > 0) {
+            iov[n].iov_base = const_cast<char *>(routine);
+            iov[n].iov_len  = routine_size;
+            ++n;
+        }
+        if (payload_size > 0) {
+            if (has_direct) {
+                const size_t split = frontend->mDirectInputBufferOffset;
+                char *base = const_cast<char *>(input_buffer->GetBuffer());
+                iov[n].iov_base = base;
+                iov[n].iov_len  = split;
+                ++n;
+                iov[n].iov_base = const_cast<void *>(frontend->mDirectInputSrc);
+                iov[n].iov_len  = frontend->mDirectInputBytes;
+                ++n;
+                if (payload_size > split) {
+                    iov[n].iov_base = base + split;
+                    iov[n].iov_len  = payload_size - split;
+                    ++n;
+                }
+            } else {
+                iov[n].iov_base = const_cast<char *>(input_buffer->GetBuffer());
+                iov[n].iov_len  = payload_size;
+                ++n;
+            }
+        }
+        auto tB = steady_clock::now();
+
+        frontend->mDataSent += payload_size;
+        frontend->_communicator->obj_ptr()->WriteIov(iov, static_cast<size_t>(n));
+        auto tC = steady_clock::now();
+
+        frontend->_communicator->obj_ptr()->Sync();
+        auto tD = steady_clock::now();
+
+        send_sec = duration_cast<milliseconds>(steady_clock::now() - start_send).count() / 1000.0;
+
+        // Fase 5: direct input chunk has been consumed by WriteIov+Sync above;
+        // drop the pointer so the next Execute() doesn't accidentally inherit it.
+        frontend->ClearDirectInput();
+
+        frontend->mpOutputBuffer->Reset();
+        auto start_recv = steady_clock::now();
+        auto tE = steady_clock::now();
+
+        gvirtus::communicators::ucxam::EnvelopeHeader resp_header{};
+        size_t out_buffer_size = 0;
+        auto tF = steady_clock::now();
+        auto tG = tF;
+        auto tH = tF;
+
+        // Try the zero-copy frame path first: TryAcquireFrame returns a
+        // pointer to the communicator's pinned RX-pool slot containing the
+        // entire response (header || exec_sec || out_size || out_data). We
+        // parse everything in place and AppendBytes(out_data, out_size) does
+        // a single bulk memcpy into mpOutputBuffer instead of the previous
+        // per-byte Add<char> loop (~67M calls for 64MB = ~1.3s wasted).
+        const unsigned char *frame_data = nullptr;
+        size_t frame_size = 0;
+        const bool owns_frame =
+            frontend->_communicator->obj_ptr()->TryAcquireFrame(frame_data, frame_size);
+
+        if (owns_frame) {
+            if (frame_size < sizeof(resp_header)) {
+                frontend->_communicator->obj_ptr()->ReleaseFrame();
+                throw std::runtime_error("Frontend UCX AM: response frame smaller than header");
+            }
+            std::memcpy(&resp_header, frame_data, sizeof(resp_header));
+            tF = steady_clock::now();
+
+            if (resp_header.magic != gvirtus::communicators::ucxam::kEnvelopeMagic ||
+                resp_header.version != gvirtus::communicators::ucxam::kEnvelopeVersion ||
+                resp_header.header_size != sizeof(gvirtus::communicators::ucxam::EnvelopeHeader)) {
+                frontend->_communicator->obj_ptr()->ReleaseFrame();
+                throw std::runtime_error("Frontend UCX AM: invalid response header");
+            }
+            if (resp_header.request_id != request_id) {
+                frontend->_communicator->obj_ptr()->ReleaseFrame();
+                throw std::runtime_error("Frontend UCX AM: response request_id mismatch");
+            }
+
+            frontend->mExitCode = static_cast<int>(resp_header.status_code);
+            exit_code = frontend->mExitCode;
+
+            const size_t payload_len = static_cast<size_t>(resp_header.payload_size);
+            const size_t fixed_prefix = sizeof(double) + sizeof(size_t);
+            if (payload_len > 0) {
+                if (frame_size < sizeof(resp_header) + fixed_prefix) {
+                    frontend->_communicator->obj_ptr()->ReleaseFrame();
+                    throw std::runtime_error("Frontend UCX AM: response payload too small");
+                }
+                const unsigned char *p = frame_data + sizeof(resp_header);
+                std::memcpy(&server_exec_sec, p, sizeof(double));
+                p += sizeof(double);
+                std::memcpy(&out_buffer_size, p, sizeof(size_t));
+                p += sizeof(size_t);
+                if (sizeof(resp_header) + fixed_prefix + out_buffer_size > frame_size) {
+                    frontend->_communicator->obj_ptr()->ReleaseFrame();
+                    throw std::runtime_error("Frontend UCX AM: output payload size mismatch");
+                }
+                tG = steady_clock::now();
+                frontend->mDataReceived += out_buffer_size;
+                // Fase 4 zero-copy: when the caller pre-registered a dst via
+                // SetOutputDestination() AND the response Buffer layout is
+                // exactly [size_t prefix == count][count bytes payload],
+                // memcpy the payload straight into the caller's buffer.
+                // Eliminates one of the two 64MB memcpys in the D2H path.
+                bool direct_ok = false;
+                if (frontend->mDirectOutputDst != nullptr &&
+                    out_buffer_size == sizeof(size_t) + frontend->mDirectOutputCount) {
+                    size_t payload_prefix = 0;
+                    std::memcpy(&payload_prefix, p, sizeof(size_t));
+                    if (payload_prefix == frontend->mDirectOutputCount) {
+                        std::memcpy(frontend->mDirectOutputDst,
+                                    p + sizeof(size_t),
+                                    frontend->mDirectOutputCount);
+                        frontend->mDirectOutputConsumed = true;
+                        direct_ok = true;
+                    }
+                }
+                if (!direct_ok) {
+                    // Single bulk memcpy (~3ms for 64MB) replacing 67M Add<char> calls.
+                    frontend->mpOutputBuffer->AppendBytes(
+                        reinterpret_cast<const char *>(p), out_buffer_size);
+                }
+                tH = steady_clock::now();
+            } else {
+                tG = steady_clock::now();
+                tH = tG;
+            }
+
+            frontend->_communicator->obj_ptr()->ReleaseFrame();
+        } else {
+            // Stream fallback (non-UCX transports).
+            if (!read_exact(frontend->_communicator->obj_ptr().get(),
+                            reinterpret_cast<char *>(&resp_header), sizeof(resp_header))) {
+                throw std::runtime_error("Frontend UCX AM: failed to read response header");
+            }
+            tF = steady_clock::now();
+
+            if (resp_header.magic != gvirtus::communicators::ucxam::kEnvelopeMagic ||
+                resp_header.version != gvirtus::communicators::ucxam::kEnvelopeVersion ||
+                resp_header.header_size != sizeof(gvirtus::communicators::ucxam::EnvelopeHeader)) {
+                throw std::runtime_error("Frontend UCX AM: invalid response header");
+            }
+            if (resp_header.request_id != request_id) {
+                throw std::runtime_error("Frontend UCX AM: response request_id mismatch");
+            }
+
+            std::vector<unsigned char> resp_payload(static_cast<std::size_t>(resp_header.payload_size));
+            if (!resp_payload.empty() &&
+                !read_exact(frontend->_communicator->obj_ptr().get(),
+                            reinterpret_cast<char *>(resp_payload.data()), resp_payload.size())) {
+                throw std::runtime_error("Frontend UCX AM: failed to read response payload");
+            }
+
+            frontend->mExitCode = static_cast<int>(resp_header.status_code);
+            exit_code = frontend->mExitCode;
+
+            const std::size_t fixed_prefix = sizeof(double) + sizeof(size_t);
+            if (resp_payload.size() < fixed_prefix) {
+                throw std::runtime_error("Frontend UCX AM: response payload too small");
+            }
+            std::size_t parse_off = 0;
+            std::memcpy(&server_exec_sec, resp_payload.data() + parse_off, sizeof(double));
+            parse_off += sizeof(double);
+            std::memcpy(&out_buffer_size, resp_payload.data() + parse_off, sizeof(size_t));
+            parse_off += sizeof(size_t);
+            if (resp_payload.size() < parse_off + out_buffer_size) {
+                throw std::runtime_error("Frontend UCX AM: output payload size mismatch");
+            }
+            tG = steady_clock::now();
+            frontend->mDataReceived += out_buffer_size;
+            // Fase 4 zero-copy (stream fallback): same direct-dst shortcut as
+            // the frame path above. See comment there for the contract.
+            bool direct_ok = false;
+            if (frontend->mDirectOutputDst != nullptr &&
+                out_buffer_size == sizeof(size_t) + frontend->mDirectOutputCount) {
+                const unsigned char *sp = resp_payload.data() + parse_off;
+                size_t payload_prefix = 0;
+                std::memcpy(&payload_prefix, sp, sizeof(size_t));
+                if (payload_prefix == frontend->mDirectOutputCount) {
+                    std::memcpy(frontend->mDirectOutputDst,
+                                sp + sizeof(size_t),
+                                frontend->mDirectOutputCount);
+                    frontend->mDirectOutputConsumed = true;
+                    direct_ok = true;
+                }
+            }
+            if (!direct_ok) {
+                // Single bulk memcpy here too — same fix as the frame path.
+                frontend->mpOutputBuffer->AppendBytes(
+                    reinterpret_cast<const char *>(resp_payload.data() + parse_off),
+                    out_buffer_size);
+            }
+            tH = steady_clock::now();
+        }
+
+        recv_sec = duration_cast<milliseconds>(steady_clock::now() - start_recv).count() / 1000.0;
+
+        if (profile) {
+            auto us = [](auto a, auto b) {
+                return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count();
+            };
+            fprintf(stderr,
+                    "[GVS PROFILE] %s payload=%zuMB | marshal=%ldus write=%ldus sync=%ldus "
+                    "read_hdr=%ldus read_payload=%ldus append=%ldus | total_send=%ldus total_recv=%ldus\n",
+                    routine, effective_payload >> 20,
+                    us(tA, tB), us(tB, tC), us(tC, tD),
+                    us(tE, tF), us(tF, tG), us(tG, tH),
+                    us(tA, tD), us(tE, tH));
+            fflush(stderr);
+        }
+
+        frontend->mRoutineExecutionTime += server_exec_sec;
+        frontend->mSendingTime += send_sec;
+        frontend->mReceivingTime += recv_sec;
+
+        LOG4CPLUS_DEBUG(logger, "[UCX AM] Routine '" << routine << "' returned " << exit_code
+                                                      << " | server_exec=" << server_exec_sec
+                                                      << "s"
+                                                      << " | send=" << send_sec << "s"
+                                                      << " | recv=" << recv_sec << "s"
+                                                      << " | in=" << in_size << "B"
+                                                      << " | out=" << out_buffer_size << "B"
+                                                      << " | pid=" << pid << " tid=" << tid
+                                                      << " | req_id=" << request_id);
+        LOG4CPLUS_DEBUG(logger, "DEBUG - Called: " << routine);
+        return;
+    }
 
     // ===== send routine info first（under TCP）=====
     auto start_send = steady_clock::now();

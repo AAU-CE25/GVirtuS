@@ -1,7 +1,10 @@
 #pragma once
 
 #include <cstddef>
+#include <cstring>
 #include <memory>
+#include <vector>
+#include <sys/uio.h>
 
 #include "Endpoint.h"
 
@@ -52,6 +55,41 @@ class Communicator {
 
     virtual size_t Read(char *buffer, size_t size) = 0;
     virtual size_t Write(const char *buffer, size_t size) = 0;
+
+    // Gather-send: allows callers to send a logically-contiguous message
+    // assembled from N non-contiguous fragments without concatenating them
+    // first. Concrete UCX-style transports can map this to a single
+    // ucp_am_send_nbx with UCP_DATATYPE_IOV, avoiding host-RAM staging for
+    // large payloads (e.g. cudaMemcpy of 64MB). The default fallback below
+    // preserves correctness for transports that don't support scatter — at
+    // the cost of one concatenation memcpy.
+    virtual size_t WriteIov(const struct iovec *iov, size_t iov_count) {
+        if (iov == nullptr || iov_count == 0) return 0;
+        size_t total = 0;
+        for (size_t i = 0; i < iov_count; ++i) total += iov[i].iov_len;
+        std::vector<char> buf(total);
+        size_t off = 0;
+        for (size_t i = 0; i < iov_count; ++i) {
+            std::memcpy(buf.data() + off, iov[i].iov_base, iov[i].iov_len);
+            off += iov[i].iov_len;
+        }
+        return Write(buf.data(), total);
+    }
+
+    // Zero-copy frame handoff for transports that buffer entire messages
+    // internally (e.g. UCX active messages). If the implementation can
+    // expose the next received message as a contiguous buffer it owns,
+    // it returns true and sets `data`/`size`. The caller must then call
+    // ReleaseFrame() when done to return the buffer to the underlying pool.
+    // Default no-op fallback: returns false, forces callers to use the
+    // byte-stream Read() path. Stream-oriented transports (TCP, etc.) keep
+    // working with the default.
+    virtual bool TryAcquireFrame(const unsigned char *&data, size_t &size) {
+        (void)data; (void)size;
+        return false;
+    }
+    virtual void ReleaseFrame() {}
+
     virtual void Sync() = 0;
 
     /**

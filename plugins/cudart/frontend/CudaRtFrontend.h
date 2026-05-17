@@ -33,6 +33,7 @@
 #include <cuda_runtime_api.h>
 #include <gvirtus/frontend/Frontend.h>
 
+#include <cstdlib>
 #include <list>
 #include <map>
 #include <set>
@@ -52,6 +53,9 @@ class CudaRtFrontend {
             gvirtus::frontend::Frontend::GetFrontend()->Execute(routine, input_buffer);
         } catch (const std::exception& e) {
             cerr << "Execution exception: " << e.what() << endl;
+            // Do not continue after a failed remote execution; subsequent CUDA runtime
+            // calls may dereference invalid state and crash the process.
+            std::exit(EXIT_FAILURE);
         }
     }
 
@@ -99,6 +103,12 @@ class CudaRtFrontend {
     template <class T>
     static inline void AddHostPointerForArguments(T* ptr, size_t n = 1) {
         gvirtus::frontend::Frontend::GetFrontend()->GetInputBuffer()->Add(ptr, n);
+    }
+
+    // Fase 5 wrapper - see Frontend.h for the contract.
+    template <class T>
+    static inline void AddHostPointerForArgumentsDirect(const T* ptr, size_t n = 1) {
+        gvirtus::frontend::Frontend::GetFrontend()->AddHostPointerForArgumentsDirect<T>(ptr, n);
     }
 
     /**
@@ -149,6 +159,25 @@ class CudaRtFrontend {
     template <class T>
     static inline T* GetOutputHostPointer(size_t n = 1) {
         return gvirtus::frontend::Frontend::GetFrontend()->GetOutputBuffer()->Assign<T>(n);
+    }
+
+    // Fase 4 wrappers - register a caller-owned destination so Execute()
+    // writes the big output payload directly there. See Frontend.h for the
+    // contract. Caller pattern:
+    //
+    //   SetOutputDestination(dst, count);
+    //   Execute("...");
+    //   if (Success() && !DirectOutputConsumed())
+    //       memmove(dst, GetOutputHostPointer<char>(count), count);
+    //   ClearOutputDestination();
+    static inline void SetOutputDestination(void *dst, size_t count) {
+        gvirtus::frontend::Frontend::GetFrontend()->SetOutputDestination(dst, count);
+    }
+    static inline void ClearOutputDestination() {
+        gvirtus::frontend::Frontend::GetFrontend()->ClearOutputDestination();
+    }
+    static inline bool DirectOutputConsumed() {
+        return gvirtus::frontend::Frontend::GetFrontend()->DirectOutputConsumed();
     }
 
     /**

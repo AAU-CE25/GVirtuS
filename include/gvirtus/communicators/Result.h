@@ -48,6 +48,7 @@ class Result {
 
     virtual ~Result() = default;
     int GetExitCode();
+    std::shared_ptr<Buffer> GetOutputBuffer() const;
 
     void Dump(Communicator *c);
 
