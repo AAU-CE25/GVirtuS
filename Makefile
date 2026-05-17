@@ -1,4 +1,4 @@
-.PHONY: docker-build-push-dev docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-backend-tcp run-gvirtus-backend-ucx run-gvirtus-backend-ucx-tcp run-gvirtus-backend-ucx-rdma run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test docker-build-ucx-benchmark run-ucx-benchmark-server-tcp run-ucx-benchmark-server-ucx run-ucx-benchmark-tcp run-ucx-benchmark-ucx stop-ucx-benchmark run-ucx-matrix-single ucx-config run-matrix-bench-tcp run-matrix-bench-ucx-tcp run-matrix-bench-ucx-rdma
+.PHONY: docker-build-push-dev docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-backend-tcp run-gvirtus-backend-ucx run-gvirtus-backend-ucx-tcp run-gvirtus-backend-ucx-rdma run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test docker-build-ucx-benchmark run-ucx-benchmark-server-tcp run-ucx-benchmark-server-ucx run-ucx-benchmark-tcp run-ucx-benchmark-ucx stop-ucx-benchmark run-ucx-matrix-single run-matrix-bench-tcp run-matrix-bench-ucx-tcp run-matrix-bench-ucx-rdma
 USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
 DOCKER_HUB_USERNAME ?= aauce25
 
@@ -8,14 +8,15 @@ GVIRTUS_LOG_LEVEL ?= 20000
 # UCX per-host profile
 #
 # Auto-loaded from etc/ucx/<hostname>.env if it exists. Each profile pins the
-# RDMA device name, GID index, the host's 24.24.24.x IP, and the peer's IP.
+# RDMA device name and GID index used by UCX at runtime. Ports and server
+# addresses live exclusively in the JSON config files under examples/ucx_benchmark/.
 # Override on the CLI to bypass: make ... UCX_PROFILE=etc/ucx/es-dpu-02.env
 # ---------------------------------------------------------------------------
 SHORT_HOST  := $(shell hostname -s)
 UCX_PROFILE ?= etc/ucx/$(SHORT_HOST).env
 ifneq ("$(wildcard $(UCX_PROFILE))","")
     include $(UCX_PROFILE)
-    $(info [ucx] loaded profile: $(UCX_PROFILE) (HOST_IP=$(HOST_IP) UCX_DEV=$(UCX_DEV) UCX_TLS=$(UCX_TLS)))
+    $(info [ucx] loaded profile: $(UCX_PROFILE) (UCX_DEV=$(UCX_DEV) UCX_GID_IDX=$(UCX_GID_IDX) UCX_TLS=$(UCX_TLS)))
 else
     $(warning [ucx] no profile for host '$(SHORT_HOST)' at $(UCX_PROFILE); using defaults)
 endif
@@ -24,11 +25,11 @@ endif
 UCX_DEV      ?= mlx5_0:1
 UCX_GID_IDX  ?= 1
 UCX_TLS      ?= rc_verbs,tcp
-HOST_IP      ?= 24.24.24.1
-HOST_IP_PEER ?= 24.24.24.2
-HOST_NETDEV  ?= ens7f0np0
-UCX_PORT     ?= 7676
-TCP_PORT     ?= 6767
+
+# Single source of truth for GVirtuS endpoint config (server_address + port live
+# inside the JSON; edit those files by hand if you need to change them).
+GVIRTUS_TCP_CONFIG := $(PWD)/examples/ucx_benchmark/properties_tcp.json
+GVIRTUS_UCX_CONFIG := $(PWD)/examples/ucx_benchmark/properties_ucx.json
 
 DOCKER_REPO_DEV := $(DOCKER_HUB_USERNAME)/gvirtus-dev
 DOCKER_REPO_TEST := $(DOCKER_HUB_USERNAME)/gvirtus-test
@@ -96,22 +97,14 @@ run-gvirtus-backend-dev:
 attach-gvirtus-bash:
 		docker exec -it gvirtus-$(USER) bash
 
-# Regenerate the properties JSON files from the active profile so the backend
-# binds to HOST_IP and the client dials HOST_IP on UCX_PORT / TCP_PORT.
-# Both sides use HOST_IP from the active profile so regenerating the config
-# never rewrites the server IP to the local/peer IP.
-# Called automatically before any UCX / TCP benchmark run target.
-ucx-config:
-	@echo "[ucx] writing etc/properties_ucx.json (bind $(HOST_IP):$(UCX_PORT))"
-	@printf '{\n  "communicator": [\n    {\n      "endpoint": {\n        "suite": "ucx",\n        "protocol": "ucx",\n        "server_address": "$(HOST_IP)",\n        "port": "$(UCX_PORT)"\n      },\n      "plugins": ["cuda","cudart","cublas","curand","cudnn","cufft","cusolver","cusparse","nvrtc","nvml"]\n    }\n  ],\n  "secure_application": false\n}\n' > etc/properties_ucx.json
-	@echo "[ucx] writing examples/ucx_benchmark/properties_ucx.json (dial $(HOST_IP):$(UCX_PORT))"
-	@printf '{\n  "communicator": [\n    {\n      "endpoint": {\n        "suite": "ucx",\n        "protocol": "ucx",\n        "server_address": "$(HOST_IP)",\n        "port": "$(UCX_PORT)"\n      },\n      "plugins": ["cuda","cudart","cublas","curand","cudnn","cufft","cusolver","cusparse","nvrtc","nvml"]\n    }\n  ],\n  "secure_application": false\n}\n' > examples/ucx_benchmark/properties_ucx.json
-	@echo "[tcp] writing etc/properties_tcp.json (bind $(HOST_IP):$(TCP_PORT))"
-	@printf '{\n  "communicator": [\n    {\n      "endpoint": {\n        "suite": "tcp/ip",\n        "protocol": "tcp",\n        "server_address": "$(HOST_IP)",\n        "port": "$(TCP_PORT)"\n      },\n      "plugins": ["cuda","cudart","cublas","curand","cudnn","cufft","cusolver","cusparse","nvrtc","nvml"]\n    }\n  ],\n  "secure_application": false\n}\n' > etc/properties_tcp.json
-	@echo "[tcp] writing examples/ucx_benchmark/properties_tcp.json (dial $(HOST_IP):$(TCP_PORT))"
-	@printf '{\n  "communicator": [\n    {\n      "endpoint": {\n        "suite": "tcp/ip",\n        "protocol": "tcp",\n        "server_address": "$(HOST_IP)",\n        "port": "$(TCP_PORT)"\n      },\n      "plugins": ["cuda","cudart","cublas","curand","cudnn","cufft","cusolver","cusparse","nvrtc","nvml"]\n    }\n  ],\n  "secure_application": false\n}\n' > examples/ucx_benchmark/properties_tcp.json
+# GVirtuS endpoint config:
+#   - Single source of truth per protocol, hand-maintained, lives in examples/ucx_benchmark/.
+#   - server_address + port are inside the JSON; the Makefile never edits them.
+#   - Backend targets mount the JSON read-only into /opt/gvirtus-config.json
+#     and point GVIRTUS_CONFIG at it. Client targets mount the same JSON into
+#     /opt/GVirtuS/etc/properties.json so the frontend stub picks it up.
 
-run-gvirtus-backend-ucx: ucx-config
+run-gvirtus-backend-ucx:
 	docker run \
 		--rm \
 		-it \
@@ -127,12 +120,13 @@ run-gvirtus-backend-ucx: ucx-config
 		-v ./CMakeLists.txt:/gvirtus/CMakeLists.txt \
 		-v ./docker/dev/entrypoint.sh:/entrypoint.sh \
 		-v ./examples:/gvirtus/examples/ \
+		-v $(GVIRTUS_UCX_CONFIG):/opt/gvirtus-config.json:ro \
 		--entrypoint /entrypoint.sh \
 		--name gvirtus-ucx-$(USER) \
 		--runtime=nvidia \
 		--shm-size=8G \
 		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
-		-e GVIRTUS_CONFIG=/gvirtus/etc/properties_ucx.json \
+		-e GVIRTUS_CONFIG=/opt/gvirtus-config.json \
 		-e UCX_TLS=$(UCX_TLS) \
 		-e UCX_NET_DEVICES=$(UCX_DEV) \
 		-e UCX_IB_GID_INDEX=$(UCX_GID_IDX) \
@@ -308,7 +302,7 @@ stop-ucx-benchmark:
 # Override N / RUNS on the CLI: `make run-ucx-matrix-single N=256 RUNS=1`
 N    ?= 128
 RUNS ?= 1
-run-ucx-matrix-single: ucx-config
+run-ucx-matrix-single:
 	docker run --rm \
 		--name ucx_matrix_ucx-$(USER) \
 		--network host \
@@ -350,7 +344,7 @@ BENCH_RUNS ?= 10
 # Pure TCP backend (uses TcpCommunicator). Mirrors run-gvirtus-backend-dev but
 # mounts the regenerated TCP properties file so the bench client and the
 # backend agree on host:port from the per-host profile.
-run-gvirtus-backend-tcp: ucx-config
+run-gvirtus-backend-tcp:
 	docker run \
 		--rm \
 		-it \
@@ -366,12 +360,13 @@ run-gvirtus-backend-tcp: ucx-config
 		-v ./CMakeLists.txt:/gvirtus/CMakeLists.txt \
 		-v ./docker/dev/entrypoint.sh:/entrypoint.sh \
 		-v ./examples:/gvirtus/examples/ \
+		-v $(GVIRTUS_TCP_CONFIG):/opt/gvirtus-config.json:ro \
 		--entrypoint /entrypoint.sh \
 		--name gvirtus-tcp-$(USER) \
 		--runtime=nvidia \
 		--shm-size=8G \
 		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
-		-e GVIRTUS_CONFIG=/gvirtus/etc/properties_tcp.json \
+		-e GVIRTUS_CONFIG=/opt/gvirtus-config.json \
 		$(DOCKER_REPO_DEV):cuda12.6.3-cudnn-ubuntu22.04
 
 # UCX backend forced to TCP transport (no RDMA): isolates UCX framing overhead
@@ -386,7 +381,7 @@ run-gvirtus-backend-ucx-rdma:
 
 # ---- clients ----
 
-run-matrix-bench-tcp: ucx-config
+run-matrix-bench-tcp:
 	docker run --rm \
 		--name matrix_bench_tcp-$(USER) \
 		--network host \
@@ -401,7 +396,7 @@ run-matrix-bench-tcp: ucx-config
 		$(DOCKER_HUB_USERNAME)/ucx_benchmark_gvirtus:cuda12.6 \
 		bash /opt/GVirtuS/examples/ucx_benchmark/frontend_matrix_sweep.sh
 
-run-matrix-bench-ucx-tcp: ucx-config
+run-matrix-bench-ucx-tcp:
 	docker run --rm \
 		--name matrix_bench_ucx_tcp-$(USER) \
 		--network host \
@@ -422,7 +417,7 @@ run-matrix-bench-ucx-tcp: ucx-config
 		$(DOCKER_HUB_USERNAME)/ucx_benchmark_gvirtus:cuda12.6 \
 		bash /opt/GVirtuS/examples/ucx_benchmark/frontend_matrix_sweep.sh
 
-run-matrix-bench-ucx-rdma: ucx-config
+run-matrix-bench-ucx-rdma:
 	docker run --rm \
 		--name matrix_bench_ucx_rdma-$(USER) \
 		--network host \
