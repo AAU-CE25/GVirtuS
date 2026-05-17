@@ -211,9 +211,9 @@ void UcxCommunicator::initWorker() {
 
 void UcxCommunicator::epErrCallback(void *arg, ucp_ep_h /*ep*/, ucs_status_t status) {
     auto *self = static_cast<UcxCommunicator *>(arg);
-    LOG4CPLUS_ERROR(self->logger,
-                    "UCX endpoint error: " << ucs_status_string(status)
-                                           << " (peer likely disconnected)");
+    self->mPeerClosed.store(true);
+    LOG4CPLUS_INFO(self->logger,
+                   "UCX endpoint closed by peer: " << ucs_status_string(status));
 }
 
 // ============================================================================
@@ -414,12 +414,33 @@ void UcxCommunicator::Connect() {
 
 size_t UcxCommunicator::Read(char *buffer, size_t size) {
     LOG4CPLUS_TRACE(logger, "Read() size=" << size);
-    return stream_recv_all(mWorker, mEndpoint, buffer, size);
+    // Treat a previously-flagged peer disconnect as EOF so the backend's
+    // per-client thread can exit its loop cleanly. Without this, the next
+    // Read after disconnect would throw inside a detached std::thread and
+    // call std::terminate(), killing the whole Process child.
+    if (mPeerClosed.load()) return 0;
+    try {
+        return stream_recv_all(mWorker, mEndpoint, buffer, size);
+    } catch (const std::exception &e) {
+        // Convert peer-disconnect errors into EOF (0 bytes). Any other UCX
+        // failure mode also surfaces here; logging at INFO keeps the backend
+        // log readable on normal client teardown.
+        mPeerClosed.store(true);
+        LOG4CPLUS_INFO(logger, "Read() EOF: " << e.what());
+        return 0;
+    }
 }
 
 size_t UcxCommunicator::Write(const char *buffer, size_t size) {
     LOG4CPLUS_TRACE(logger, "Write() size=" << size);
-    return stream_send(mWorker, mEndpoint, buffer, size);
+    if (mPeerClosed.load()) return 0;
+    try {
+        return stream_send(mWorker, mEndpoint, buffer, size);
+    } catch (const std::exception &e) {
+        mPeerClosed.store(true);
+        LOG4CPLUS_INFO(logger, "Write() EOF: " << e.what());
+        return 0;
+    }
 }
 
 void UcxCommunicator::Sync() {

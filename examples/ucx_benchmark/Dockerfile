@@ -1,27 +1,21 @@
-FROM nvidia/cuda:12.6.3-cudnn-devel-ubuntu22.04
+# Base on the dev image so we inherit the EXACT same UCX (1.20.0 built from
+# source). Apt's libucx-dev (1.12.x) is wire-incompatible with the dev image
+# and causes `ERROR failed to unpack address, invalid bandwidth 0.00` during
+# endpoint wireup. CUDA, cuDNN, log4cplus, ibverbs, lz4 are all already in
+# the dev image too.
+FROM aauce25/gvirtus-dev:cuda12.6.3-cudnn-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV GVIRTUS_HOME=/opt/GVirtuS
 
-RUN apt update && apt install -y --no-install-recommends \
-    build-essential \
-    libxmu-dev \
-    libxi-dev \
-    libgl-dev \
-    libosmesa-dev \
-    liblog4cplus-dev \
-    librdmacm-dev \
-    libibverbs-dev \
-    libgtest-dev \
-    liblz4-dev \
-    libucx-dev \
-    git \
-    cmake \
+# Override the dev image's entrypoint so we can run interactive bench commands.
+ENTRYPOINT []
+
+RUN apt update && apt install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt
-# Copy the LOCAL gvirtus source tree (build context is repo root).
-# This avoids the stale `git clone` of the github master branch.
+# Build the local GVirtuS source against the inherited UCX 1.20.0.
 COPY . /opt/GVirtuS-src
 RUN cd /opt/GVirtuS-src && mkdir -p build && cd build && \
     cmake -DCMAKE_INSTALL_PREFIX=${GVIRTUS_HOME} .. && \

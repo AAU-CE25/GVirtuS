@@ -68,6 +68,12 @@ class UcxCommunicator : public Communicator {
     // and must NOT cleanup it on destruction.
     bool mOwnsContext = false;
 
+    // Set by epErrCallback when the peer drops the connection. Once true,
+    // Read() returns 0 (EOF) immediately, matching TCP communicator semantics
+    // so callers (e.g. backend Process::getstring) can exit their loops
+    // cleanly instead of catching an exception in a detached thread.
+    std::atomic<bool> mPeerClosed{false};
+
     // Connection-request slot populated by the listener callback.
     struct ConnRequest {
         ucp_conn_request_h conn_req;
