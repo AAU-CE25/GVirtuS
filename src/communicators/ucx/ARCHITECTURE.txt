@@ -1,11 +1,65 @@
 UCX Communicator - Transport Routing & Logic
 =============================================
 
-1. UCX COMMUNICATOR CALL FLOW
+Implementation notes for src/communicators/ucx/UcxCommunicator.{h,cpp}.
+
+The communicator is built on the UCP STREAM API (not tag matching). Stream
+was chosen because it matches the byte-oriented Read(n)/Write(n) contract
+that the rest of GVirtuS (Buffer, Process::getstring) already assumes;
+partial reads are looped with UCP_STREAM_RECV_FLAG_WAITALL.
+
+UCX still picks the optimal transport per message internally: small
+messages travel eager (1 copy, TCP/SHM/inline-RDMA), large messages flip
+to rendezvous and ride RDMA zero-copy. The hand-off is gated by
+UCX_RNDV_THRESH (default 8 KiB) and is invisible to the stream caller.
+
+
+1. STARTUP / CONNECT / WIREUP
 ─────────────────────────────
 
-UCX automatically selects the optimal transport based on message size.
-The threshold is controlled by UCX_RNDV_THRESH (default 8KB).
+Server (Serve / Accept)                  Client (Connect)
+────────────────────────                  ────────────────
+raise_memlock_limit()                     raise_memlock_limit()
+ucp_init(features=STREAM)                 ucp_init(features=STREAM)
+ucp_worker_create()                       ucp_worker_create()
+ucp_listener_create(addr) ───►            ucp_ep_create(sockaddr,
+   conn_handler stores                       err_mode=PEER,
+   ucp_conn_request_h                        err_handler=epErrCb)
+ucp_worker_create() (one per
+   accepted ep)
+ucp_ep_create(conn_req,
+   err_mode=PEER,
+   err_handler=epErrCb)
+            │                                 │
+            ▼                                 ▼
+   wireupServer(ep):                  wireupClient(ep):
+     send 'A'  ─────────────────────►   recv 'A'
+     flush                               send 'R'  ───►
+     recv 'R' ◄─────────────────────     flush
+            │                                 │
+            └────────► return to Process ◄────┘
+                       loop / matrix_mul
+
+Why a wireup handshake? UCX wireup messages are exchanged lazily on the
+first transfer over a new endpoint. Without forcing them up front, the
+first user-level Write of a large payload can stall waiting for wireup.
+The 1-byte A/R + flush pair drains wireup before any plugin call lands
+on the wire.
+
+Why raise_memlock_limit? RDMA zero-copy requires the buffer be pinned.
+The default per-process RLIMIT_MEMLOCK is often 64 KiB; without bumping
+it, every transfer above that silently falls back to UCX bounce buffers
+and throughput collapses. The standalone benchmark measured a 3.5×
+recovery at 64 MiB after pinning.
+
+Why err_mode=PEER + err_handler? If the peer dies mid-transfer, an
+endpoint without error handling spins forever in ucp_worker_progress.
+With epErrCb installed, the failure surfaces and the endpoint is marked
+dead via mPeerClosed (see section 5).
+
+
+2. UCX COMMUNICATOR CALL FLOW
+─────────────────────────────
 
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                        Frontend (Client App)                             │
@@ -19,42 +73,46 @@ The threshold is controlled by UCX_RNDV_THRESH (default 8KB).
 │                     UcxCommunicator::Write()                             │
 │                                                                         │
 │  ┌───────────────────────────────────────────────────────────────────┐  │
-│  │              UCX UCP Layer (tag_send_nbx)                         │  │
+│  │      ucp_stream_send_nbx(ep, buf, len, &param)                    │  │
+│  │      param.cb.send = send_cb, param.user_data = &OpState          │  │
 │  │                                                                   │  │
-│  │   Message size < UCX_RNDV_THRESH (8KB)?                           │  │
-│  │          │                        │                               │  │
-│  │         YES                      NO                               │  │
-│  │          │                        │                               │  │
-│  │          ▼                        ▼                               │  │
-│  │   ┌─────────────┐       ┌──────────────────┐                     │  │
-│  │   │ EAGER PROTO │       │ RENDEZVOUS PROTO │                     │  │
-│  │   │             │       │                  │                     │  │
-│  │   │ Small msg   │       │ 1. Send RTS hdr  │                     │  │
-│  │   │ copied into │       │    (via TCP)     │                     │  │
-│  │   │ pre-reg buf │       │ 2. Receiver pins │                     │  │
-│  │   │ sent inline │       │    memory        │                     │  │
-│  │   │ (TCP/SHM)   │       │ 3. RDMA READ     │                     │  │
-│  │   │             │       │    (zero-copy)   │                     │  │
-│  │   └──────┬──────┘       └────────┬─────────┘                     │  │
-│  │          │                        │                               │  │
-│  └──────────┼────────────────────────┼───────────────────────────────┘  │
-│             │                        │                                  │
-└─────────────┼────────────────────────┼──────────────────────────────────┘
-              │                        │
-              ▼                        ▼
-        ┌───────────┐          ┌──────────────┐
-        │    TCP    │          │  RDMA/RoCEv2 │
-        │  Socket   │          │  (mlx5 NIC)  │
-        └─────┬─────┘          └──────┬───────┘
-              │                        │
-══════════════╪════════════════════════╪══════════ NETWORK ═══════════
-              │                        │
-              ▼                        ▼
+│  │      UCX picks protocol internally:                               │  │
+│  │          len <= UCX_RNDV_THRESH (~8 KiB)?                         │  │
+│  │             │                       │                             │  │
+│  │            YES                     NO                             │  │
+│  │             │                       │                             │  │
+│  │             ▼                       ▼                             │  │
+│  │      ┌────────────┐         ┌──────────────────┐                 │  │
+│  │      │  EAGER     │         │  RENDEZVOUS      │                 │  │
+│  │      │  1 copy    │         │  RTS → CTS →     │                 │  │
+│  │      │  inline    │         │  RDMA READ       │                 │  │
+│  │      │  send WQE  │         │  (zero-copy)     │                 │  │
+│  │      └─────┬──────┘         └────────┬─────────┘                 │  │
+│  │            │                          │                           │  │
+│  │            └──────► wait_op (spin progress) ◄───────              │  │
+│  │                          ucp_request_free                         │  │
+│  └──────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────┘
+              │                          │
+              ▼                          ▼
+        ┌───────────┐            ┌──────────────┐
+        │    TCP    │            │  RDMA/RoCEv2 │
+        │  Socket   │            │   (mlx5 NIC) │
+        └─────┬─────┘            └──────┬───────┘
+              │                          │
+══════════════╪══════════════════════════╪══════════ NETWORK ════════════
+              │                          │
+              ▼                          ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                     UcxCommunicator::Read()                              │
 │                                                                         │
-│            UCX UCP Layer (tag_recv_nbx) - reassembles message           │
+│      ucp_stream_recv_nbx(ep, buf, len, &length, &param)                 │
+│      param.flags = UCP_STREAM_RECV_FLAG_WAITALL                         │
 │                                                                         │
+│      Looped: drains until exactly `len` bytes received, otherwise       │
+│      re-issues recvs (stream may return partial chunks).                │
+│      Immediate-completion path: req == nullptr, length populated        │
+│      synchronously, callback NOT fired.                                 │
 └───────────────────────────────────┬─────────────────────────────────────┘
                                     │
                                     ▼
@@ -62,186 +120,222 @@ The threshold is controlled by UCX_RNDV_THRESH (default 8KB).
 │                        Backend (GPU Server)                              │
 │                                                                         │
 │   Process::Start() → getstring() → dispatch to plugin → real CUDA call  │
-│                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 
 
-2. SINGLE CUDA CALL: MESSAGE SEQUENCE
+3. SINGLE CUDA CALL: MESSAGE SEQUENCE
 ──────────────────────────────────────
 
     Frontend                           UCX                            Backend
        │                                │                                │
-       │── Write(routine_name\0) ──────►│                                │
-       │   [~30 bytes → EAGER/TCP]      │──── small msg (TCP) ─────────►│
-       │                                │                                │
+       │── Write(routine_name\0) ──────►│──── small msg ───────────────►│
+       │   [~30 bytes → EAGER]          │                                │
        │── Write(buffer_size, 8B) ─────►│                                │
-       │   [8 bytes → EAGER/TCP]        │──── small msg (TCP) ─────────►│
-       │                                │                                │
        │── Write(payload) ─────────────►│                                │
-       │   size > 8KB? → RENDEZVOUS     │◄─── CTS (ready to recv) ──────│
-       │   size < 8KB? → EAGER          │──── RDMA READ (zero-copy) ───►│
-       │                                │                                │
+       │   size > 8KB → RENDEZVOUS      │◄─── CTS ──────────────────────│
+       │   size < 8KB → EAGER           │──── RDMA READ ───────────────►│
        │── Sync() (ep_flush) ──────────►│                                │
        │                                │                                │── execute
        │                                │                                │   CUDA call
-       │                                │                                │
        │                                │◄─── Write(exit_code, 4B) ──────│
-       │◄── Read(exit_code) ────────────│     [EAGER/TCP]                │
-       │                                │                                │
-       │                                │◄─── Write(exec_time, 8B) ──────│
-       │◄── Read(exec_time) ────────────│     [EAGER/TCP]                │
-       │                                │                                │
-       │                                │◄─── Write(out_buf) ────────────│
+       │◄── Read(exit_code) ────────────│     [EAGER]                    │
+       │◄── Read(exec_time, 8B) ────────│     [EAGER]                    │
        │◄── Read(output_buffer) ────────│     [EAGER or RDMA]            │
-       │                                │                                │
 
 
-3. UCX TRANSPORT SELECTION LOGIC
-────────────────────────────────
+4. PER-OPERATION COMPLETION (OpState)
+─────────────────────────────────────
 
-    ┌──────────────────────────────────────────────────────────────┐
-    │              UCX Internal Decision Tree                        │
-    │                                                              │
-    │  On each ucp_tag_send_nbx(buffer, size):                     │
-    │                                                              │
-    │      size <= UCX_RNDV_THRESH ?                                │
-    │           │            │                                     │
-    │          YES          NO                                     │
-    │           │            │                                     │
-    │           ▼            ▼                                     │
-    │    ┌──────────┐  ┌─────────────────────────────┐             │
-    │    │  EAGER   │  │     RENDEZVOUS               │             │
-    │    │          │  │                             │             │
-    │    │ Copy buf │  │  sender ──RTS──► receiver   │             │
-    │    │ into WQE │  │  sender ◄─CTS── receiver   │             │
-    │    │ post SR  │  │  receiver does RDMA_READ    │             │
-    │    │          │  │  from sender's buffer       │             │
-    │    │ ~1 RTT   │  │  (zero-copy, no memcpy)    │             │
-    │    │          │  │                             │             │
-    │    │ Good for:│  │  Good for:                  │             │
-    │    │ metadata │  │  cudaMemcpy payloads        │             │
-    │    │ headers  │  │  fat binaries               │             │
-    │    │ exit code│  │  large buffers              │             │
-    │    └──────────┘  └─────────────────────────────┘             │
-    │                                                              │
-    │  Environment variable control:                               │
-    │    UCX_RNDV_THRESH=8192   (bytes, default ~8KB)              │
-    │    UCX_TLS=rc_x,tcp       (rc_x=RDMA reliable, tcp=fallback)│
-    │    UCX_NET_DEVICES=all    (auto-detect NICs)                 │
-    │                                                              │
-    └──────────────────────────────────────────────────────────────┘
+We deliberately do NOT use ucp_params_t.request_init / request_size. Each
+Read/Write/Sync allocates a stack-local OpState and threads it through
+the request_param_t via UCP_OP_ATTR_FIELD_USER_DATA:
+
+    struct OpState {
+        std::atomic<bool> complete;
+        ucs_status_t      status;
+        size_t            length;   // populated by stream_recv_cb
+    };
+
+    void *req = ucp_stream_send_nbx(ep, buf, len, &param);
+    if (req == nullptr) {
+        // immediate completion: callback NOT fired; OpState defaults OK
+    } else if (UCS_PTR_IS_ERR(req)) {
+        throw runtime_error(ucs_status_string(UCS_PTR_STATUS(req)));
+    } else {
+        while (!state.complete.load()) ucp_worker_progress(worker);
+        ucp_request_free(req);
+    }
+
+Advantages over a per-request slab:
+  - Immediate-completion path is trivially correct (no slab-init race).
+  - Recv length captured per call without parsing the slab.
+  - No global allocator pressure; OpState lives on the caller stack.
+
+
+5. EOF / PEER-DISCONNECT SEMANTICS
+──────────────────────────────────
+
+The backend's Process::getstring loops:
+
+    while (c->Read(&ch, 1) == 1) { ... }   // 0 == EOF
+
+UcxCommunicator matches that contract:
+
+  epErrCallback(self, ep, status):
+      self->mPeerClosed.store(true)         // atomic
+      LOG INFO "endpoint closed by peer: ..."
+
+  Read(buf, size):
+      if (mPeerClosed) return 0             // fast EOF
+      try   { return stream_recv_all(...); }
+      catch (std::exception &e) {
+          mPeerClosed.store(true);
+          LOG INFO "Read() EOF: ..."
+          return 0;
+      }
+
+  Write(buf, size): same pattern.
+
+Why: in the backend, each accepted client is handled in a std::thread
+detached from Process. An uncaught exception there would call
+std::terminate and kill the entire Process child, preventing future
+client connections. Returning 0 lets execute()'s loop exit cleanly, the
+thread joins, and Process loops back into Accept() ready for the next
+client.
+
+
+6. SHUTDOWN
+───────────
+
+  Sync()  : ucp_ep_flush_nbx + wait_op → all pending sends acked.
+  Close() : ucp_ep_close_nbx with flags=0 (graceful, not FORCE)
+            → poll ucp_request_check_status until !UCS_INPROGRESS.
+            → ucp_listener_destroy, ucp_worker_destroy.
+            → if mOwnsContext: ucp_cleanup.
+
+  FORCE close was used in earlier drafts; replaced with graceful close
+  because FORCE can drop the last in-flight bytes if the caller didn't
+  call Sync() first.
+
+
+7. TRANSPORT SELECTION (UCX-internal, default behavior)
+───────────────────────────────────────────────────────
+
+    On each ucp_stream_send_nbx(buffer, size):
+
+        size <= UCX_RNDV_THRESH ?
+             │             │
+            YES           NO
+             │             │
+             ▼             ▼
+        ┌──────────┐  ┌─────────────────────────────┐
+        │  EAGER   │  │     RENDEZVOUS              │
+        │  1 copy  │  │  sender ──RTS──► receiver   │
+        │  inline  │  │  sender ◄─CTS── receiver    │
+        │  ~1 RTT  │  │  receiver RDMA_READ from    │
+        │          │  │  sender's user buffer       │
+        │ Good for:│  │  Good for:                  │
+        │ headers, │  │  cudaMemcpy payloads,       │
+        │ exit code│  │  fat binaries, big buffers  │
+        └──────────┘  └─────────────────────────────┘
+
+    Tuning knobs (set via Makefile + etc/ucx/<host>.env):
+      UCX_TLS=rc_verbs,tcp        RoCE v2 + TCP fallback (rc_x not
+                                  available in the 1.20 build, use rc_verbs)
+      UCX_NET_DEVICES=mlx5_0:1    pin ONE IB device; "all" can overflow
+                                  the 64-ep-address blob on multi-NIC hosts
+                                  ("invalid bandwidth 0.00" was this bug)
+      UCX_IB_GID_INDEX=3          GID for the 24.24.24.x RoCE v2 subnet
+      UCX_RNDV_THRESH=8192        eager↔rendezvous crossover
+
+    Per-host profile autoload (top-level Makefile):
+      hostname -s == es-dpu-01 → include etc/ucx/es-dpu-01.env
+      hostname -s == es-dpu-02 → include etc/ucx/es-dpu-02.env
+    The profile pins UCX_DEV, UCX_GID_IDX, UCX_TLS, HOST_IP, HOST_IP_PEER,
+    HOST_NETDEV, UCX_PORT. The `ucx-config` target regenerates
+    etc/properties_ucx.json (backend bind = HOST_IP) and
+    examples/ucx_benchmark/properties_ucx.json (client dial = HOST_IP_PEER)
+    from the active profile; it is a dependency of `run-gvirtus-backend-ucx`
+    and `run-ucx-matrix-single`. Use etc/ucx/generate-profile.sh on a new
+    node to scrape the right values automatically.
 
 
 ═══════════════════════════════════════════════════════════════════════════
-4. COMPARISON: TCP COMMUNICATOR vs UCX COMMUNICATOR
+8. COMPARISON: TCP COMMUNICATOR vs UCX COMMUNICATOR
 ═══════════════════════════════════════════════════════════════════════════
 
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                    TCP Communicator (current)                            │
+│                    TCP Communicator                                      │
 ├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  Frontend                                                    Backend    │
-│     │                                                           │       │
-│     │──── TCP send(routine\0) ─────────────────────────────────►│       │
-│     │──── TCP send(buf_size, 8B) ──────────────────────────────►│       │
-│     │──── TCP send(payload, N bytes) ──────────────────────────►│       │
-│     │        └── goes through kernel TCP stack                  │       │
-│     │            └── memcpy to socket buffer                    │       │
-│     │                └── NIC DMA from kernel buf                │       │
-│     │                    └── network                            │       │
-│     │                        └── NIC DMA to kernel buf          │       │
-│     │                            └── memcpy to user buf         │       │
-│     │                                                           │       │
-│     │◄─── TCP recv(exit_code) ─────────────────────────────────│       │
-│     │◄─── TCP recv(exec_time) ─────────────────────────────────│       │
-│     │◄─── TCP recv(output) ───────────────────────────────────-│       │
-│     │                                                           │       │
-│  EVERY message: kernel→user copies, TCP overhead, no zero-copy  │       │
-│                                                                         │
-│  Latency per CUDA call: 4-6 TCP round-trips × kernel overhead           │
+│  Every message: app→kernel copy, TCP stack, NIC DMA → wire → reverse.   │
+│  Latency ~15-50 μs for small messages, ~200+ μs for 1 MiB.              │
 │  Data path: App → memcpy → kernel TCP → NIC DMA → wire                 │
-│                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 
                               vs.
 
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                    UCX Communicator (new)                                │
+│                    UCX Communicator                                      │
 ├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  Frontend                                                    Backend    │
-│     │                                                           │       │
-│     │──── UCX send(routine\0) ────── [EAGER/TCP, 30B] ────────►│       │
-│     │──── UCX send(buf_size+payload) ─────────────────────────►│       │
-│     │        └── size < 8KB: EAGER (fast TCP-like, 1 copy)      │       │
-│     │        └── size > 8KB: RENDEZVOUS                         │       │
-│     │              └── send RTS header only (tiny)               │       │
-│     │              └── backend RDMA-READs directly from          │       │
-│     │                  frontend's app buffer (ZERO copies)       │       │
-│     │                                                           │       │
-│     │◄─── UCX recv(exit_code) ─── [EAGER, inline] ─────────────│       │
-│     │◄─── UCX recv(exec_time) ─── [EAGER, inline] ─────────────│       │
-│     │◄─── UCX recv(output) ───── [EAGER or RDMA] ──────────────│       │
-│     │                                                           │       │
-│  Small msgs: eager protocol (1 network hop, minimal copies)     │       │
-│  Large msgs: RDMA zero-copy (NIC reads directly from app RAM)   │       │
-│                                                                         │
-│  Latency per CUDA call: same # of exchanges, lower per-msg cost         │
-│  Data path (large): App buffer → NIC DMA → wire (zero-copy!)           │
-│                                                                         │
+│  Small msg (<8 KiB):  EAGER, single copy, ~3-10 μs                      │
+│  Large msg (>8 KiB):  RENDEZVOUS, RDMA READ from app RAM, zero-copy     │
+│                       ~10-30 μs for 1 MiB, CPU-free transfer            │
+│  Plus: STREAM API matches Read(n)/Write(n) socket-like contract,        │
+│        no tag-matching size-mismatch traps.                             │
 └─────────────────────────────────────────────────────────────────────────┘
 
 
-5. LATENCY BREAKDOWN COMPARISON
-───────────────────────────────
+9. LATENCY BREAKDOWN
+────────────────────
 
                 TCP Communicator              UCX Communicator
                ┌──────────────────┐         ┌──────────────────┐
-  Small msg    │                  │         │                  │
-  (<8KB)       │ app→kernel copy  │         │ app→WQE copy     │
-               │ TCP segmentation │         │ (single copy)    │
+  Small msg    │ app→kernel copy  │         │ app→WQE copy     │
+  (<8KB)       │ TCP segmentation │         │ (single copy)    │
                │ NIC DMA          │         │ NIC DMA          │
                │ ───── wire ───── │         │ ───── wire ───── │
                │ NIC DMA          │         │ NIC DMA          │
                │ TCP reassembly   │         │ deliver to app   │
                │ kernel→app copy  │         │                  │
-               │                  │         │                  │
                │ Total: ~15-50 μs │         │ Total: ~3-10 μs  │
                └──────────────────┘         └──────────────────┘
 
                ┌──────────────────┐         ┌──────────────────┐
-  Large msg    │                  │         │                  │
-  (>8KB,       │ app→kernel copy  │         │ send RTS (tiny)  │
-   e.g. 1MB   │ TCP segmentation │         │ recv CTS         │
-   memcpy)     │ multiple packets │         │ NIC RDMA-READs   │
-               │ NIC DMA (×many)  │         │ directly from    │
+  Large msg    │ app→kernel copy  │         │ send RTS (tiny)  │
+  (>8KB,       │ TCP segmentation │         │ recv CTS         │
+   e.g. 1MB    │ multiple packets │         │ NIC RDMA-READs   │
+   memcpy)     │ NIC DMA (×many)  │         │ directly from    │
                │ ───── wire ───── │         │ sender's RAM     │
                │ NIC DMA (×many)  │         │ ───── wire ───── │
                │ TCP reassembly   │         │ (zero-copy,      │
                │ kernel→app copy  │         │  single DMA op)  │
-               │                  │         │                  │
                │ Total: ~200+ μs  │         │ Total: ~10-30 μs │
                │ + CPU overhead   │         │ CPU-free xfer    │
                └──────────────────┘         └──────────────────┘
 
 
-6. GVirtuS CUDA CALL TCP ROUND-TRIPS (before UCX)
-──────────────────────────────────────────────────
+10. KEY DIFFERENCES FROM EARLIER DRAFTS
+───────────────────────────────────────
 
-  A single cudaMemcpy(dst, src, 4MB, cudaMemcpyHostToDevice):
+This doc supersedes the original tag-matching design. Summary of moves:
 
-  Frontend ←──────── TCP ────────► Backend
-     │                                 │
-     │─── send routine name ──────────►│  RTT #1
-     │─── send buffer header (8B) ────►│  RTT #2 (Nagle/TCP_NODELAY)
-     │─── send 4MB payload ───────────►│  RTT #3 (multiple segments)
-     │─── flush ──────────────────────►│  
-     │                                 │── execute cudaMemcpy
-     │◄── recv exit_code (4B) ─────────│  RTT #4
-     │◄── recv exec_time (8B) ─────────│  RTT #5
-     │◄── recv output_size (8B) ───────│  RTT #6
-     │◄── recv output_data ────────────│  (if any)
-     │                                 │
+  features:        TAG + STREAM → STREAM only
+  Read/Write API:  ucp_tag_send/recv_nbx → ucp_stream_send/recv_nbx
+                   (+ UCP_STREAM_RECV_FLAG_WAITALL)
+  Completion:      request_init/size slab → stack OpState via USER_DATA
+  Close:           UCP_EP_CLOSE_FLAG_FORCE → graceful (flags=0)
+  Endpoints:       no error handling → UCP_ERR_HANDLING_MODE_PEER + cb
+  Startup:         no handshake → 1-byte A/R wireup + flush
+  Resources:       no rlimit bump → raise_memlock_limit() in Serve/Connect
+  EOF:             threw on peer-close → returns 0 (mPeerClosed flag)
+  Config:          hard-coded port/IP in JSON → per-host .env profile
+                   auto-loaded by Makefile; ucx-config regenerates JSON
+  UCX version:     apt libucx-dev 1.12 client vs source-built 1.20 backend
+                   produced "invalid bandwidth 0.00" → benchmark image now
+                   FROM aauce25/gvirtus-dev so both sides share UCX 1.20
 
-  With UCX: same logical exchanges, but the 4MB payload uses
-  RDMA zero-copy (single DMA, no kernel copies, no TCP overhead).
+Validation: examples/ucx_benchmark/data_copy_bench.cpp uses the same
+patterns. Measured 3.5× improvement at 64 MiB after pre-pinning, ~9 GB/s
+bidirectional on Mellanox BlueField-3 RoCE v2. End-to-end GVirtuS
+cublasSgemm round-trip working over the new UcxCommunicator (see
+examples/ucx_benchmark/frontend_matrix_only.sh + `make run-ucx-matrix-single`).
