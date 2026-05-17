@@ -12,6 +12,22 @@ UCX_SOCKADDR_TLS_PRIORITY ?= tcp
 UCX_IB_GID_INDEX ?= # empty by default; set to 3 for RoCEv2
 SIMPLE_MATRIX_GPU_FLAGS ?=
 
+# ---- Per-host UCX profile (auto-loaded by hostname) ----
+SHORT_HOST := $(shell hostname -s)
+-include etc/ucx/$(SHORT_HOST).env
+
+# Defaults (overridden by the per-host profile above if present)
+UCX_DEV         ?= mlx5_0:1
+UCX_GID_IDX     ?= 3
+HOST_NETDEV     ?= ens1f0np0
+HOST_IP         ?= 24.24.24.1
+HOST_IP_PEER    ?= 24.24.24.2
+UCX_RNDV_THRESH ?= 8192
+
+# Single source of truth for endpoint config (port + server_address live in JSON).
+GVIRTUS_UCX_CONFIG ?= $(CURDIR)/examples/ucx_benchmark/properties_ucx.json
+GVIRTUS_TCP_CONFIG ?= $(CURDIR)/examples/ucx_benchmark/properties_tcp.json
+
 
 DOCKER_REPO_DEV := $(DOCKER_HUB_USERNAME)/gvirtus-dev
 DOCKER_REPO_TEST := $(DOCKER_HUB_USERNAME)/gvirtus-test
