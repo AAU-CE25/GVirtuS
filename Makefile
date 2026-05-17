@@ -4,6 +4,10 @@ DOCKER_HUB_USERNAME ?= aauce25
 
 GVIRTUS_LOG_LEVEL ?= 20000
 
+# UCX transport tuning (override per host: e.g. UCX_DEV=mlx5_2:1 on dpu-01)
+UCX_DEV     ?= mlx5_0:1
+UCX_GID_IDX ?= 1
+
 DOCKER_REPO_DEV := $(DOCKER_HUB_USERNAME)/gvirtus-dev
 DOCKER_REPO_TEST := $(DOCKER_HUB_USERNAME)/gvirtus-test
 DOCKER_REPO_PROD := $(DOCKER_HUB_USERNAME)/gvirtus
@@ -93,8 +97,8 @@ run-gvirtus-backend-ucx:
 		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
 		-e GVIRTUS_CONFIG=/gvirtus/etc/properties_ucx.json \
 		-e UCX_TLS=rc_verbs,tcp \
-		-e UCX_NET_DEVICES=mlx5_2:1 \
-		-e UCX_IB_GID_INDEX=1 \
+		-e UCX_NET_DEVICES=$(UCX_DEV) \
+		-e UCX_IB_GID_INDEX=$(UCX_GID_IDX) \
 		-e UCX_RNDV_THRESH=8192 \
 		$(DOCKER_REPO_DEV):cuda12.6.3-cudnn-ubuntu22.04
 
@@ -281,8 +285,8 @@ run-ucx-matrix-single:
 		-e RUNS=$(RUNS) \
 		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
 		-e UCX_TLS=rc_verbs,tcp \
-		-e UCX_NET_DEVICES=mlx5_2:1 \
-		-e UCX_IB_GID_INDEX=1 \
+		-e UCX_NET_DEVICES=$(UCX_DEV) \
+		-e UCX_IB_GID_INDEX=$(UCX_GID_IDX) \
 		-e UCX_RNDV_THRESH=8192 \
 		$(DOCKER_HUB_USERNAME)/ucx_benchmark_gvirtus:cuda12.6 \
 		bash /opt/GVirtuS/examples/ucx_benchmark/frontend_matrix_only.sh
