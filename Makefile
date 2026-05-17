@@ -191,11 +191,10 @@ BENCH_PORT ?= 5555
 docker-build-ucx-benchmark:
 	docker buildx build \
 		--platform linux/amd64 \
-		--push \
-		--no-cache \
+		--load \
 		-f examples/ucx_benchmark/Dockerfile \
 		-t $(DOCKER_HUB_USERNAME)/ucx_benchmark_gvirtus:cuda12.6 \
-		examples/ucx_benchmark
+		.
 
 # Start the data_copy echo server (run on the backend/GPU node)
 run-ucx-benchmark-server-tcp:
@@ -275,8 +274,6 @@ run-ucx-matrix-single:
 		--shm-size=8G \
 		-v ./examples/ucx_benchmark:/opt/GVirtuS/examples/ucx_benchmark \
 		-v ./examples/ucx_benchmark/properties_ucx.json:/opt/GVirtuS/etc/properties.json \
-		-v ./lib:/opt/GVirtuS/lib \
-		-v ./include:/opt/GVirtuS/include \
 		-e N=$(N) \
 		-e RUNS=$(RUNS) \
 		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \

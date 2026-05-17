@@ -20,12 +20,15 @@ RUN apt update && apt install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt
-RUN git clone https://github.com/ecn-aau/GVirtuS.git && \
-    cd GVirtuS && mkdir build && cd build && \
+# Copy the LOCAL gvirtus source tree (build context is repo root).
+# This avoids the stale `git clone` of the github master branch.
+COPY . /opt/GVirtuS-src
+RUN cd /opt/GVirtuS-src && mkdir -p build && cd build && \
     cmake -DCMAKE_INSTALL_PREFIX=${GVIRTUS_HOME} .. && \
-    make -j$(nproc) && make install
+    make -j$(nproc) && make install && \
+    cd /opt && rm -rf /opt/GVirtuS-src
 
-COPY . ${GVIRTUS_HOME}/examples/ucx_benchmark/
+COPY examples/ucx_benchmark ${GVIRTUS_HOME}/examples/ucx_benchmark/
 
 WORKDIR ${GVIRTUS_HOME}/examples/ucx_benchmark
-RUN chmod +x frontend.sh run_benchmarks.sh
+RUN chmod +x frontend.sh run_benchmarks.sh frontend_matrix_only.sh
