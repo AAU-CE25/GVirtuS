@@ -12,14 +12,22 @@
 namespace gvirtus::communicators {
 
 /**
- * UcxCommunicator implements the Communicator interface using the UCX UCP layer.
+ * UcxCommunicator implements the Communicator interface using the UCX UCP
+ * stream API (byte-oriented, in-order, socket-like).
  *
- * UCX automatically selects the optimal transport:
- *  - Eager protocol (TCP/shared-memory) for small messages
- *  - Rendezvous protocol (RDMA zero-copy) for large messages
- *
- * The threshold is controlled by the UCX_RNDV_THRESH environment variable
- * (default ~8KB). Messages above this size will use RDMA if available.
+ * Design choices validated by examples/ucx_benchmark/data_copy_bench:
+ *  - UCP_FEATURE_STREAM only: matches the Read(n)/Write(n) contract of
+ *    GVirtuS Buffer; partial reads loop using UCP_STREAM_RECV_FLAG_WAITALL.
+ *  - RLIMIT_MEMLOCK raised at startup: without it RDMA falls back to bounce
+ *    buffers above the per-process locked-memory cap (often 64 KiB),
+ *    collapsing throughput at large message sizes.
+ *  - UCP_ERR_HANDLING_MODE_PEER on every endpoint: prevents silent infinite
+ *    spins in ucp_worker_progress() if the peer dies mid-transfer.
+ *  - 1-byte wireup handshake right after EP creation: forces UCX wireup
+ *    messages to flow before the first real transfer, eliminating
+ *    first-transfer hangs on large initial payloads.
+ *  - Zero-copy relies on the UCX registration cache (default-on) hitting
+ *    when GVirtuS reuses Buffer storage across calls. No staging memcpy.
  */
 class UcxCommunicator : public Communicator {
    public:
@@ -28,7 +36,8 @@ class UcxCommunicator : public Communicator {
     /// Client constructor: will connect to hostname:port
     UcxCommunicator(const std::string &hostname, uint16_t port);
 
-    /// Server-side accepted connection constructor
+    /// Server-side accepted-connection constructor. Shares the listener's
+    /// context but owns its worker + endpoint.
     UcxCommunicator(ucp_context_h ctx, ucp_worker_h worker, ucp_ep_h ep);
 
     ~UcxCommunicator() override;
@@ -49,35 +58,33 @@ class UcxCommunicator : public Communicator {
     std::string mHostname;
     uint16_t mPort = 0;
 
-    // UCX handles
     ucp_context_h mContext = nullptr;
     ucp_worker_h mWorker = nullptr;
     ucp_listener_h mListener = nullptr;
     ucp_ep_h mEndpoint = nullptr;
 
-    // Whether this instance owns the context (server/client main instances do,
-    // accepted connections do not share context but own their own worker+ep)
+    // True only for the original Serve()/Connect() instance that called
+    // ucp_init(). Accepted-connection instances share the listener context
+    // and must NOT cleanup it on destruction.
     bool mOwnsContext = false;
 
-    // Tag for tag-matching sends/receives.
-    // All messages on a connection use a single tag since it's point-to-point.
-    static constexpr ucp_tag_t kTag = 0x1337;
-    static constexpr ucp_tag_t kTagMask = 0xFFFFFFFFFFFFFFFF;
-
-    // Connection request storage for Accept()
+    // Connection-request slot populated by the listener callback.
     struct ConnRequest {
         ucp_conn_request_h conn_req;
         std::atomic<bool> ready;
     };
     mutable ConnRequest mConnReq = {nullptr, false};
 
-    // Internal helpers
     void initContext();
     void initWorker();
-    void waitForCompletion(void *request);
 
-    // UCP listener callback
     static void listenerCallback(ucp_conn_request_h conn_request, void *arg);
+    static void epErrCallback(void *arg, ucp_ep_h ep, ucs_status_t status);
+
+    // Drive the wireup handshake on a freshly created endpoint so the first
+    // real Read/Write does not block on UCX wireup.
+    void wireupServer(ucp_ep_h ep);
+    void wireupClient(ucp_ep_h ep);
 };
 
 }  // namespace gvirtus::communicators

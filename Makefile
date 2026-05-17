@@ -1,4 +1,4 @@
-.PHONY: docker-build-push-dev docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-backend-ucx run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test docker-build-ucx-benchmark run-ucx-benchmark-server-tcp run-ucx-benchmark-server-ucx run-ucx-benchmark-tcp run-ucx-benchmark-ucx stop-ucx-benchmark
+.PHONY: docker-build-push-dev docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-backend-ucx run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test docker-build-ucx-benchmark run-ucx-benchmark-server-tcp run-ucx-benchmark-server-ucx run-ucx-benchmark-tcp run-ucx-benchmark-ucx stop-ucx-benchmark run-ucx-matrix-single
 USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
 DOCKER_HUB_USERNAME ?= aauce25
 
@@ -260,3 +260,26 @@ stop-ucx-benchmark:
 	docker stop ucx_bench_server_ucx-$(USER) || true
 	docker stop ucx_benchmark_tcp-$(USER) || true
 	docker stop ucx_benchmark_ucx-$(USER) || true
+	docker stop ucx_matrix_ucx-$(USER) || true
+
+# Smoke test: single run of matrix_mul_bench through GVirtuS over UCX.
+# Requires `make run-gvirtus-backend-ucx` to be running on the GPU node.
+# Override N / RUNS on the CLI: `make run-ucx-matrix-single N=256 RUNS=1`
+N    ?= 128
+RUNS ?= 1
+run-ucx-matrix-single:
+	docker run --rm \
+		--name ucx_matrix_ucx-$(USER) \
+		--network host \
+		--runtime=nvidia \
+		--shm-size=8G \
+		-v ./examples/ucx_benchmark:/opt/GVirtuS/examples/ucx_benchmark \
+		-v ./examples/ucx_benchmark/properties_ucx.json:/opt/GVirtuS/etc/properties.json \
+		-e N=$(N) \
+		-e RUNS=$(RUNS) \
+		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
+		-e UCX_TLS=rc_x,tcp \
+		-e UCX_NET_DEVICES=all \
+		-e UCX_RNDV_THRESH=8192 \
+		$(DOCKER_HUB_USERNAME)/ucx_benchmark_gvirtus:cuda12.6 \
+		bash /opt/GVirtuS/examples/ucx_benchmark/frontend_matrix_only.sh
