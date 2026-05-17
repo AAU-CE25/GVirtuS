@@ -204,7 +204,7 @@ void UcxStreamCommunicator::ensureStaging(size_t needed) {
     mparams.field_mask = UCP_MEM_MAP_PARAM_FIELD_LENGTH |
                          UCP_MEM_MAP_PARAM_FIELD_FLAGS;
     mparams.length = alloc_size;
-    mparams.flags = UCP_MEM_MAP_NONBLOCK;  // don't block on page faults
+    mparams.flags = UCP_MEM_MAP_ALLOCATE | UCP_MEM_MAP_NONBLOCK;  // let UCX allocate + don't block on page faults
 
     ucs_status_t st = ucp_mem_map(mContext, &mparams, &mStagingMemh);
     if (st != UCS_OK) {
