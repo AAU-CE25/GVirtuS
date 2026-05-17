@@ -2,41 +2,16 @@
 USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
 DOCKER_HUB_USERNAME ?= aauce25
 
-GVIRTUS_LOG_LEVEL ?= 20000
 
-# ---------------------------------------------------------------------------
-# UCX per-host profile
-#
-# Auto-loaded from etc/ucx/<hostname>.env if it exists. Each profile pins the
-# RDMA device name and GID index used by UCX at runtime. Ports and server
-# addresses live exclusively in the JSON config files under examples/ucx_benchmark/.
-# Override on the CLI to bypass: make ... UCX_PROFILE=etc/ucx/es-dpu-02.env
-# ---------------------------------------------------------------------------
-SHORT_HOST  := $(shell hostname -s)
-UCX_PROFILE ?= etc/ucx/$(SHORT_HOST).env
-ifneq ("$(wildcard $(UCX_PROFILE))","")
-    include $(UCX_PROFILE)
-    $(info [ucx] loaded profile: $(UCX_PROFILE) (UCX_DEV=$(UCX_DEV) UCX_GID_IDX=$(UCX_GID_IDX) UCX_TLS=$(UCX_TLS)))
-else
-    $(warning [ucx] no profile for host '$(SHORT_HOST)' at $(UCX_PROFILE); using defaults)
-endif
+GVIRTUS_LOG_LEVEL ?= 10000
+GVIRTUS_UCX_DATAPATH ?= am
+UCX_TLS ?= tcp,self
+UCX_NET_DEVICES ?= ens1f0np0
+UCX_LOG_LEVEL ?= info
+UCX_SOCKADDR_TLS_PRIORITY ?= tcp
+UCX_IB_GID_INDEX ?= # empty by default; set to 3 for RoCEv2
+SIMPLE_MATRIX_GPU_FLAGS ?=
 
-# Defaults if no profile was loaded (override on CLI).
-UCX_DEV          ?= mlx5_0:1
-UCX_GID_IDX      ?= 1
-UCX_TLS          ?= rc_verbs,tcp
-HOST_NETDEV      ?= ens1f0np0
-# Eager/rendezvous crossover (bytes). Below this size UCX uses EAGER (1-copy
-# send); at/above it switches to RENDEZVOUS (zero-copy RDMA READ for the
-# RDMA transports, or larger TCP buffers for tcp). Override on CLI:
-#   make run-matrix-bench-ucx-rdma UCX_RNDV_THRESH=65536
-# Set to 0 to force rendezvous for every message.
-UCX_RNDV_THRESH  ?= 0
-
-# Single source of truth for GVirtuS endpoint config (server_address + port live
-# inside the JSON; edit those files by hand if you need to change them).
-GVIRTUS_TCP_CONFIG := $(PWD)/examples/ucx_benchmark/properties_tcp.json
-GVIRTUS_UCX_CONFIG := $(PWD)/examples/ucx_benchmark/properties_ucx.json
 
 DOCKER_REPO_DEV := $(DOCKER_HUB_USERNAME)/gvirtus-dev
 DOCKER_REPO_TEST := $(DOCKER_HUB_USERNAME)/gvirtus-test
