@@ -92,8 +92,9 @@ run-gvirtus-backend-ucx:
 		--shm-size=8G \
 		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
 		-e GVIRTUS_CONFIG=/gvirtus/etc/properties_ucx.json \
-		-e UCX_TLS=rc_x,tcp \
-		-e UCX_NET_DEVICES=all \
+		-e UCX_TLS=rc_verbs,tcp \
+		-e UCX_NET_DEVICES=mlx5_2:1 \
+		-e UCX_IB_GID_INDEX=1 \
 		-e UCX_RNDV_THRESH=8192 \
 		$(DOCKER_REPO_DEV):cuda12.6.3-cudnn-ubuntu22.04
 
@@ -271,14 +272,17 @@ run-ucx-matrix-single:
 		--name ucx_matrix_ucx-$(USER) \
 		--network host \
 		--runtime=nvidia \
+		--privileged \
+		--ulimit memlock=-1 \
 		--shm-size=8G \
 		-v ./examples/ucx_benchmark:/opt/GVirtuS/examples/ucx_benchmark \
 		-v ./examples/ucx_benchmark/properties_ucx.json:/opt/GVirtuS/etc/properties.json \
 		-e N=$(N) \
 		-e RUNS=$(RUNS) \
 		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
-		-e UCX_TLS=rc_x,tcp \
-		-e UCX_NET_DEVICES=all \
+		-e UCX_TLS=rc_verbs,tcp \
+		-e UCX_NET_DEVICES=mlx5_2:1 \
+		-e UCX_IB_GID_INDEX=1 \
 		-e UCX_RNDV_THRESH=8192 \
 		$(DOCKER_HUB_USERNAME)/ucx_benchmark_gvirtus:cuda12.6 \
 		bash /opt/GVirtuS/examples/ucx_benchmark/frontend_matrix_only.sh
