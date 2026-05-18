@@ -215,17 +215,19 @@ bool getstring(Communicator *c, string &s) {
     } else if (c->to_string() == "rdmacommunicator") {
         try {
             s = "";
-            size_t size = 30;
-            char *buf = static_cast<char *>(malloc(size));
+            constexpr size_t max_routine_name = 256;
+            size_t size = max_routine_name;
+            char *buf = static_cast<char *>(calloc(size, 1));
             if (buf == nullptr) {
-                throw std::runtime_error("getstring(rdmacommunicator): malloc failed");
+                throw std::runtime_error("getstring(rdmacommunicator): calloc failed");
             }
 
-            memset(buf, 0, size);
             size = c->Read(buf, size);
+            buf[max_routine_name - 1] = '\0';
 
             if (size > 0) {
                 s += std::string(buf);
+                std::cerr << "[RDMA getstring] routine=[" << s << "] bytes=" << size << std::endl;
                 free(buf);
                 return true;
             }

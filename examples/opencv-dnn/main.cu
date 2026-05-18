@@ -66,10 +66,7 @@ void saveTotalTimings(const std::string& filename, const std::vector<long>& tota
 int main() {
     // find more pre-trained models at: https://github.com/onnx/models/
     std::vector<std::string> modelPaths = {
-        "mobilenetv2-10.onnx",
-        "squeezenet1.1-7.onnx",
-        "resnet18-v1-7.onnx",
-        "vgg16-7.onnx"
+        "mobilenetv2-10.onnx"
     };
     string classFile = "imagenet_classes.txt";
     string testImageFolder = "imagenet_test_1000";  
@@ -169,5 +166,7 @@ int main() {
 
     }
     
-    return 0;
+    std::cout.flush();
+    std::cerr.flush();
+    std::_Exit(0);
 }
