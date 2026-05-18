@@ -9,9 +9,12 @@
 #include <fstream>
 #include <sstream>
 #include <iostream>
+#include <cstdlib>
+#include <chrono>
+#include <algorithm>
 #include <opencv2/dnn.hpp>
 #include <opencv2/imgproc.hpp>
-#include <opencv2/highgui.hpp>
+#include <opencv2/imgcodecs.hpp>
 
 using namespace cv;
 using namespace dnn;
@@ -229,20 +232,66 @@ void YOLO::detect(Mat& frame)
 
 int main()
 {
+    int warmups = 0;
+    int runs = 1;
+
+    if (const char* env = std::getenv("BENCH_WARMUPS")) {
+        warmups = std::max(0, std::atoi(env));
+    }
+
+    if (const char* env = std::getenv("BENCH_RUNS")) {
+        runs = std::max(1, std::atoi(env));
+    }
+
     Net_config yolo_nets = { 0.3, 0.5, 0.3, "weights/yolov5n.onnx" };
     YOLO yolo_model(yolo_nets);
 
     string imgpath = "images/zidane.jpg";
-    Mat srcimg = imread(imgpath);
-    if (srcimg.empty()) {
+    Mat original = imread(imgpath);
+    if (original.empty()) {
         cerr << "Could not read the image: " << imgpath << endl;
         return -1;
     }
 
-    yolo_model.detect(srcimg);
+    cout << "Attempting to use CUDA acceleration" << endl;
+    cout << "Benchmark warmups: " << warmups << endl;
+    cout << "Benchmark runs: " << runs << endl;
 
-    imwrite("output.jpg", srcimg);
+    for (int i = 1; i <= warmups; ++i) {
+        Mat srcimg = original.clone();
+
+        auto start = std::chrono::high_resolution_clock::now();
+        yolo_model.detect(srcimg);
+        auto end = std::chrono::high_resolution_clock::now();
+
+        auto inference_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+
+        cout << "BENCH_RESULT,type=warmup,run=" << i << ",inference_ms=" << inference_ms << endl;
+    }
+
+    for (int i = 1; i <= runs; ++i) {
+        Mat srcimg = original.clone();
+
+        auto start = std::chrono::high_resolution_clock::now();
+        yolo_model.detect(srcimg);
+        auto end = std::chrono::high_resolution_clock::now();
+
+        auto inference_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+
+        cout << "BENCH_RESULT,type=measure,run=" << i << ",inference_ms=" << inference_ms << endl;
+
+        if (i == runs) {
+            imwrite("output.jpg", srcimg);
+        }
+    }
 
     cout << "Detection finished. Results saved to output.jpg" << endl;
+    cout.flush();
+    cerr.flush();
+
+    if (std::getenv("GVIRTUS_FAST_EXIT_AFTER_RESULT") != nullptr) {
+        std::_Exit(0);
+    }
+
     return 0;
 }

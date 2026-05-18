@@ -22,15 +22,17 @@ IFACES="${IFACES:-ens1f1np1}"
 FRONTEND_CMD="${FRONTEND_CMD:-./sample}"
 
 GVIRTUS_HOME="${GVIRTUS_HOME:-/home/student.aau.dk/ul11nh/gvirtus-install}"
+GVIRTUS_REPO="${GVIRTUS_REPO:-/home/student.aau.dk/ul11nh/GVirtuS}"
+GVIRTUS_CONFIG_DIR="${GVIRTUS_CONFIG_DIR:-$GVIRTUS_REPO/etc}"
 OPENCV_HOME="${OPENCV_HOME:-/home/student.aau.dk/ul11nh/opencv-local}"
 NPP_DIR="${NPP_DIR:-/home/student.aau.dk/ul11nh/.local/lib/python3.10/site-packages/nvidia/npp/lib}"
 CUDNN_ROOT="${CUDNN_ROOT:-/home/student.aau.dk/ul11nh/cudnn-9.5.1}"
 CUDNN_LIB="${CUDNN_LIB:-$CUDNN_ROOT/lib}"
 LZ4_LIB="${LZ4_LIB:-/home/student.aau.dk/ul11nh/lz4-install/lib}"
 
-CONFIG_TCP="${CONFIG_TCP:-$GVIRTUS_HOME/etc/properties_tcp_25_2.json}"
-CONFIG_RDMA="${CONFIG_RDMA:-$GVIRTUS_HOME/etc/properties_plain_rdma.json}"
-CONFIG_UCX="${CONFIG_UCX:-$GVIRTUS_HOME/etc/properties_ucx.json}"
+CONFIG_TCP="${CONFIG_TCP:-$GVIRTUS_CONFIG_DIR/properties.json}"
+CONFIG_RDMA="${CONFIG_RDMA:-$GVIRTUS_CONFIG_DIR/properties_plain_rdma.json}"
+CONFIG_UCX="${CONFIG_UCX:-$GVIRTUS_CONFIG_DIR/properties_ucx.json}"
 
 GVIRTUS_LOGLEVEL="${GVIRTUS_LOGLEVEL:-30000}"
 
@@ -61,6 +63,8 @@ run_timeout=$RUN_TIMEOUT
 ifaces=$IFACES
 frontend_cmd=$FRONTEND_CMD
 gvirtus_home=$GVIRTUS_HOME
+gvirtus_repo=$GVIRTUS_REPO
+gvirtus_config_dir=$GVIRTUS_CONFIG_DIR
 opencv_home=$OPENCV_HOME
 cudnn_root=$CUDNN_ROOT
 npp_dir=$NPP_DIR
@@ -128,7 +132,7 @@ backend_hint() {
   case "$mode" in
     tcp)
       cat <<EOF
-GVIRTUS_CONFIG_FILE=$(basename "$CONFIG_TCP") GVIRTUS_LOG_LEVEL=30000 make run-gvirtus-backend-dev
+GVIRTUS_CONFIG_FILE=properties.json GVIRTUS_LOG_LEVEL=30000 make run-gvirtus-backend-dev
 EOF
       ;;
     rdma)
