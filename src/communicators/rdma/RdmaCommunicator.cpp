@@ -242,6 +242,11 @@ size_t RdmaCommunicator::Read(char *buffer, size_t size) {
                                      std::string(ibv_wc_status_str(workCompletion.status)));
         }
 
+#ifdef DEBUG
+        std::cout << "  -> recv completed byte_len=" << workCompletion.byte_len
+                  << " requested=" << size << std::endl;
+#endif
+
         const size_t actual = std::min(size, static_cast<size_t>(workCompletion.byte_len));
 
         if (size <= kPreRegisteredBufferSize) {
