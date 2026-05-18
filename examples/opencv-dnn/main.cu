@@ -64,109 +64,138 @@ void saveTotalTimings(const std::string& filename, const std::vector<long>& tota
 }
 
 int main() {
-    // find more pre-trained models at: https://github.com/onnx/models/
-    std::vector<std::string> modelPaths = {
-        "mobilenetv2-10.onnx"
-    };
+    int warmups = 0;
+    int runs = 1;
+
+    if (const char* env = std::getenv("BENCH_WARMUPS")) {
+        warmups = std::atoi(env);
+        if (warmups < 0) warmups = 0;
+    }
+
+    if (const char* env = std::getenv("BENCH_RUNS")) {
+        runs = std::atoi(env);
+        if (runs < 1) runs = 1;
+    }
+
+    string modelPath = "mobilenetv2-10.onnx";
+    if (const char* env = std::getenv("BENCH_MODEL")) {
+        modelPath = env;
+    }
+
     string classFile = "imagenet_classes.txt";
-    string testImageFolder = "imagenet_test_1000";  
+    if (const char* env = std::getenv("BENCH_CLASSES")) {
+        classFile = env;
+    }
 
-    for (const auto& modelPath : modelPaths) {
-        
-        std::vector<long> totalTimings; 
+    string testImageFolder = "imagenet_test_1000";
+    if (const char* env = std::getenv("BENCH_IMAGE_FOLDER")) {
+        testImageFolder = env;
+    }
 
-        std::cout << "Running inference with model: " << modelPath << std::endl;
+    cout << "Running inference with model: " << modelPath << endl;
+    cout << "Benchmark warmups: " << warmups << endl;
+    cout << "Benchmark runs: " << runs << endl;
 
-        Net net = readNetFromONNX(modelPath);
-        if (net.empty()) {
-            cerr << "Cannot load model: " << modelPath << endl;
-            return -1;
+    Net net = readNetFromONNX(modelPath);
+    if (net.empty()) {
+        cerr << "Cannot load model: " << modelPath << endl;
+        return -1;
+    }
+
+    net.setPreferableBackend(cv::dnn::DNN_BACKEND_CUDA);
+    net.setPreferableTarget(cv::dnn::DNN_TARGET_CUDA);
+
+    vector<string> imagePaths = getImagePaths(testImageFolder);
+    if (imagePaths.empty()) {
+        cerr << "No test images found in: " << testImageFolder << endl;
+        return -1;
+    }
+
+    string imagePath = imagePaths.front();
+
+    size_t startName = imagePath.find_last_of("/") + 1;
+    size_t endName = imagePath.find_first_of("_");
+    int trueClassId = -1;
+    if (endName != string::npos && endName > startName) {
+        try {
+            trueClassId = stoi(imagePath.substr(startName, endName - startName));
+        } catch (...) {
+            trueClassId = -1;
         }
-        net.setPreferableBackend(cv::dnn::DNN_BACKEND_CUDA);
-        net.setPreferableTarget(cv::dnn::DNN_TARGET_CUDA);
-        //net.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
-        //net.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
+    }
 
-        vector<string> classes = readClassNames(classFile);
+    Mat image = imread(imagePath);
+    if (image.empty()) {
+        cerr << "Cannot load image: " << imagePath << endl;
+        return -1;
+    }
 
-        vector<string> imagePaths = getImagePaths(testImageFolder);
-        if (imagePaths.empty()) {
-            cerr << "No test images found in: " << testImageFolder << endl;
-            return -1;
-        }
-        
-        int totalImages = 0;
-        int correctPredictions = 0;
+    Mat blob;
+    blobFromImage(image, blob, 1.0/255.0, Size(224, 224), Scalar(0.485, 0.456, 0.406), true, false);
+
+    Scalar mean(0.485, 0.456, 0.406);
+    Scalar std(0.229, 0.224, 0.225);
+    divide(blob - mean, std, blob);
+
+    vector<long> totalTimings;
+    int correctPredictions = 0;
+
+    auto run_once = [&](const string& type, int run_id, bool measured) {
         auto time_start = std::chrono::high_resolution_clock::now();
+
+        net.setInput(blob);
+        Mat output = net.forward();
+
         auto time_end = std::chrono::high_resolution_clock::now();
-        
-        int TOTAL = 1000;
-        for (const string& imagePath : imagePaths) {
+        long total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(time_end - time_start).count();
 
-            size_t start = imagePath.find_last_of("/") + 1;
-            size_t end = imagePath.find_first_of("_");
-            if (end == string::npos) {
-                cerr << "Invalid image filename format: " << imagePath << endl;
-                continue;
-            }
-            string trueClassId_str = imagePath.substr(start, end - start);
-            int trueClassId = stoi(trueClassId_str);
-    
-            Mat image = imread(imagePath);
-            if (image.empty()) {
-                cerr << "Cannot load image: " << imagePath << endl;
-                continue;
-            }
-            
-            Mat blob;
-            blobFromImage(image, blob, 1.0/255.0, Size(224, 224), Scalar(0.485, 0.456, 0.406), true, false);
-            
-            Scalar mean(0.485, 0.456, 0.406);
-            Scalar std(0.229, 0.224, 0.225);
-            divide(blob - mean, std, blob);
+        Point classIdPoint;
+        double confidence;
+        minMaxLoc(output.reshape(1, 1), nullptr, &confidence, nullptr, &classIdPoint);
+        int predictedClassId = classIdPoint.x;
 
-            time_start = std::chrono::high_resolution_clock::now();
-            net.setInput(blob);
-            Mat output = net.forward();
-            time_end = std::chrono::high_resolution_clock::now();
-            long total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(time_end - time_start).count();
+        if (measured) {
             totalTimings.push_back(total_ms);
-            
-            Point classIdPoint;
-            double confidence;
-            minMaxLoc(output.reshape(1, 1), nullptr, &confidence, nullptr, &classIdPoint);
-            int predictedClassId = classIdPoint.x;
-            
-            if (predictedClassId == trueClassId) {
+            if (trueClassId >= 0 && predictedClassId == trueClassId) {
                 correctPredictions++;
             }
-            totalImages++;
-
-            if (totalImages % 100 == 0) {
-                cout << "Processed " << totalImages << " images..." << endl;
-            }
-    
-            cout << "Image: " << imagePath << endl;
-            cout << "True Class ID: " << trueClassId << ", Predicted Class ID: " << predictedClassId 
-                << ", Confidence: " << fixed << setprecision(2) << confidence * 100 << "%" 
-                << ", Time taken: " << total_ms << " ms" << endl;
-
-            if (totalImages == TOTAL) break;
-
         }
 
-        string basename = modelPath.substr(0, modelPath.find_last_of("."));
-        saveTotalTimings("total_times_" + basename + ".txt", totalTimings);
+        cout << "BENCH_RESULT,type=" << type
+             << ",run=" << run_id
+             << ",inference_ms=" << total_ms
+             << ",predicted=" << predictedClassId
+             << ",confidence=" << fixed << setprecision(4) << confidence
+             << endl;
+    };
 
-        float accuracy = static_cast<float>(correctPredictions) / totalImages * 100;
-        cout << "\nFinal Results:" << endl;
-        cout << "Total images: " << totalImages << endl;
-        cout << "Correct predictions: " << correctPredictions << endl;
-        cout << "Accuracy: " << fixed << setprecision(2) << accuracy << "%" << endl;
-
+    for (int i = 1; i <= warmups; ++i) {
+        run_once("warmup", i, false);
     }
-    
-    std::cout.flush();
-    std::cerr.flush();
-    std::_Exit(0);
+
+    for (int i = 1; i <= runs; ++i) {
+        run_once("measure", i, true);
+    }
+
+    string basename = modelPath.substr(0, modelPath.find_last_of("."));
+    saveTotalTimings("total_times_" + basename + ".txt", totalTimings);
+
+    float accuracy = 0.0f;
+    if (trueClassId >= 0 && runs > 0) {
+        accuracy = static_cast<float>(correctPredictions) / runs * 100.0f;
+    }
+
+    cout << "\nFinal Results:" << endl;
+    cout << "Total images: " << runs << endl;
+    cout << "Correct predictions: " << correctPredictions << endl;
+    cout << "Accuracy: " << fixed << setprecision(2) << accuracy << "%" << endl;
+
+    cout.flush();
+    cerr.flush();
+
+    if (std::getenv("GVIRTUS_FAST_EXIT_AFTER_RESULT") != nullptr) {
+        std::_Exit(0);
+    }
+
+    return 0;
 }

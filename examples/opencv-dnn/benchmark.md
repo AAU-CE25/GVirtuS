@@ -164,7 +164,7 @@ export NPP_DIR=//.local/lib/python3.10/site-packages/nvidia/npp/lib
 export CUDNN_ROOT=/cudnn-9.5.1
 export CUDNN_LIB=$CUDNN_ROOT/lib
 
-export GV_LD_LIBRARY_PATH="$GVIRTUS_HOME/lib:$GVIRTUS_HOME/lib/frontend:$OPENCV_HOME/lib:$CUDNN_LIB:$NPP_DIR:/usr/local/cuda-12.6/lib64:/lz4-install/lib"
+export GV_LD_LIBRARY_PATH="$GVIRTUS_HOME/lib:$GVIRTUS_HOME/lib/frontend:$OPENCV_HOME/lib:$CUDNN_LIB:$NPP_DIR:$CUDA_HOME/lib64:$LZ4_LIB"
 export GV_PRELOAD="$GVIRTUS_HOME/lib/frontend/libcuda.so:$GVIRTUS_HOME/lib/frontend/libcudart.so:$GVIRTUS_HOME/lib/frontend/libcublas.so:$GVIRTUS_HOME/lib/frontend/libcudnn.so.9"
 
 unset LD_PRELOAD
