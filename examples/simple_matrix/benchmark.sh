@@ -31,7 +31,7 @@ SAFE_USER=$(whoami 2>/dev/null | cut -d'@' -f1 | tr -d '.' || echo "$UID")
 CONTAINER_NAME="simple_matrix_test_container-${SAFE_USER}"
 
 # Full default geometric ramp.
-ALL_SIZES=(8 16 32 64 128 256 512 1024 2048 4096 8192 16384)
+ALL_SIZES=(256 512 1024 2048 4096 8192 16384)
 
 is_number() {
     [[ "$1" =~ ^[0-9]+$ ]]

@@ -36,6 +36,7 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <csignal>
 
 using gvirtus::backend::Backend;
 
@@ -103,6 +104,14 @@ Backend::Backend(const fs::path &path) {
 }
 
 void Backend::Start() {
+    // Ensure child processes are waitable. Some launch environments may inherit
+    // SIGCHLD ignored or SA_NOCLDWAIT, which makes wait() return ECHILD.
+    struct sigaction child_action {};
+    child_action.sa_handler = SIG_DFL;
+    sigemptyset(&child_action.sa_mask);
+    child_action.sa_flags = 0;
+    sigaction(SIGCHLD, &child_action, nullptr);
+
     // std::function<void(std::unique_ptr<gvirtus::Thread> & children)> task =
     // [this](std::unique_ptr<gvirtus::Thread> &children) {
     //   LOG4CPLUS_DEBUG(logger, "[Thread " << std::this_thread::get_id() <<
@@ -144,9 +153,22 @@ void Backend::Start() {
             LOG4CPLUS_TRACE(logger, "Active childs: %d" << activeChilds);
 
             if (waitres < 0) {
-                LOG4CPLUS_TRACE(logger, "Error " << strerror(errno) << " on wait.");
+                LOG4CPLUS_ERROR(logger,
+                    "wait() failed: errno=" << errno << " message=" << strerror(errno));
             } else {
-                LOG4CPLUS_TRACE(logger, "Process " << waitres << " returned successfully.");
+                if (WIFEXITED(status)) {
+                    LOG4CPLUS_ERROR(logger,
+                        "Child process " << waitres << " exited with code "
+                                         << WEXITSTATUS(status));
+                } else if (WIFSIGNALED(status)) {
+                    LOG4CPLUS_ERROR(logger,
+                        "Child process " << waitres << " killed by signal "
+                                         << WTERMSIG(status));
+                } else {
+                    LOG4CPLUS_ERROR(logger,
+                        "Child process " << waitres << " ended with unknown status "
+                                         << status);
+                }
                 break;
             }
         } while (not WIFEXITED(status) and not WIFSIGNALED(status));
