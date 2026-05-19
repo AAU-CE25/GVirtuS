@@ -28,6 +28,8 @@
  *            Department of Computer Science, University College Dublin
  */
 
+#include <sys/wait.h>
+#include <unistd.h>
 #include <gvirtus/backend/Process.h>
 #include <gvirtus/common/JSON.h>
 #include <gvirtus/common/SignalException.h>
@@ -36,6 +38,7 @@
 #include <signal.h>
 #include <unistd.h>
 
+#include <cerrno>
 #include <cstring>
 #include <functional>
 #include <iostream>
@@ -63,7 +66,9 @@ Process::Process(std::shared_ptr<LD_Lib<Communicator, std::shared_ptr<Endpoint>>
     : Observable() {
     logger = log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("Process"));
 
-    signal(SIGCHLD, SIG_IGN);
+    // We fork one worker per accepted frontend session and waitpid() it,
+    // so SIGCHLD must remain waitable.
+    signal(SIGCHLD, SIG_DFL);
     _communicator = communicator;
     mPlugins = plugins;
 }
@@ -288,17 +293,18 @@ void Process::Start() {
         LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "]"
                                             << "Process::Start()'s \"execute\" lambda called");
 
-        // The accepted client communicator is allocated by Accept() with new.
-        // Own it here so it is closed and deleted when the handler thread exits.
-        std::unique_ptr<Communicator> client_owner(client_comm);
-
+        // The accepted client communicator is allocated by Accept().
+        // Do not own/delete it here. Some accepted communicator instances do not
+        // fully initialize all fields used by their destructor. In the current
+        // benchmark mode each client is handled in a short-lived worker process,
+        // so process exit releases the accepted socket safely.
         auto close_client = [&]() {
-            if (!client_owner) {
+            if (!client_comm) {
                 return;
             }
 
             try {
-                client_owner->Close();
+                client_comm->Close();
             } catch (const std::exception &e) {
                 LOG4CPLUS_WARN(logger, "Client close failed: " << e.what());
             } catch (...) {
@@ -478,7 +484,6 @@ void Process::Start() {
     try {
         _communicator->obj_ptr()->Serve();
 
-        int pid = 0;
         while (true) {
             Communicator *client =
                 const_cast<Communicator *>(_communicator->obj_ptr()->Accept());
@@ -489,7 +494,49 @@ void Process::Start() {
                                                   << (client ? client->to_string() : "<null>"));
 
             if (client != nullptr) {
-                std::thread(execute, client).detach();
+                // Reconnect-safe benchmark mode:
+                // keep the listener process alive, but isolate each frontend
+                // session in a fresh worker process. This avoids reusing CUDA,
+                // cuBLAS and plugin handler state across frontend reconnects.
+                pid_t worker_pid = fork();
+
+                if (worker_pid == 0) {
+                    execute(client);
+                    _exit(EXIT_SUCCESS);
+                }
+
+                if (worker_pid < 0) {
+                    LOG4CPLUS_ERROR(logger,
+                                    "Failed to fork client worker: " << strerror(errno));
+                    execute(client);
+                } else {
+                    int worker_status = 0;
+                    pid_t waited = 0;
+
+                    do {
+                        waited = waitpid(worker_pid, &worker_status, 0);
+                    } while (waited < 0 && errno == EINTR);
+
+                    if (waited < 0) {
+                        LOG4CPLUS_ERROR(logger,
+                                        "waitpid(" << worker_pid << ") failed: "
+                                                    << strerror(errno));
+                    } else if (WIFEXITED(worker_status)) {
+                        LOG4CPLUS_DEBUG(logger,
+                                        "Client worker " << worker_pid
+                                                         << " exited with code "
+                                                         << WEXITSTATUS(worker_status));
+                    } else if (WIFSIGNALED(worker_status)) {
+                        LOG4CPLUS_ERROR(logger,
+                                        "Client worker " << worker_pid
+                                                         << " killed by signal "
+                                                         << WTERMSIG(worker_status));
+                    }
+                }
+
+                // Intentionally do not delete client in the listener process.
+                // The worker owns the active session lifetime, and the listener
+                // must stay alive for repeated benchmark reconnects.
             } else {
                 _communicator->obj_ptr()->run();
             }

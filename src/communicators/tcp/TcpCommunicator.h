@@ -70,19 +70,19 @@ class TcpCommunicator : public Communicator {
    private:
     log4cplus::Logger logger = log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("TcpCommunicator"));
     void InitializeStream();
-    std::istream *mpInput;
-    std::ostream *mpOutput;
+    std::istream *mpInput = nullptr;
+    std::ostream *mpOutput = nullptr;
     std::string mHostname;
-    char *mInAddr;
-    int mInAddrSize;
-    short mPort;
-    int mSocketFd;
+    char *mInAddr = nullptr;
+    int mInAddrSize = 0;
+    short mPort = 0;
+    int mSocketFd = -1;
 #ifdef _WIN32
     std::filebuf *mpInputBuf;
     std::filebuf *mpOutputBuf;
 #else
-    __gnu_cxx::stdio_filebuf<char> *mpInputBuf;
-    __gnu_cxx::stdio_filebuf<char> *mpOutputBuf;
+    __gnu_cxx::stdio_filebuf<char> *mpInputBuf = nullptr;
+    __gnu_cxx::stdio_filebuf<char> *mpOutputBuf = nullptr;
 #endif
 };
 }  // namespace gvirtus::communicators
