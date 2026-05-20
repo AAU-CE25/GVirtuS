@@ -65,7 +65,7 @@ RUNS="${RUNS:-10}"
 EXAMPLES_CSV="${EXAMPLES:-simple_matrix,face_recon,opencv_dnn,opencv_yolo}"
 OUT_ROOT="${OUT_DIR:-benchmark_results}"
 MATRIX_N="${MATRIX_N:-512}"
-MATRIX_N_ALL_VALUES="${MATRIX_N_ALL_VALUES:-16384}"
+MATRIX_N_ALL_VALUES="${MATRIX_N_ALL_VALUES:-256 512 1024 2048 4096 8192 16384}"
 USER_SHORT="$(whoami | cut -d'@' -f1 | tr -d '.')"
 BACKEND_CONTAINER="${BACKEND_CONTAINER:-gvirtus-${USER_SHORT}}"
 REPO_ROOT="${REPO_ROOT:-}"
@@ -460,8 +460,8 @@ echo "Results: $RESULTS_CSV"
 # Keep this mode-dependent:
 #   tcp  -> properties.json
 #   rdma -> properties_plain_rdma.json
-HOST_GVIRTUS_HOME="${HOST_GVIRTUS_HOME:-$HOME/gvirtus-install}"
-HOST_GVIRTUS_CONFIG="${HOST_GVIRTUS_CONFIG:-$HOST_GVIRTUS_HOME/etc/$GVIRTUS_CONFIG_FILE}"
+HOST_GVIRTUS_HOME="${HOST_GVIRTUS_HOME:-$REPO_ROOT}"
+HOST_GVIRTUS_CONFIG="${HOST_GVIRTUS_CONFIG:-$REPO_ROOT/etc/$GVIRTUS_CONFIG_FILE}"
 OPENCV_PREFIX="${OPENCV_PREFIX:-$HOME/opencv-local}"
 
 export HOST_GVIRTUS_HOME HOST_GVIRTUS_CONFIG OPENCV_PREFIX
@@ -469,6 +469,53 @@ export HOST_GVIRTUS_HOME HOST_GVIRTUS_CONFIG OPENCV_PREFIX
 echo "HOST_GVIRTUS_HOME: $HOST_GVIRTUS_HOME"
 echo "HOST_GVIRTUS_CONFIG: $HOST_GVIRTUS_CONFIG"
 echo "OPENCV_PREFIX: $OPENCV_PREFIX"
+
+# Mode-specific UCX defaults.
+# These are only defaults; users can still override them from the shell.
+if [[ "$MODE" == "ucx_tcp" ]]; then
+    export UCX_TLS="${UCX_TLS:-tcp,self}"
+    export UCX_NET_DEVICES="${UCX_NET_DEVICES:-ens1f1np1}"
+    export UCX_SOCKADDR_TLS_PRIORITY="${UCX_SOCKADDR_TLS_PRIORITY:-tcp}"
+    export UCX_LOG_LEVEL="${UCX_LOG_LEVEL:-info}"
+    export UCX_MODULE_DIR="${UCX_MODULE_DIR:-$REPO_ROOT/lib/ucx}"
+elif [[ "$MODE" == "ucx_rdma" ]]; then
+    export UCX_TLS="${UCX_TLS:-rc_mlx5,ud_mlx5,self}"
+    export UCX_NET_DEVICES="${UCX_NET_DEVICES:-mlx5_1:1}"
+    export UCX_SOCKADDR_TLS_PRIORITY="${UCX_SOCKADDR_TLS_PRIORITY:-rdmacm}"
+    export UCX_LOG_LEVEL="${UCX_LOG_LEVEL:-info}"
+    export UCX_MODULE_DIR="${UCX_MODULE_DIR:-$REPO_ROOT/lib/ucx}"
+fi
+
+echo "UCX_TLS: ${UCX_TLS:-}"
+echo "UCX_NET_DEVICES: ${UCX_NET_DEVICES:-}"
+echo "UCX_SOCKADDR_TLS_PRIORITY: ${UCX_SOCKADDR_TLS_PRIORITY:-}"
+echo "UCX_LOG_LEVEL: ${UCX_LOG_LEVEL:-}"
+echo "UCX_MODULE_DIR: ${UCX_MODULE_DIR:-}"
+
+# Repo-local runtime library path for host-side examples.
+prepend_ld_library_path() {
+    local dir="$1"
+    [[ -d "$dir" ]] || return 0
+
+    case ":${LD_LIBRARY_PATH:-}:" in
+        *":$dir:"*) ;;
+        *)
+            if [[ -n "${LD_LIBRARY_PATH:-}" ]]; then
+                export LD_LIBRARY_PATH="$dir:$LD_LIBRARY_PATH"
+            else
+                export LD_LIBRARY_PATH="$dir"
+            fi
+            ;;
+    esac
+}
+
+prepend_ld_library_path "$OPENCV_PREFIX/lib"
+prepend_ld_library_path "$HOST_GVIRTUS_HOME/lib/frontend"
+prepend_ld_library_path "$HOST_GVIRTUS_HOME/lib/ucx"
+prepend_ld_library_path "$HOST_GVIRTUS_HOME/lib"
+
+echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
+
 
 if [[ ! -f "$HOST_GVIRTUS_HOME/lib/libgvirtus-frontend.so" ]]; then
     echo "WARNING: Host GVirtuS frontend library not found under: $HOST_GVIRTUS_HOME/lib" >&2

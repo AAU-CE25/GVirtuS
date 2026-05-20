@@ -501,9 +501,11 @@ void Process::Start() {
                                                   << (client ? client->to_string() : "<null>"));
 
             if (client != nullptr) {
-                if (client->to_string() == "rdmacommunicator") {
+                if (client->to_string() == "rdmacommunicator" ||
+                    client->to_string() == "ucxcommunicator") {
                     LOG4CPLUS_DEBUG(logger,
-                        "Handling RDMA client synchronously to avoid fork-after-RDMA-verbs state.");
+                        "Handling " << client->to_string()
+                                    << " client synchronously to avoid fork-after-transport state.");
                     execute(client);
                     delete client;
                     continue;
