@@ -395,10 +395,17 @@ run_one() {
         log_file="${LOG_DIR}/${example}_${run_type}_${run_index}.log"
     fi
 
+    local label
     if [[ "$example" == "simple_matrix" ]]; then
-        echo "[$example][N=$matrix_n_value][$run_type $run_index] $command_str"
+        label="[$example][N=$matrix_n_value][$run_type $run_index]"
     else
-        echo "[$example][$run_type $run_index] $command_str"
+        label="[$example][$run_type $run_index]"
+    fi
+
+    if is_verbose; then
+        echo "$label $command_str"
+    else
+        printf '%-48s ' "$label"
     fi
 
     local start_ns end_ns exit_code elapsed_ms
@@ -421,16 +428,18 @@ run_one() {
     export ELAPSED_MS="$elapsed_ms"
     append_result_row
 
-    if [[ "$exit_code" -ne 0 ]]; then
-        echo "ERROR: $example $run_type $run_index failed with exit code $exit_code. See $log_file" >&2
-        if grep -qi "Connection refused\|Can't connect to socket" "$log_file"; then
-            echo "ERROR: Backend is no longer accepting connections. Stopping benchmark early." >&2
-            exit "$exit_code"
+    if [[ "$exit_code" -eq 0 ]]; then
+        if ! is_verbose; then
+            printf 'OK   %sms
+' "$elapsed_ms"
         fi
-    fi
-
-    if [[ "$SLEEP_BETWEEN_RUNS" != "0" ]]; then
-        sleep "$SLEEP_BETWEEN_RUNS"
+    else
+        if ! is_verbose; then
+            printf 'FAIL %sms
+' "$elapsed_ms"
+        fi
+        echo "ERROR: $example $run_type $run_index failed with exit code $exit_code"
+        echo "       Log: $(relpath "$log_file")"
     fi
 }
 
@@ -450,12 +459,70 @@ mkdir -p "$LOG_DIR"
 
 export BENCHMARK_SCRIPT_VERSION MODE WARMUPS RUNS EXAMPLES_CSV SESSION_ID OUT_DIR LOG_DIR RESULTS_CSV STATIC_CSV METADATA_JSON REPO_ROOT SCRIPT_DIR
 
-echo "Benchmark script version: $BENCHMARK_SCRIPT_VERSION"
-echo "Benchmark directory: $SCRIPT_DIR"
-echo "Using GVirtuS repo root: $REPO_ROOT"
-echo "Mode: $MODE"
-echo "GVIRTUS_CONFIG_FILE: $GVIRTUS_CONFIG_FILE"
-echo "Results: $RESULTS_CSV"
+
+# Terminal output controls.
+BENCHMARK_VERBOSE="${BENCHMARK_VERBOSE:-0}"
+
+is_verbose() {
+    [[ "${BENCHMARK_VERBOSE:-0}" == "1" || "${BENCHMARK_VERBOSE:-0}" == "true" ]]
+}
+
+hr() {
+    printf '%*s\n' "${COLUMNS:-80}" '' | tr ' ' '-'
+}
+
+relpath() {
+    local path="$1"
+    if [[ "$path" == "$REPO_ROOT"* ]]; then
+        printf '.%s' "${path#$REPO_ROOT}"
+    elif [[ "$path" == "$BENCHMARK_DIR"* ]]; then
+        printf '.%s' "${path#$BENCHMARK_DIR}"
+    else
+        printf '%s' "$path"
+    fi
+}
+
+print_kv() {
+    printf '  %-18s %s\n' "$1:" "$2"
+}
+
+print_runtime_summary() {
+    echo
+    hr
+    echo "GVirtuS Benchmark"
+    hr
+    print_kv "Mode" "$MODE"
+    print_kv "Examples" "$EXAMPLES_CSV"
+    if [[ "$EXAMPLES_CSV" == *simple_matrix* ]]; then
+        print_kv "Matrix sizes" "$MATRIX_N"
+    else
+        print_kv "Matrix sizes" "-"
+    fi
+    print_kv "Runs" "$RUNS"
+    print_kv "Warmups" "$WARMUPS"
+    print_kv "Config" "$(relpath "$HOST_GVIRTUS_CONFIG")"
+    print_kv "Results" "$(relpath "$RESULTS_CSV")"
+
+    if [[ "$MODE" == ucx_* ]]; then
+        print_kv "UCX TLS" "${UCX_TLS:-}"
+        print_kv "UCX devices" "${UCX_NET_DEVICES:-}"
+        print_kv "UCX priority" "${UCX_SOCKADDR_TLS_PRIORITY:-}"
+        print_kv "UCX modules" "$(relpath "${UCX_MODULE_DIR:-}")"
+    fi
+
+    if [[ "$EXAMPLES_CSV" == *opencv* ]]; then
+        print_kv "OpenCV prefix" "$OPENCV_PREFIX"
+    fi
+
+    if is_verbose; then
+        print_kv "Repo root" "$REPO_ROOT"
+        print_kv "Benchmark dir" "$BENCHMARK_DIR"
+        print_kv "GVirtuS home" "$HOST_GVIRTUS_HOME"
+        print_kv "LD_LIBRARY_PATH" "${LD_LIBRARY_PATH:-}"
+    fi
+
+    hr
+}
 # Host-side GVirtuS runtime used by non-Docker examples.
 # Keep this mode-dependent:
 #   tcp  -> properties.json
@@ -466,9 +533,6 @@ OPENCV_PREFIX="${OPENCV_PREFIX:-$HOME/opencv-local}"
 
 export HOST_GVIRTUS_HOME HOST_GVIRTUS_CONFIG OPENCV_PREFIX
 
-echo "HOST_GVIRTUS_HOME: $HOST_GVIRTUS_HOME"
-echo "HOST_GVIRTUS_CONFIG: $HOST_GVIRTUS_CONFIG"
-echo "OPENCV_PREFIX: $OPENCV_PREFIX"
 
 # Mode-specific UCX defaults.
 # These are only defaults; users can still override them from the shell.
@@ -486,11 +550,6 @@ elif [[ "$MODE" == "ucx_rdma" ]]; then
     export UCX_MODULE_DIR="${UCX_MODULE_DIR:-$REPO_ROOT/lib/ucx}"
 fi
 
-echo "UCX_TLS: ${UCX_TLS:-}"
-echo "UCX_NET_DEVICES: ${UCX_NET_DEVICES:-}"
-echo "UCX_SOCKADDR_TLS_PRIORITY: ${UCX_SOCKADDR_TLS_PRIORITY:-}"
-echo "UCX_LOG_LEVEL: ${UCX_LOG_LEVEL:-}"
-echo "UCX_MODULE_DIR: ${UCX_MODULE_DIR:-}"
 
 # Repo-local runtime library path for host-side examples.
 prepend_ld_library_path() {
@@ -514,11 +573,13 @@ prepend_ld_library_path "$HOST_GVIRTUS_HOME/lib/frontend"
 prepend_ld_library_path "$HOST_GVIRTUS_HOME/lib/ucx"
 prepend_ld_library_path "$HOST_GVIRTUS_HOME/lib"
 
-echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
-
+print_runtime_summary
 
 if [[ ! -f "$HOST_GVIRTUS_HOME/lib/libgvirtus-frontend.so" ]]; then
-    echo "WARNING: Host GVirtuS frontend library not found under: $HOST_GVIRTUS_HOME/lib" >&2
+    if is_verbose; then
+        echo "Runtime note: repo-local GVirtuS frontend libs not found in $(relpath "$HOST_GVIRTUS_HOME/lib")." >&2
+        echo "              If host examples fail, rebuild/copy runtime libs from the backend container." >&2
+    fi
 fi
 
 if [[ ! -f "$HOST_GVIRTUS_CONFIG" ]]; then
@@ -566,15 +627,21 @@ for raw_example in "${requested_examples[@]}"; do
     done
 done
 
-cat <<EOF2
+echo
+hr
+echo "Benchmark complete"
+hr
+print_kv "Results CSV" "$(relpath "$RESULTS_CSV")"
+print_kv "Static CSV" "$(relpath "$STATIC_CSV")"
+print_kv "Metadata JSON" "$(relpath "$METADATA_JSON")"
+print_kv "Logs" "$(relpath "$LOG_DIR")"
 
-Benchmark complete.
-Results CSV:   $RESULTS_CSV
-Static CSV:    $STATIC_CSV
-Metadata JSON: $METADATA_JSON
-Logs:          $LOG_DIR
-
-Suggested quick checks:
-  column -s, -t < "$RESULTS_CSV" | less -S
-  awk -F, 'NR==1 || \$14=="measured" {print}' "$RESULTS_CSV" | column -s, -t | less -S
-EOF2
+if is_verbose; then
+    echo
+    echo "Suggested quick checks:"
+    echo "  column -s, -t < \"$RESULTS_CSV\" | less -S"
+    echo "  awk -F, 'NR==1 || $14==\"measured\" {print}' \"$RESULTS_CSV\" | column -s, -t | less -S"
+else
+    echo
+    echo "Tip: rerun with BENCHMARK_VERBOSE=1 for full commands and debug paths."
+fi
