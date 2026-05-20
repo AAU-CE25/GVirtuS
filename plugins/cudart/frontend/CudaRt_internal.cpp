@@ -284,14 +284,24 @@ extern "C" __host__ void __cudaRegisterFunction(void **fatCubinHandle, const cha
 
     CudaRtFrontend::Execute("cudaRegisterFunction");
 
-    deviceFun = CudaRtFrontend::GetOutputString();
-    tid = CudaRtFrontend::GetOutputHostPointer<uint3>();
-    bid = CudaRtFrontend::GetOutputHostPointer<uint3>();
-    bDim = CudaRtFrontend::GetOutputHostPointer<dim3>();
-    gDim = CudaRtFrontend::GetOutputHostPointer<dim3>();
-    wSize = CudaRtFrontend::GetOutputHostPointer<int>();
+    // cudaRegisterFunction is a void CUDA runtime registration hook.
+    // If the backend returns an error without an output payload, do not try
+    // to unpack output fields. Otherwise Buffer::Get() throws on empty output.
+    //
+    // Keep the local host->device mapping from the original deviceFun string
+    // so later kernel launch paths still have the frontend-side mapping.
+    if (CudaRtFrontend::Success()) {
+        deviceFun = CudaRtFrontend::GetOutputString();
+        tid = CudaRtFrontend::GetOutputHostPointer<uint3>();
+        bid = CudaRtFrontend::GetOutputHostPointer<uint3>();
+        bDim = CudaRtFrontend::GetOutputHostPointer<dim3>();
+        gDim = CudaRtFrontend::GetOutputHostPointer<dim3>();
+        wSize = CudaRtFrontend::GetOutputHostPointer<int>();
+    }
 
-    CudaRtFrontend::addHost2DeviceFunc((void *)hostFun, deviceFun);
+    if (deviceFun != nullptr) {
+        CudaRtFrontend::addHost2DeviceFunc((void *)hostFun, deviceFun);
+    }
 }
 
 extern "C" __host__ void __cudaRegisterVar(void **fatCubinHandle, char *hostVar,

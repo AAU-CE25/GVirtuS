@@ -62,7 +62,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 MODE="${MODE:-ucx_tcp}"
 WARMUPS="${WARMUPS:-3}"
 RUNS="${RUNS:-10}"
-EXAMPLES_CSV="${EXAMPLES:-simple_matrix,face_recon,opencv_dnn,opencv_yolo}"
+if [[ -n "${EXAMPLES:-}" ]]; then
+    EXAMPLES_CSV="$EXAMPLES"
+else
+    # Matrix-size benchmarking is only meaningful for simple_matrix.
+    # Avoid accidentally running all non-matrix examples when the user only sets --matrix-n.
+    if [[ "${MATRIX_N:-512}" != "512" || "${MATRIX_N_ALL_VALUES:-}" != "" ]]; then
+        EXAMPLES_CSV="simple_matrix"
+    else
+        EXAMPLES_CSV="simple_matrix,face_recon,opencv_dnn,opencv_yolo"
+    fi
+fi
 OUT_ROOT="${OUT_DIR:-benchmark_results}"
 MATRIX_N="${MATRIX_N:-512}"
 MATRIX_N_ALL_VALUES="${MATRIX_N_ALL_VALUES:-256 512 1024 2048 4096 8192 16384}"

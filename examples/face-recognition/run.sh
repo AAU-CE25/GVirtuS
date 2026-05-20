@@ -6,6 +6,9 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
 
 export GVIRTUS_HOME="${GVIRTUS_HOME:-$REPO_ROOT}"
 export GVIRTUS_CONFIG="${GVIRTUS_CONFIG:-$GVIRTUS_HOME/etc/properties.json}"
+# Deterministic runtime/link paths for GVirtuS frontend shims.
+export LD_LIBRARY_PATH="$GVIRTUS_HOME/lib:$GVIRTUS_HOME/lib/frontend:$GVIRTUS_HOME/lib/ucx:${LD_LIBRARY_PATH:-}"
+export LIBRARY_PATH="$GVIRTUS_HOME/lib:$GVIRTUS_HOME/lib/frontend:$GVIRTUS_HOME/lib/ucx:${LIBRARY_PATH:-}"
 
 prepend_ld_library_path() {
     local dir="$1"
