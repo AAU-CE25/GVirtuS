@@ -39,6 +39,7 @@ class RdmaCommunicator : public Communicator {
     ibv_mr* preregisteredMr;
 
     bool isRoce = false;
+    bool hasPrepostedRecv = false;
 
    public:
     RdmaCommunicator() = default;
@@ -52,6 +53,7 @@ class RdmaCommunicator : public Communicator {
     const Communicator* const Accept() const;
 
     void Connect();
+    void PrePostInitialRecv();
 
     size_t Read(char* buffer, size_t size);
     size_t Write(const char* buffer, size_t size);

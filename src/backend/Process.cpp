@@ -494,10 +494,14 @@ void Process::Start() {
                                                   << (client ? client->to_string() : "<null>"));
 
             if (client != nullptr) {
-                // Reconnect-safe benchmark mode:
-                // keep the listener process alive, but isolate each frontend
-                // session in a fresh worker process. This avoids reusing CUDA,
-                // cuBLAS and plugin handler state across frontend reconnects.
+                if (client->to_string() == "rdmacommunicator") {
+                    LOG4CPLUS_DEBUG(logger,
+                        "Handling RDMA client synchronously to avoid fork-after-RDMA-verbs state.");
+                    execute(client);
+                    delete client;
+                    continue;
+                }
+
                 pid_t worker_pid = fork();
 
                 if (worker_pid == 0) {
@@ -534,9 +538,8 @@ void Process::Start() {
                     }
                 }
 
-                // Intentionally do not delete client in the listener process.
-                // The worker owns the active session lifetime, and the listener
-                // must stay alive for repeated benchmark reconnects.
+                // Do not delete client in the listener process.
+                // The worker process owns the active client session lifetime.
             } else {
                 _communicator->obj_ptr()->run();
             }

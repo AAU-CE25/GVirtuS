@@ -118,6 +118,23 @@ void RdmaCommunicator::Serve() {
     ktm_rdma_listen(rdmaCmListenId, BACKLOG);
 }
 
+void RdmaCommunicator::PrePostInitialRecv() {
+#ifdef DEBUG
+    std::cout << "RDMA_DEBUG: pre-posting initial recv size=256" << std::endl;
+#endif
+
+    if (preregisteredMr == nullptr) {
+        preregisteredMr = ktm_rdma_reg_msgs(rdmaCmId, preregisteredBuffer, 1024 * 5);
+    }
+
+    ktm_rdma_post_recv(rdmaCmId, nullptr, preregisteredBuffer, 256, preregisteredMr);
+    hasPrepostedRecv = true;
+
+#ifdef DEBUG
+    std::cout << "RDMA_DEBUG: initial recv posted" << std::endl;
+#endif
+}
+
 const gvirtus::communicators::Communicator *const RdmaCommunicator::Accept() const {
 #ifdef DEBUG
     std::cout << "Called Accept()" << std::endl;
@@ -125,23 +142,28 @@ const gvirtus::communicators::Communicator *const RdmaCommunicator::Accept() con
 
     rdma_cm_id *clientRdmaCmId = nullptr;
     ktm_rdma_get_request(rdmaCmListenId, &clientRdmaCmId);
+
+    auto *client = new RdmaCommunicator(clientRdmaCmId);
+
+    // Important for RDMA SEND/RECV:
+    // post the first receive before accepting the connection, otherwise
+    // the frontend can send immediately after connect and get stuck/RNR.
+    client->PrePostInitialRecv();
+
     ktm_rdma_accept(clientRdmaCmId, nullptr);
 
-    auto *ibvQpAttr = static_cast<ibv_qp_attr *>(malloc(sizeof(ibv_qp_attr)));
-    if (!ibvQpAttr) {
-        throw std::runtime_error("RdmaCommunicator::Accept(): malloc failed");
+    auto *ibvQpAttr = static_cast<ibv_qp_attr *>(calloc(1, sizeof(ibv_qp_attr)));
+    if (ibvQpAttr != nullptr) {
+        ibvQpAttr->min_rnr_timer = 12;
+
+        if (ibv_modify_qp(clientRdmaCmId->qp, ibvQpAttr, IBV_QP_MIN_RNR_TIMER)) {
+            fprintf(stderr, "ibv_modify_qp() failed: %s\n", strerror(errno));
+        }
+
+        free(ibvQpAttr);
     }
 
-    memset(ibvQpAttr, 0, sizeof(ibv_qp_attr));
-    ibvQpAttr->min_rnr_timer = 1;
-
-    if (ibv_modify_qp(clientRdmaCmId->qp, ibvQpAttr, IBV_QP_MIN_RNR_TIMER)) {
-        fprintf(stderr, "ibv_modify_attr() failed: %s\n", strerror(errno));
-    }
-
-    free(ibvQpAttr);
-
-    return new RdmaCommunicator(clientRdmaCmId);
+    return client;
 }
 
 void RdmaCommunicator::Connect() {
@@ -194,129 +216,52 @@ size_t RdmaCommunicator::Read(char *buffer, size_t size) {
     std::cout << "Called Read(char *buffer, size_t size) - Size: " << size << std::endl;
 #endif
 
-    if (size == 0) {
-        return 0;
-    }
-
-    // Small/control messages are single RDMA SEND messages.
-    // Important: the posted receive size may be larger than the actual sent size.
-    // Example: backend posts 30 bytes for a routine name, frontend sends strlen(routine)+1.
-    if (size <= kRdmaChunkSize) {
-        ibv_mr *chunkMr = nullptr;
-        void *recvAddr = nullptr;
-
-        if (size <= kPreRegisteredBufferSize) {
-            recvAddr = preregisteredBuffer;
-            chunkMr = preregisteredMr;
+    if (size < 1024 * 5) {
+        if (hasPrepostedRecv) {
+#ifdef DEBUG
+            std::cout << "RDMA_DEBUG: using pre-posted recv for size=" << size << std::endl;
+#endif
+            hasPrepostedRecv = false;
         } else {
-            recvAddr = buffer;
-            chunkMr = ktm_rdma_reg_msgs(rdmaCmId, recvAddr, size);
-        }
-
-        ktm_rdma_post_recv(rdmaCmId, nullptr, recvAddr, size, chunkMr);
-
-        int num_comp;
-        do {
-            num_comp = ibv_poll_cq(rdmaCmId->recv_cq, 1, &workCompletion);
-        } while (num_comp == 0);
-
-        if (num_comp < 0) {
-            if (chunkMr && chunkMr != preregisteredMr) {
-                ibv_dereg_mr(chunkMr);
-            }
-            throw std::runtime_error("ibv_poll_cq() failed");
-        }
-
-        if (workCompletion.status == IBV_WC_WR_FLUSH_ERR) {
-            if (chunkMr && chunkMr != preregisteredMr) {
-                ibv_dereg_mr(chunkMr);
-            }
-            return 0;
-        }
-
-        if (workCompletion.status != IBV_WC_SUCCESS) {
-            if (chunkMr && chunkMr != preregisteredMr) {
-                ibv_dereg_mr(chunkMr);
-            }
-            throw std::runtime_error("Failed status: " +
-                                     std::string(ibv_wc_status_str(workCompletion.status)));
-        }
-
 #ifdef DEBUG
-        std::cout << "  -> recv completed byte_len=" << workCompletion.byte_len
-                  << " requested=" << size << std::endl;
+            std::cout << "RDMA_DEBUG: posting recv small size=" << size << std::endl;
 #endif
-
-        const size_t actual = std::min(size, static_cast<size_t>(workCompletion.byte_len));
-
-        if (size <= kPreRegisteredBufferSize) {
-            memcpy(buffer, preregisteredBuffer, actual);
+            ktm_rdma_post_recv(rdmaCmId, nullptr, preregisteredBuffer, 1024 * 5, preregisteredMr);
         }
-
-        if (chunkMr && chunkMr != preregisteredMr) {
-            ibv_dereg_mr(chunkMr);
-        }
-
-        return actual;
+    } else {
+#ifdef DEBUG
+        std::cout << "RDMA_DEBUG: posting recv large size=" << size << std::endl;
+#endif
+        memoryRegion = ktm_rdma_reg_msgs(rdmaCmId, buffer, size);
+        ktm_rdma_post_recv(rdmaCmId, nullptr, buffer, size, memoryRegion);
     }
 
+    int num_comp;
+    do {
+        num_comp = ibv_poll_cq(rdmaCmId->recv_cq, 1, &workCompletion);
+    } while (num_comp == 0);
+
 #ifdef DEBUG
-    std::cout << "  -> RDMA recv chunked transfer total=" << size
-              << " chunk_size=" << kRdmaChunkSize
-              << " full_mr=1" << std::endl;
+    std::cout << "RDMA_DEBUG: recv CQ completion status=" << workCompletion.status
+              << " opcode=" << workCompletion.opcode
+              << " byte_len=" << workCompletion.byte_len << std::endl;
 #endif
 
-    // Large payload optimization:
-    // Register the full destination buffer once, then post chunked receives
-    // using the same MR. This avoids register/deregister per chunk.
-    ibv_mr *fullMr = ktm_rdma_reg_msgs(rdmaCmId, buffer, size);
-
-    size_t total = 0;
-
-    try {
-        while (total < size) {
-            const size_t remaining = size - total;
-            const size_t chunk = std::min(remaining, kRdmaChunkSize);
-
-            void *recvAddr = buffer + total;
-
-            ktm_rdma_post_recv(rdmaCmId, nullptr, recvAddr, chunk, fullMr);
-
-            int num_comp;
-            do {
-                num_comp = ibv_poll_cq(rdmaCmId->recv_cq, 1, &workCompletion);
-            } while (num_comp == 0);
-
-            if (num_comp < 0) {
-                throw std::runtime_error("ibv_poll_cq() failed");
-            }
-
-            if (workCompletion.status == IBV_WC_WR_FLUSH_ERR) {
-                ibv_dereg_mr(fullMr);
-                return total;
-            }
-
-            if (workCompletion.status != IBV_WC_SUCCESS) {
-                throw std::runtime_error("Failed status: " +
-                                         std::string(ibv_wc_status_str(workCompletion.status)));
-            }
-
-            const size_t actual = static_cast<size_t>(workCompletion.byte_len);
-
-            if (actual == 0) {
-                ibv_dereg_mr(fullMr);
-                return total;
-            }
-
-            total += actual;
-        }
-    } catch (...) {
-        ibv_dereg_mr(fullMr);
-        throw;
+    if (num_comp < 0) {
+        throw "ibv_poll_cq() failed";
     }
 
-    ibv_dereg_mr(fullMr);
-    return total;
+    if (workCompletion.status != IBV_WC_SUCCESS) {
+        throw "Failed status " + std::string(ibv_wc_status_str(workCompletion.status));
+    }
+
+    if (size < 1024 * 5) {
+        // The first recv may have been posted for 5120 bytes, but the actual
+        // payload can be smaller. Copy only the requested protocol size.
+        memcpy(buffer, preregisteredBuffer, size);
+    }
+
+    return size;
 }
 
 size_t RdmaCommunicator::Write(const char *buffer, size_t size) {
@@ -324,103 +269,65 @@ size_t RdmaCommunicator::Write(const char *buffer, size_t size) {
     std::cout << "Called Write(const char *buffer, size_t size) - Size: " << size << std::endl;
 #endif
 
-    if (size == 0) {
-        return 0;
-    }
+    char *actualBuffer = nullptr;
 
-    // Small/control messages stay as before.
-    if (size <= kRdmaChunkSize) {
-#ifdef DEBUG
-        std::cout << "  -> posting send size=" << size << std::endl;
-#endif
-
-        ibv_mr *chunkMr = nullptr;
-        void *sendAddr = nullptr;
-
-        if (size <= kPreRegisteredBufferSize) {
-            memcpy(preregisteredBuffer, buffer, size);
-            sendAddr = preregisteredBuffer;
-            chunkMr = preregisteredMr;
-        } else {
-            sendAddr = const_cast<char *>(buffer);
-            chunkMr = ktm_rdma_reg_msgs(rdmaCmId, sendAddr, size);
-        }
-
-        ktm_rdma_post_send(rdmaCmId, nullptr, sendAddr, size, chunkMr, IBV_SEND_SIGNALED);
-
-        int num_comp;
-        do {
-            num_comp = ibv_poll_cq(rdmaCmId->send_cq, 1, &workCompletion);
-        } while (num_comp == 0);
-
-        if (num_comp < 0) {
-            if (chunkMr && chunkMr != preregisteredMr) {
-                ibv_dereg_mr(chunkMr);
-            }
-            throw std::runtime_error("ibv_poll_cq() failed");
-        }
-
-        if (workCompletion.status != IBV_WC_SUCCESS) {
-            if (chunkMr && chunkMr != preregisteredMr) {
-                ibv_dereg_mr(chunkMr);
-            }
-            throw std::runtime_error("Failed status: " +
-                                     std::string(ibv_wc_status_str(workCompletion.status)));
-        }
-
-        if (chunkMr && chunkMr != preregisteredMr) {
-            ibv_dereg_mr(chunkMr);
-        }
-
-        return size;
-    }
+    if (size < 1024 * 5) {
+        memcpy(preregisteredBuffer, buffer, size);
 
 #ifdef DEBUG
-    std::cout << "  -> RDMA send chunked transfer total=" << size
-              << " chunk_size=" << kRdmaChunkSize
-              << " full_mr=1" << std::endl;
+        std::cout << "RDMA_DEBUG: posting send small size=" << size << std::endl;
 #endif
 
-    // Large payload optimization:
-    // Register the full source buffer once, then post chunked sends
-    // using the same MR. This avoids register/deregister per chunk.
-    void *fullSendAddr = const_cast<char *>(buffer);
-    ibv_mr *fullMr = ktm_rdma_reg_msgs(rdmaCmId, fullSendAddr, size);
+        ktm_rdma_post_send(rdmaCmId, nullptr, preregisteredBuffer, size, preregisteredMr,
+                           IBV_SEND_SIGNALED);
 
-    size_t total = 0;
-
-    try {
-        while (total < size) {
-            const size_t remaining = size - total;
-            const size_t chunk = std::min(remaining, kRdmaChunkSize);
-
-            void *sendAddr = const_cast<char *>(buffer + total);
-
-            ktm_rdma_post_send(rdmaCmId, nullptr, sendAddr, chunk, fullMr, IBV_SEND_SIGNALED);
-
-            int num_comp;
-            do {
-                num_comp = ibv_poll_cq(rdmaCmId->send_cq, 1, &workCompletion);
-            } while (num_comp == 0);
-
-            if (num_comp < 0) {
-                throw std::runtime_error("ibv_poll_cq() failed");
-            }
-
-            if (workCompletion.status != IBV_WC_SUCCESS) {
-                throw std::runtime_error("Failed status: " +
-                                         std::string(ibv_wc_status_str(workCompletion.status)));
-            }
-
-            total += chunk;
+#ifdef DEBUG
+        std::cout << "RDMA_DEBUG: post_send returned small size=" << size << std::endl;
+#endif
+    } else {
+        actualBuffer = static_cast<char *>(malloc(size));
+        if (actualBuffer == nullptr) {
+            throw "malloc failed in RdmaCommunicator::Write";
         }
-    } catch (...) {
-        ibv_dereg_mr(fullMr);
-        throw;
+
+        memcpy(actualBuffer, buffer, size);
+        memoryRegion = ktm_rdma_reg_msgs(rdmaCmId, actualBuffer, size);
+
+#ifdef DEBUG
+        std::cout << "RDMA_DEBUG: posting send large size=" << size << std::endl;
+#endif
+
+        ktm_rdma_post_send(rdmaCmId, nullptr, actualBuffer, size, memoryRegion, IBV_SEND_SIGNALED);
+
+#ifdef DEBUG
+        std::cout << "RDMA_DEBUG: post_send returned large size=" << size << std::endl;
+#endif
     }
 
-    ibv_dereg_mr(fullMr);
-    return total;
+    int num_comp;
+    do {
+        num_comp = ibv_poll_cq(rdmaCmId->send_cq, 1, &workCompletion);
+    } while (num_comp == 0);
+
+#ifdef DEBUG
+    std::cout << "RDMA_DEBUG: send CQ completion status=" << workCompletion.status
+              << " opcode=" << workCompletion.opcode
+              << " byte_len=" << workCompletion.byte_len << std::endl;
+#endif
+
+    if (num_comp < 0) {
+        throw "ibv_poll_cq() failed";
+    }
+
+    if (workCompletion.status != IBV_WC_SUCCESS) {
+        throw "Failed status " + std::string(ibv_wc_status_str(workCompletion.status));
+    }
+
+    if (size > 1024 * 5) {
+        free(actualBuffer);
+    }
+
+    return size;
 }
 
 void RdmaCommunicator::Sync() {
