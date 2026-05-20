@@ -1,6 +1,6 @@
 # GVirtuS Benchmarking Guide
 
-This guide explains how to run the benchmark harness in `examples/Benchmarking/benchmark.sh`.
+This guide explains how to run `examples/Benchmarking/benchmark.sh` in a reproducible way.
 
 The benchmark has two sides:
 
@@ -11,14 +11,41 @@ The benchmark supports these modes:
 
 | Mode | Transport | Config file |
 |---|---|---|
-| `tcp` | plain TCP | `properties.json` |
-| `rdma` | plain RDMA / RoCE | `properties_plain_rdma.json` |
+| `tcp` | Plain TCP | `properties.json` |
+| `rdma` | Plain RDMA / RoCE | `properties_plain_rdma.json` |
 | `ucx_tcp` | UCX over TCP | `properties_ucx.json` |
 | `ucx_rdma` | UCX over RDMA / RoCE | `properties_ucx.json` |
 
-## 1. Repository layout
+## 1. Set common variables
 
-Expected repository paths:
+Use variables instead of hard-coded user-specific paths.
+
+From the repository root:
+
+```bash
+cd /path/to/GVirtuS
+
+export GVIRTUS_REPO_ROOT="$PWD"
+export BENCHMARK_DIR="$GVIRTUS_REPO_ROOT/examples/Benchmarking"
+
+# Backend container name used by the Makefile / benchmark setup.
+# Adjust this if your local Makefile uses another name.
+export GVIRTUS_BACKEND_CONTAINER="${GVIRTUS_BACKEND_CONTAINER:-gvirtus-${USER}}"
+
+# OpenCV installation used by the OpenCV examples.
+# Adjust if OpenCV is installed elsewhere.
+export OPENCV_PREFIX="${OPENCV_PREFIX:-$HOME/opencv-local}"
+```
+
+If your project uses another backend container name, check it with:
+
+```bash
+docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+```
+
+## 2. Repository layout
+
+Expected paths:
 
 ```text
 GVirtuS/
@@ -45,30 +72,30 @@ GVirtuS/
         └── libuct_*.so
 ```
 
-The `lib/` directory contains copied/generated runtime libraries. These files are needed locally for host-side examples, but they should **not** be committed to Git.
+The `lib/` directory contains copied/generated runtime libraries. These files are needed locally for host-side examples, but they should not be committed to Git.
 
-## 2. One-time runtime preparation
+## 3. One-time runtime preparation
 
-After the backend image has been built at least once, copy the runtime libraries from the backend container into the repo-local `lib/` folder.
+The host-side examples need repo-local GVirtuS frontend libraries and, for UCX RDMA, repo-local UCX transport modules.
 
-Start or rebuild the backend container first, then in another terminal run:
+First start or build the backend container at least once. Then, in another terminal:
 
 ```bash
-cd /home/student.aau.dk/ul11nh/GVirtuS
+cd "$GVIRTUS_REPO_ROOT"
 
 mkdir -p ./lib ./lib/ucx
 
-# GVirtuS frontend/communicator/runtime libs
-docker cp gvirtus-ul11nh:/usr/local/gvirtus/lib/. ./lib/
+# GVirtuS frontend/communicator/runtime libraries
+docker cp "$GVIRTUS_BACKEND_CONTAINER:/usr/local/gvirtus/lib/." ./lib/
 
 # UCX transport modules required for UCX RDMA
-docker cp gvirtus-ul11nh:/usr/lib/ucx/. ./lib/ucx/
+docker cp "$GVIRTUS_BACKEND_CONTAINER:/usr/lib/ucx/." ./lib/ucx/
 ```
 
-Verify that the important files exist:
+Verify that important files exist:
 
 ```bash
-cd /home/student.aau.dk/ul11nh/GVirtuS
+cd "$GVIRTUS_REPO_ROOT"
 
 find lib -maxdepth 3 -type f \
   \( -name 'libgvirtus-frontend.so*' \
@@ -83,7 +110,7 @@ find lib -maxdepth 3 -type f \
 For UCX RDMA, verify that `libuct_ib.so.0` resolves from repo-local `lib/ucx`, not from `/usr/lib/ucx`:
 
 ```bash
-cd /home/student.aau.dk/ul11nh/GVirtuS
+cd "$GVIRTUS_REPO_ROOT"
 
 LD_LIBRARY_PATH="$PWD/lib:$PWD/lib/ucx:$PWD/lib/frontend:${LD_LIBRARY_PATH:-}" \
 ldd ./lib/ucx/libuct_ib_mlx5.so | grep -E "ucp|uct|ucs|ucm|ibverbs|mlx5|rdmacm|not found"
@@ -92,24 +119,24 @@ ldd ./lib/ucx/libuct_ib_mlx5.so | grep -E "ucp|uct|ucs|ucm|ibverbs|mlx5|rdmacm|n
 Expected important line:
 
 ```text
-libuct_ib.so.0 => /home/student.aau.dk/ul11nh/GVirtuS/lib/ucx/libuct_ib.so.0
+libuct_ib.so.0 => <repo-root>/lib/ucx/libuct_ib.so.0
 ```
 
-## 3. Backend commands
+## 4. Backend commands
 
-Run the backend from the repository root:
+Start the backend from the repository root:
 
 ```bash
-cd /home/student.aau.dk/ul11nh/GVirtuS
+cd "$GVIRTUS_REPO_ROOT"
 ```
 
 Stop old backend/frontend containers before switching transport modes:
 
 ```bash
-docker rm -f gvirtus-ul11nh simple_matrix_test_container-ul11nh 2>/dev/null || true
+docker rm -f "$GVIRTUS_BACKEND_CONTAINER" simple_matrix_test_container-${USER} 2>/dev/null || true
 ```
 
-### 3.1 Plain TCP backend
+### 4.1 Plain TCP backend
 
 ```bash
 GVIRTUS_CONFIG_FILE=properties.json \
@@ -117,7 +144,7 @@ GVIRTUS_LOG_LEVEL=10000 \
 make run-gvirtus-backend-dev
 ```
 
-### 3.2 Plain RDMA backend
+### 4.2 Plain RDMA backend
 
 ```bash
 GVIRTUS_CONFIG_FILE=properties_plain_rdma.json \
@@ -128,50 +155,68 @@ make run-gvirtus-backend-dev
 The plain RDMA config should point to the active RoCE address, for example:
 
 ```json
-"server_address": "25.25.25.2",
-"port": "3333",
-"protocol": "ib",
-"suite": "roce-rdma"
+{
+  "endpoint": {
+    "suite": "roce-rdma",
+    "protocol": "ib",
+    "server_address": "<roce-ip-address>",
+    "port": "3333"
+  }
+}
 ```
 
-### 3.3 UCX TCP backend
+### 4.3 UCX TCP backend
 
-Use `ens1f1np1` for the `25.25.25.2` network:
+Use the TCP network interface that owns the IP configured in `etc/properties_ucx.json`.
+
+Example:
 
 ```bash
 GVIRTUS_CONFIG_FILE=properties_ucx.json \
 GVIRTUS_LOG_LEVEL=10000 \
 GVIRTUS_LOGLEVEL=10000 \
 UCX_TLS=tcp,self \
-UCX_NET_DEVICES=ens1f1np1 \
+UCX_NET_DEVICES=<tcp-netdev> \
 UCX_SOCKADDR_TLS_PRIORITY=tcp \
 UCX_LOG_LEVEL=info \
 make run-gvirtus-backend-dev
 ```
 
-### 3.4 UCX RDMA backend
+Example values from one tested setup:
 
-Use the RDMA device associated with the `25.25.25.2` RoCE path:
+```bash
+UCX_NET_DEVICES=ens1f1np1
+```
+
+### 4.4 UCX RDMA backend
+
+Use the RDMA device associated with the RoCE path configured in `etc/properties_ucx.json`.
+
+Example:
 
 ```bash
 GVIRTUS_CONFIG_FILE=properties_ucx.json \
 GVIRTUS_LOG_LEVEL=10000 \
 GVIRTUS_LOGLEVEL=10000 \
 UCX_TLS=rc_mlx5,ud_mlx5,self \
-UCX_NET_DEVICES=mlx5_1:1 \
+UCX_NET_DEVICES=<rdma-device:port> \
 UCX_SOCKADDR_TLS_PRIORITY=rdmacm \
 UCX_LOG_LEVEL=info \
 make run-gvirtus-backend-dev
 ```
 
-The backend should print that it loaded `properties_ucx.json` and is listening on `25.25.25.2:2222`.
+Example values from one tested setup:
 
-## 4. Frontend benchmark commands
+```bash
+UCX_NET_DEVICES=mlx5_1:1
+```
+
+## 5. Frontend benchmark commands
 
 Run the benchmark script from:
 
 ```bash
-cd /home/student.aau.dk/ul11nh/GVirtuS/examples/Benchmarking
+cd "$GVIRTUS_REPO_ROOT/examples/Benchmarking"
 ```
 
 General form:
@@ -185,13 +230,15 @@ General form:
   --runs <n>
 ```
 
-The script prints a compact summary by default. For full commands and debug paths, use:
+Default output is compact. For full commands and debug paths:
 
 ```bash
 BENCHMARK_VERBOSE=1 ./benchmark.sh ...
 ```
 
-## 5. Supported examples
+## 6. Supported examples
+
+Available examples:
 
 | Example name | Description |
 |---|---|
@@ -206,16 +253,18 @@ Run multiple examples with a comma-separated list:
 --examples face_recon,opencv_dnn,opencv_yolo
 ```
 
-## 6. Quick smoke tests
+## 7. Quick smoke tests
 
-### 6.1 Plain TCP smoke
+Run these after starting the matching backend.
+
+### 7.1 Plain TCP smoke
 
 Backend:
 
 ```bash
-cd /home/student.aau.dk/ul11nh/GVirtuS
+cd "$GVIRTUS_REPO_ROOT"
 
-docker rm -f gvirtus-ul11nh simple_matrix_test_container-ul11nh 2>/dev/null || true
+docker rm -f "$GVIRTUS_BACKEND_CONTAINER" simple_matrix_test_container-${USER} 2>/dev/null || true
 
 GVIRTUS_CONFIG_FILE=properties.json \
 GVIRTUS_LOG_LEVEL=10000 \
@@ -225,7 +274,7 @@ make run-gvirtus-backend-dev
 Frontend:
 
 ```bash
-cd /home/student.aau.dk/ul11nh/GVirtuS/examples/Benchmarking
+cd "$GVIRTUS_REPO_ROOT/examples/Benchmarking"
 
 ./benchmark.sh \
   --mode tcp \
@@ -235,14 +284,14 @@ cd /home/student.aau.dk/ul11nh/GVirtuS/examples/Benchmarking
   --runs 1
 ```
 
-### 6.2 Plain RDMA smoke
+### 7.2 Plain RDMA smoke
 
 Backend:
 
 ```bash
-cd /home/student.aau.dk/ul11nh/GVirtuS
+cd "$GVIRTUS_REPO_ROOT"
 
-docker rm -f gvirtus-ul11nh simple_matrix_test_container-ul11nh 2>/dev/null || true
+docker rm -f "$GVIRTUS_BACKEND_CONTAINER" simple_matrix_test_container-${USER} 2>/dev/null || true
 
 GVIRTUS_CONFIG_FILE=properties_plain_rdma.json \
 GVIRTUS_LOG_LEVEL=10000 \
@@ -252,7 +301,7 @@ make run-gvirtus-backend-dev
 Frontend:
 
 ```bash
-cd /home/student.aau.dk/ul11nh/GVirtuS/examples/Benchmarking
+cd "$GVIRTUS_REPO_ROOT/examples/Benchmarking"
 
 ./benchmark.sh \
   --mode rdma \
@@ -262,20 +311,20 @@ cd /home/student.aau.dk/ul11nh/GVirtuS/examples/Benchmarking
   --runs 1
 ```
 
-### 6.3 UCX TCP smoke
+### 7.3 UCX TCP smoke
 
 Backend:
 
 ```bash
-cd /home/student.aau.dk/ul11nh/GVirtuS
+cd "$GVIRTUS_REPO_ROOT"
 
-docker rm -f gvirtus-ul11nh simple_matrix_test_container-ul11nh 2>/dev/null || true
+docker rm -f "$GVIRTUS_BACKEND_CONTAINER" simple_matrix_test_container-${USER} 2>/dev/null || true
 
 GVIRTUS_CONFIG_FILE=properties_ucx.json \
 GVIRTUS_LOG_LEVEL=10000 \
 GVIRTUS_LOGLEVEL=10000 \
 UCX_TLS=tcp,self \
-UCX_NET_DEVICES=ens1f1np1 \
+UCX_NET_DEVICES=<tcp-netdev> \
 UCX_SOCKADDR_TLS_PRIORITY=tcp \
 UCX_LOG_LEVEL=info \
 make run-gvirtus-backend-dev
@@ -284,7 +333,7 @@ make run-gvirtus-backend-dev
 Frontend:
 
 ```bash
-cd /home/student.aau.dk/ul11nh/GVirtuS/examples/Benchmarking
+cd "$GVIRTUS_REPO_ROOT/examples/Benchmarking"
 
 ./benchmark.sh \
   --mode ucx_tcp \
@@ -294,20 +343,20 @@ cd /home/student.aau.dk/ul11nh/GVirtuS/examples/Benchmarking
   --runs 1
 ```
 
-### 6.4 UCX RDMA smoke
+### 7.4 UCX RDMA smoke
 
 Backend:
 
 ```bash
-cd /home/student.aau.dk/ul11nh/GVirtuS
+cd "$GVIRTUS_REPO_ROOT"
 
-docker rm -f gvirtus-ul11nh simple_matrix_test_container-ul11nh 2>/dev/null || true
+docker rm -f "$GVIRTUS_BACKEND_CONTAINER" simple_matrix_test_container-${USER} 2>/dev/null || true
 
 GVIRTUS_CONFIG_FILE=properties_ucx.json \
 GVIRTUS_LOG_LEVEL=10000 \
 GVIRTUS_LOGLEVEL=10000 \
 UCX_TLS=rc_mlx5,ud_mlx5,self \
-UCX_NET_DEVICES=mlx5_1:1 \
+UCX_NET_DEVICES=<rdma-device:port> \
 UCX_SOCKADDR_TLS_PRIORITY=rdmacm \
 UCX_LOG_LEVEL=info \
 make run-gvirtus-backend-dev
@@ -316,7 +365,7 @@ make run-gvirtus-backend-dev
 Frontend:
 
 ```bash
-cd /home/student.aau.dk/ul11nh/GVirtuS/examples/Benchmarking
+cd "$GVIRTUS_REPO_ROOT/examples/Benchmarking"
 
 ./benchmark.sh \
   --mode ucx_rdma \
@@ -326,14 +375,25 @@ cd /home/student.aau.dk/ul11nh/GVirtuS/examples/Benchmarking
   --runs 1
 ```
 
-## 7. Full smoke suites
+## 8. Full smoke suites
 
 A full smoke run uses one measured run for every configured example.
+
+### Plain TCP full smoke
+
+```bash
+cd "$GVIRTUS_REPO_ROOT/examples/Benchmarking"
+
+./benchmark.sh \
+  --mode tcp \
+  --matrix-n all \
+  --runs 1
+```
 
 ### Plain RDMA full smoke
 
 ```bash
-cd /home/student.aau.dk/ul11nh/GVirtuS/examples/Benchmarking
+cd "$GVIRTUS_REPO_ROOT/examples/Benchmarking"
 
 ./benchmark.sh \
   --mode rdma \
@@ -344,7 +404,7 @@ cd /home/student.aau.dk/ul11nh/GVirtuS/examples/Benchmarking
 ### UCX TCP full smoke
 
 ```bash
-cd /home/student.aau.dk/ul11nh/GVirtuS/examples/Benchmarking
+cd "$GVIRTUS_REPO_ROOT/examples/Benchmarking"
 
 ./benchmark.sh \
   --mode ucx_tcp \
@@ -355,7 +415,7 @@ cd /home/student.aau.dk/ul11nh/GVirtuS/examples/Benchmarking
 ### UCX RDMA full smoke
 
 ```bash
-cd /home/student.aau.dk/ul11nh/GVirtuS/examples/Benchmarking
+cd "$GVIRTUS_REPO_ROOT/examples/Benchmarking"
 
 ./benchmark.sh \
   --mode ucx_rdma \
@@ -363,12 +423,16 @@ cd /home/student.aau.dk/ul11nh/GVirtuS/examples/Benchmarking
   --runs 1
 ```
 
-## 8. Full benchmark runs
+## 9. Full benchmark runs
 
-For real measurements, omit `--runs 1` and let the script use its default run count:
+For real measurements, omit `--runs 1` and use the script defaults:
 
 ```bash
-cd /home/student.aau.dk/ul11nh/GVirtuS/examples/Benchmarking
+cd "$GVIRTUS_REPO_ROOT/examples/Benchmarking"
+
+./benchmark.sh \
+  --mode tcp \
+  --matrix-n all
 
 ./benchmark.sh \
   --mode rdma \
@@ -383,7 +447,7 @@ cd /home/student.aau.dk/ul11nh/GVirtuS/examples/Benchmarking
   --matrix-n all
 ```
 
-To benchmark only a specific example:
+Benchmark only a specific example:
 
 ```bash
 ./benchmark.sh \
@@ -393,7 +457,7 @@ To benchmark only a specific example:
   --runs 1
 ```
 
-To benchmark only OpenCV examples:
+Benchmark only OpenCV examples:
 
 ```bash
 ./benchmark.sh \
@@ -403,7 +467,7 @@ To benchmark only OpenCV examples:
   --runs 1
 ```
 
-## 9. Matrix sizes
+## 10. Matrix sizes
 
 For `simple_matrix`, `--matrix-n all` expands to the configured list in `benchmark.sh`.
 
@@ -420,11 +484,15 @@ Common examples:
 ./benchmark.sh --mode ucx_rdma --examples simple_matrix --matrix-n all --runs 1
 ```
 
-For non-matrix examples, `matrix-n` is not relevant and the output displays `Matrix sizes: -`.
+For non-matrix examples, `matrix-n` is not relevant and the output displays:
 
-## 10. Output and result files
+```text
+Matrix sizes: -
+```
 
-Each benchmark run creates a timestamped directory:
+## 11. Output and result files
+
+Each run creates a timestamped directory:
 
 ```text
 examples/Benchmarking/benchmark_results/<timestamp>_<mode>/
@@ -455,33 +523,51 @@ BENCHMARK_VERBOSE=1 ./benchmark.sh \
   --runs 1
 ```
 
-## 11. Common troubleshooting
+## 12. Common troubleshooting
 
 ### Backend container is missing
 
-If the benchmark prints that the backend container is not detected, start the backend first.
+Check running containers:
 
 ```bash
 docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
 ```
+
+Start the backend for the selected mode before running `benchmark.sh`.
 
 ### Wrong backend mode
 
 Restart the backend when switching between `rdma`, `ucx_tcp`, and `ucx_rdma`.
 
 ```bash
-docker rm -f gvirtus-ul11nh simple_matrix_test_container-ul11nh 2>/dev/null || true
+docker rm -f "$GVIRTUS_BACKEND_CONTAINER" simple_matrix_test_container-${USER} 2>/dev/null || true
 ```
 
 Then start the backend again using the matching backend command.
 
+### Find the correct TCP and RDMA devices
+
+Useful commands:
+
+```bash
+ip -br addr
+
+rdma link show 2>/dev/null || true
+ibv_devices 2>/dev/null || true
+ibdev2netdev 2>/dev/null || true
+```
+
+Use the TCP network device for UCX TCP, and the RDMA device/port for UCX RDMA.
+
 ### UCX TCP says destination is unreachable
 
-Use the TCP netdev for `25.25.25.2`:
+Make sure `UCX_NET_DEVICES` is set to the network interface for the IP in `properties_ucx.json`.
+
+Example:
 
 ```bash
 UCX_TLS=tcp,self
-UCX_NET_DEVICES=ens1f1np1
+UCX_NET_DEVICES=<tcp-netdev>
 UCX_SOCKADDR_TLS_PRIORITY=tcp
 ```
 
@@ -492,14 +578,14 @@ This usually means UCX core libraries and UCX transport modules are mismatched.
 Make sure:
 
 ```bash
-UCX_MODULE_DIR=/home/student.aau.dk/ul11nh/GVirtuS/lib/ucx
-LD_LIBRARY_PATH=/home/student.aau.dk/ul11nh/GVirtuS/lib:/home/student.aau.dk/ul11nh/GVirtuS/lib/ucx:/home/student.aau.dk/ul11nh/GVirtuS/lib/frontend:...
+UCX_MODULE_DIR="$GVIRTUS_REPO_ROOT/lib/ucx"
+LD_LIBRARY_PATH="$GVIRTUS_REPO_ROOT/lib:$GVIRTUS_REPO_ROOT/lib/ucx:$GVIRTUS_REPO_ROOT/lib/frontend:${LD_LIBRARY_PATH:-}"
 ```
 
 Verify:
 
 ```bash
-cd /home/student.aau.dk/ul11nh/GVirtuS
+cd "$GVIRTUS_REPO_ROOT"
 
 LD_LIBRARY_PATH="$PWD/lib:$PWD/lib/ucx:$PWD/lib/frontend:${LD_LIBRARY_PATH:-}" \
 ldd ./lib/ucx/libuct_ib_mlx5.so | grep libuct_ib
@@ -508,7 +594,7 @@ ldd ./lib/ucx/libuct_ib_mlx5.so | grep libuct_ib
 Expected:
 
 ```text
-libuct_ib.so.0 => /home/student.aau.dk/ul11nh/GVirtuS/lib/ucx/libuct_ib.so.0
+libuct_ib.so.0 => <repo-root>/lib/ucx/libuct_ib.so.0
 ```
 
 ### OpenCV examples cannot find `libopencv_dnn.so.410`
@@ -521,10 +607,10 @@ The benchmark script and OpenCV `run.sh` files should add:
 $OPENCV_PREFIX/lib
 ```
 
-For this setup:
+Set `OPENCV_PREFIX` if needed:
 
 ```bash
-OPENCV_PREFIX=/home/student.aau.dk/ul11nh/opencv-local
+export OPENCV_PREFIX=/path/to/opencv-local
 ```
 
 ### Host runtime libs missing
@@ -532,33 +618,18 @@ OPENCV_PREFIX=/home/student.aau.dk/ul11nh/opencv-local
 If host examples fail because `libgvirtus-frontend.so` is missing, copy runtime libs again from the backend container:
 
 ```bash
-cd /home/student.aau.dk/ul11nh/GVirtuS
+cd "$GVIRTUS_REPO_ROOT"
 
 mkdir -p ./lib ./lib/ucx
-docker cp gvirtus-ul11nh:/usr/local/gvirtus/lib/. ./lib/
-docker cp gvirtus-ul11nh:/usr/lib/ucx/. ./lib/ucx/
+docker cp "$GVIRTUS_BACKEND_CONTAINER:/usr/local/gvirtus/lib/." ./lib/
+docker cp "$GVIRTUS_BACKEND_CONTAINER:/usr/lib/ucx/." ./lib/ucx/
 ```
 
-## 12. Git hygiene
+## 13. Recommended workflow
 
-Do not commit copied runtime binaries:
-
-```text
-lib/*.so*
-lib/frontend/*.so*
-lib/ucx/*.so*
-lib/ucx/*.a
-lib/ucx/*.la
-```
-
-These files are generated/copied runtime artifacts and should be ignored by Git.
-
-Recommended `.gitignore` entries:
-
-```gitignore
-/lib/*.so*
-/lib/frontend/*.so*
-/lib/ucx/*.so*
-/lib/ucx/*.a
-/lib/ucx/*.la
-```
+1. Start the backend for the desired mode.
+2. Run a small smoke test, for example `simple_matrix --matrix-n 256`.
+3. Run host-side examples individually.
+4. Run the full smoke suite with `--matrix-n all --runs 1`.
+5. Run full benchmarks without `--runs 1`.
+6. Commit only source/config/scripts/docs, not copied runtime binaries.
