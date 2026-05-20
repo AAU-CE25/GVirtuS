@@ -35,6 +35,7 @@
 
 #include <gvirtus/communicators/CommunicatorFactory.h>
 #include <gvirtus/communicators/EndpointFactory.h>
+#include <gvirtus/common/Protocol.h>
 #include <gvirtus/frontend/Frontend.h>
 #include <pthread.h>
 #include <stdlib.h> /* getenv */
@@ -198,7 +199,35 @@ Frontend::~Frontend() {
                           << it->second->mReceivingTime << " second(s)\n";
             }
 
-            delete it->second;
+            Frontend *frontend_to_delete = it->second;
+
+            if (frontend_to_delete != nullptr &&
+                frontend_to_delete->mpInitialized &&
+                frontend_to_delete->_communicator &&
+                frontend_to_delete->_communicator->obj_ptr() &&
+                frontend_to_delete->_communicator->obj_ptr()->to_string() == "rdmacommunicator") {
+                try {
+                    const char *shutdown_routine =
+                        gvirtus::common::protocol::kShutdownRoutine;
+
+                    std::cerr << "[GVIRTUS] Sending RDMA shutdown routine: "
+                              << shutdown_routine << std::endl;
+
+                    frontend_to_delete->_communicator->obj_ptr()->Write(
+                        shutdown_routine,
+                        std::strlen(shutdown_routine) + 1
+                    );
+                    frontend_to_delete->_communicator->obj_ptr()->Sync();
+                } catch (const std::exception &e) {
+                    std::cerr << "[GVIRTUS WARNING] Failed to send RDMA shutdown routine: "
+                              << e.what() << std::endl;
+                } catch (...) {
+                    std::cerr << "[GVIRTUS WARNING] Failed to send RDMA shutdown routine."
+                              << std::endl;
+                }
+            }
+
+            delete frontend_to_delete;
             it = mpFrontends->erase(it);
         }
 

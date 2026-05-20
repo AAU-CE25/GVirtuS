@@ -65,7 +65,7 @@ RUNS="${RUNS:-10}"
 EXAMPLES_CSV="${EXAMPLES:-simple_matrix,face_recon,opencv_dnn,opencv_yolo}"
 OUT_ROOT="${OUT_DIR:-benchmark_results}"
 MATRIX_N="${MATRIX_N:-512}"
-MATRIX_N_ALL_VALUES="${MATRIX_N_ALL_VALUES:-256 512 1024 2048 4096 8192 16384}"
+MATRIX_N_ALL_VALUES="${MATRIX_N_ALL_VALUES:-16384}"
 USER_SHORT="$(whoami | cut -d'@' -f1 | tr -d '.')"
 BACKEND_CONTAINER="${BACKEND_CONTAINER:-gvirtus-${USER_SHORT}}"
 REPO_ROOT="${REPO_ROOT:-}"
@@ -163,7 +163,7 @@ apply_connector_mode() {
         rdma|plain_rdma)
             MODE="plain_rdma"
             CONNECTOR_SUITE="rdma"
-            export GVIRTUS_CONFIG_FILE="${GVIRTUS_CONFIG_FILE:-${RDMA_CONFIG_FILE:-properties_rdma.json}}"
+            export GVIRTUS_CONFIG_FILE="${GVIRTUS_CONFIG_FILE:-${RDMA_CONFIG_FILE:-properties_plain_rdma.json}}"
             export GVIRTUS_UCX_DATAPATH="${GVIRTUS_UCX_DATAPATH:-}"
             export UCX_TLS="${UCX_TLS:-}"
             export UCX_NET_DEVICES="${UCX_NET_DEVICES:-}"
@@ -388,9 +388,12 @@ run_one() {
     local warmup_flag="$5"
     local matrix_n_value="${6:-$MATRIX_N}"
 
-    local safe_cmd
-    safe_cmd="$(printf '%s' "$command_str" | tr '/ :' '___' | tr -cd '[:alnum:]_.-')"
-    local log_file="${LOG_DIR}/${example}_${run_type}_${run_index}_${safe_cmd}.log"
+    local log_file
+    if [[ "$example" == "simple_matrix" ]]; then
+        log_file="${LOG_DIR}/${example}_${run_type}_${run_index}_N${matrix_n_value}.log"
+    else
+        log_file="${LOG_DIR}/${example}_${run_type}_${run_index}.log"
+    fi
 
     if [[ "$example" == "simple_matrix" ]]; then
         echo "[$example][N=$matrix_n_value][$run_type $run_index] $command_str"
@@ -453,6 +456,27 @@ echo "Using GVirtuS repo root: $REPO_ROOT"
 echo "Mode: $MODE"
 echo "GVIRTUS_CONFIG_FILE: $GVIRTUS_CONFIG_FILE"
 echo "Results: $RESULTS_CSV"
+# Host-side GVirtuS runtime used by non-Docker examples.
+# Keep this mode-dependent:
+#   tcp  -> properties.json
+#   rdma -> properties_plain_rdma.json
+HOST_GVIRTUS_HOME="${HOST_GVIRTUS_HOME:-$HOME/gvirtus-install}"
+HOST_GVIRTUS_CONFIG="${HOST_GVIRTUS_CONFIG:-$HOST_GVIRTUS_HOME/etc/$GVIRTUS_CONFIG_FILE}"
+OPENCV_PREFIX="${OPENCV_PREFIX:-$HOME/opencv-local}"
+
+export HOST_GVIRTUS_HOME HOST_GVIRTUS_CONFIG OPENCV_PREFIX
+
+echo "HOST_GVIRTUS_HOME: $HOST_GVIRTUS_HOME"
+echo "HOST_GVIRTUS_CONFIG: $HOST_GVIRTUS_CONFIG"
+echo "OPENCV_PREFIX: $OPENCV_PREFIX"
+
+if [[ ! -f "$HOST_GVIRTUS_HOME/lib/libgvirtus-frontend.so" ]]; then
+    echo "WARNING: Host GVirtuS frontend library not found under: $HOST_GVIRTUS_HOME/lib" >&2
+fi
+
+if [[ ! -f "$HOST_GVIRTUS_CONFIG" ]]; then
+    echo "WARNING: Host GVirtuS config not found: $HOST_GVIRTUS_CONFIG" >&2
+fi
 
 check_backend_warning_only
 write_static_metadata
@@ -463,9 +487,9 @@ fi
 
 declare -A EXAMPLE_CMDS
 EXAMPLE_CMDS["simple_matrix"]="${SIMPLE_MATRIX_CMD:-make -C \"$REPO_ROOT\" run-simple-matrix-test}"
-EXAMPLE_CMDS["face_recon"]="${FACE_RECON_CMD:-make -C \"$REPO_ROOT\" run-face-recon-test}"
-EXAMPLE_CMDS["opencv_dnn"]="${OPENCV_DNN_CMD:-make -C \"$REPO_ROOT\" run-opencv-dnn-test}"
-EXAMPLE_CMDS["opencv_yolo"]="${OPENCV_YOLO_CMD:-make -C \"$REPO_ROOT\" run-opencv-yolo-test}"
+EXAMPLE_CMDS["face_recon"]="${FACE_RECON_CMD:-cd \"$REPO_ROOT/examples/face-recognition\" && GVIRTUS_HOME=\"$HOST_GVIRTUS_HOME\" GVIRTUS_CONFIG=\"$HOST_GVIRTUS_CONFIG\" bash ./run.sh}"
+EXAMPLE_CMDS["opencv_dnn"]="${OPENCV_DNN_CMD:-cd \"$REPO_ROOT/examples/opencv-dnn\" && GVIRTUS_HOME=\"$HOST_GVIRTUS_HOME\" GVIRTUS_CONFIG=\"$HOST_GVIRTUS_CONFIG\" OPENCV_PREFIX=\"$OPENCV_PREFIX\" bash ./run.sh}"
+EXAMPLE_CMDS["opencv_yolo"]="${OPENCV_YOLO_CMD:-cd \"$REPO_ROOT/examples/opencv-yolo\" && GVIRTUS_HOME=\"$HOST_GVIRTUS_HOME\" GVIRTUS_CONFIG=\"$HOST_GVIRTUS_CONFIG\" OPENCV_PREFIX=\"$OPENCV_PREFIX\" bash ./run.sh}"
 
 IFS=',' read -r -a requested_examples <<< "$EXAMPLES_CSV"
 

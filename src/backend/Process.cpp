@@ -39,6 +39,7 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <iostream>
@@ -48,6 +49,7 @@
 
 #include "communicators/hybrid/HybridCommunicator.h"
 #include "gvirtus/communicators/UcxAmProtocol.h"
+#include <gvirtus/common/Protocol.h>
 
 // DEBUG replaced with log4cplus, so that all diagnostics respect GVIRTUS_LOGLEVEL and share the unified format.
 
@@ -391,6 +393,13 @@ void Process::Start() {
 
         try {
             while (getstring(client_comm, routine)) {
+                if (routine == gvirtus::common::protocol::kShutdownRoutine) {
+                    LOG4CPLUS_INFO(logger,
+                                   "[Process " << getpid()
+                                               << "]: Received explicit RDMA shutdown routine.");
+                    break;
+                }
+
                 LOG4CPLUS_TRACE(logger, "Received routine " << routine);
 
                 // Before reading buffer, choose protocol for this round if hybrid.
@@ -452,20 +461,18 @@ void Process::Start() {
                                                      << "' returned " << result->GetExitCode()
                                                      << ".");
 
-                // Temporary plain-RDMA shutdown workaround.
-                // cudaUnregisterFatBinary is normally the final CUDA runtime call during
-                // process teardown. Without a clean RDMA EOF, the backend otherwise loops
-                // back into getstring() and blocks forever waiting for another fixed-size
-                // routine-name receive.
                 if (client_comm &&
                     client_comm->to_string() == "rdmacommunicator" &&
                     routine == "cudaUnregisterFatBinary") {
+                    setenv("GVIRTUS_RDMA_ROUTINE_RECV_TIMEOUT_MS", "3000", 1);
                     LOG4CPLUS_INFO(logger,
                                    "[Process " << getpid()
-                                               << "]: Ending RDMA client loop after "
+                                               << "]: Enabled RDMA routine receive timeout after "
                                                   "cudaUnregisterFatBinary.");
-                    break;
                 }
+
+                // Do not end the RDMA client loop on cudaUnregisterFatBinary.
+                // OpenCV/Python workloads may still issue GVirtuS calls during shutdown.
             }
         } catch (const std::exception &e) {
             LOG4CPLUS_WARN(logger, "Client stream closed with exception: " << e.what());
