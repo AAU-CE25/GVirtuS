@@ -627,11 +627,212 @@ for raw_example in "${requested_examples[@]}"; do
     done
 done
 
+
+write_measured_summary() {
+    local input_csv="$1"
+    local output_csv="$2"
+
+    python3 - "$input_csv" "$output_csv" <<'PY_SUMMARY'
+import csv
+import sys
+from pathlib import Path
+
+input_csv = Path(sys.argv[1])
+output_csv = Path(sys.argv[2])
+
+def val(row, key):
+    return (row.get(key) or "").strip()
+
+def choose_timing(row):
+    example = val(row, "example")
+
+    if example == "simple_matrix" and val(row, "benchmark_result_ms"):
+        return val(row, "benchmark_result_ms"), "benchmark_result_ms"
+
+    if val(row, "inference_ms"):
+        return val(row, "inference_ms"), "inference_ms"
+
+    return val(row, "elapsed_ms"), "elapsed_ms"
+
+with input_csv.open(newline="") as f:
+    rows = list(csv.DictReader(f))
+
+measured = [r for r in rows if val(r, "run_type") == "measured"]
+
+fields = [
+    "mode",
+    "example",
+    "run_index",
+    "matrix_n",
+    "exit_code",
+    "timing_ms",
+    "timing_source",
+    "elapsed_ms",
+    "benchmark_result_ms",
+    "inference_ms",
+    "stage_malloc_ms",
+    "stage_h2d_ms",
+    "stage_gemm_ms",
+    "stage_d2h_ms",
+    "fps",
+    "result_check",
+    "log_file",
+]
+
+output_csv.parent.mkdir(parents=True, exist_ok=True)
+
+with output_csv.open("w", newline="") as f:
+    writer = csv.DictWriter(f, fieldnames=fields)
+    writer.writeheader()
+
+    for r in measured:
+        timing_ms, timing_source = choose_timing(r)
+        out = {k: val(r, k) for k in fields}
+        out["timing_ms"] = timing_ms
+        out["timing_source"] = timing_source
+        writer.writerow(out)
+
+print()
+print("Measured timing summary")
+print("-" * 78)
+
+header = [
+    ("mode", 12),
+    ("example", 14),
+    ("run", 5),
+    ("N", 8),
+    ("timing_ms", 10),
+    ("source", 20),
+    ("wall_ms", 9),
+    ("status", 8),
+]
+
+print(" ".join(name.ljust(width) for name, width in header))
+print(" ".join("-" * width for _, width in header))
+
+for r in measured:
+    timing_ms, timing_source = choose_timing(r)
+    status = "OK" if val(r, "exit_code") == "0" else "FAIL"
+    line = [
+        (val(r, "mode"), 12),
+        (val(r, "example"), 14),
+        (val(r, "run_index"), 5),
+        (val(r, "matrix_n") or "-", 8),
+        (timing_ms or "-", 10),
+        (timing_source, 20),
+        (val(r, "elapsed_ms") or "-", 9),
+        (status, 8),
+    ]
+    print(" ".join(text.ljust(width) for text, width in line))
+
+from collections import defaultdict
+from statistics import mean, median
+
+def fmt_ms(x):
+    if abs(x - round(x)) < 1e-9:
+        return str(int(round(x)))
+    return f"{x:.1f}"
+
+groups = defaultdict(list)
+
+for r in measured:
+    timing_ms, timing_source = choose_timing(r)
+    try:
+        t = float(timing_ms)
+    except (TypeError, ValueError):
+        continue
+
+    key = (
+        val(r, "mode"),
+        val(r, "example"),
+        val(r, "matrix_n") or "-",
+        timing_source,
+    )
+    groups[key].append(t)
+
+aggregate_csv = output_csv.with_name("aggregate_summary.csv")
+
+agg_fields = [
+    "mode",
+    "example",
+    "matrix_n",
+    "timing_source",
+    "n",
+    "median_ms",
+    "mean_ms",
+    "min_ms",
+    "max_ms",
+]
+
+with aggregate_csv.open("w", newline="") as f:
+    writer = csv.DictWriter(f, fieldnames=agg_fields)
+    writer.writeheader()
+
+    for (mode, example, matrix_n, timing_source), values in sorted(groups.items()):
+        values = sorted(values)
+        writer.writerow({
+            "mode": mode,
+            "example": example,
+            "matrix_n": matrix_n,
+            "timing_source": timing_source,
+            "n": len(values),
+            "median_ms": fmt_ms(median(values)),
+            "mean_ms": fmt_ms(mean(values)),
+            "min_ms": fmt_ms(min(values)),
+            "max_ms": fmt_ms(max(values)),
+        })
+
+print()
+print("Aggregate timing summary")
+print("-" * 78)
+
+agg_header = [
+    ("mode", 12),
+    ("example", 14),
+    ("N", 8),
+    ("source", 20),
+    ("n", 5),
+    ("median", 10),
+    ("mean", 10),
+    ("min", 10),
+    ("max", 10),
+]
+
+print(" ".join(name.ljust(width) for name, width in agg_header))
+print(" ".join("-" * width for _, width in agg_header))
+
+for (mode, example, matrix_n, timing_source), values in sorted(groups.items()):
+    values = sorted(values)
+    line = [
+        (mode, 12),
+        (example, 14),
+        (matrix_n, 8),
+        (timing_source, 20),
+        (str(len(values)), 5),
+        (fmt_ms(median(values)), 10),
+        (fmt_ms(mean(values)), 10),
+        (fmt_ms(min(values)), 10),
+        (fmt_ms(max(values)), 10),
+    ]
+    print(" ".join(text.ljust(width) for text, width in line))
+
+print()
+print(f"Saved measured summary: {output_csv}")
+print(f"Saved aggregate summary: {aggregate_csv}")
+PY_SUMMARY
+}
+
+MEASURED_SUMMARY_CSV="$(dirname "$RESULTS_CSV")/measured_summary.csv"
+AGGREGATE_SUMMARY_CSV="$(dirname "$RESULTS_CSV")/aggregate_summary.csv"
+write_measured_summary "$RESULTS_CSV" "$MEASURED_SUMMARY_CSV"
+
 echo
 hr
 echo "Benchmark complete"
 hr
 print_kv "Results CSV" "$(relpath "$RESULTS_CSV")"
+print_kv "Measured Summary" "$(relpath "$MEASURED_SUMMARY_CSV")"
+print_kv "Aggregate Summary" "$(relpath "$AGGREGATE_SUMMARY_CSV")"
 print_kv "Static CSV" "$(relpath "$STATIC_CSV")"
 print_kv "Metadata JSON" "$(relpath "$METADATA_JSON")"
 print_kv "Logs" "$(relpath "$LOG_DIR")"

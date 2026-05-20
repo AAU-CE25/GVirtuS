@@ -23,13 +23,12 @@ prepend_ld_library_path() {
     esac
 }
 
-prepend_ld_library_path "$OPENCV_PREFIX/lib"
-prepend_ld_library_path "$GVIRTUS_HOME/lib/frontend"
-prepend_ld_library_path "$GVIRTUS_HOME/lib/ucx"
-prepend_ld_library_path "$GVIRTUS_HOME/lib"
 
 export OPENCV_PREFIX="${OPENCV_PREFIX:-$HOME/opencv-local}"
 export PKG_CONFIG_PATH="$OPENCV_PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+# Deterministic runtime/link paths for GVirtuS + OpenCV.
+export LD_LIBRARY_PATH="$GVIRTUS_HOME/lib:$GVIRTUS_HOME/lib/frontend:$GVIRTUS_HOME/lib/ucx:$OPENCV_PREFIX/lib:${LD_LIBRARY_PATH:-}"
+export LIBRARY_PATH="$GVIRTUS_HOME/lib:$GVIRTUS_HOME/lib/frontend:$GVIRTUS_HOME/lib/ucx:$OPENCV_PREFIX/lib:${LIBRARY_PATH:-}"
 
 pkg-config --modversion opencv4
 

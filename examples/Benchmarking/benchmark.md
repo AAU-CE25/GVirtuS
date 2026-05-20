@@ -16,6 +16,13 @@ The benchmark supports these modes:
 | `ucx_tcp` | UCX over TCP | `properties_ucx.json` |
 | `ucx_rdma` | UCX over RDMA / RoCE | `properties_ucx.json` |
 
+For reporting, use `aggregate_summary.csv`.
+
+- `timing_ms` is the selected benchmark timing.
+- For `simple_matrix`, `timing_ms` comes from `benchmark_result_ms`.
+- For OpenCV examples, `timing_ms` uses `inference_ms` when parsed.
+- `elapsed_ms` is the outer harness wall-clock time and includes wrapper overhead.
+
 ## 1. Set common variables
 
 Use variables instead of hard-coded user-specific paths.
