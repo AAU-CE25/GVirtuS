@@ -1,22 +1,60 @@
 #!/usr/bin/env bash
-set -u
+set -euo pipefail
 
-# GVirtuS frontend benchmark runner.
+# Face-recognition GVirtuS full-metrics benchmark.
+#
+# Purpose:
+#   Run the face-recognition benchmark many times and collect as much relevant
+#   runtime information as possible, without measuring container build/setup.
+#
+# Timed region:
+#   LD_PRELOAD=... python3 cnn.py
+#
+# Collected:
+#   Application:
+#     - Test Accuracy
+#     - Execution Time
+#     - Average Time / per-image time
+#
+#   GVirtuS frontend communicator/routine metrics:
+#     - per-call routine name
+#     - server_exec_ms
+#     - send_ms
+#     - recv_ms
+#     - comm_ms = send_ms + recv_ms
+#     - total_call_ms = server_exec_ms + send_ms + recv_ms
+#     - in/out bytes
+#     - per-routine sum/mean/median/p95
+#
+#   NIC/network metrics:
+#     - sysfs before/after counters
+#     - per-run sysfs deltas
+#     - summed NIC deltas in results.csv
+#     - optional ethtool -S before/after dumps
+#     - optional rdma link/statistic before/after dumps
+#
+#   GPU/system snapshots:
+#     - optional nvidia-smi query before/after
+#     - uname, lscpu, nvidia-smi -L, ibv_devinfo, rdma link, ip link
 #
 # Usage:
-#   ./benchmark.sh tcp
-#   ./benchmark.sh rdma
-#   ./benchmark.sh ucx
-#   ./benchmark.sh all
+#   RUNS=50 WARMUPS=3 ./benchmark_facerecon_full_metrics.sh tcp
+#   RUNS=50 WARMUPS=3 ./benchmark_facerecon_full_metrics.sh rdma
+#   RUNS=50 WARMUPS=3 ./benchmark_facerecon_full_metrics.sh ucx
+#   RUNS=50 WARMUPS=3 ./benchmark_facerecon_full_metrics.sh all
 #
-# Examples:
-#   RUNS=20 WARMUPS=3 ./benchmark.sh rdma
-#   IFACES="ens1f1np1" RUNS=30 ./benchmark.sh rdma
-#   IFACES="bond0" RUNS=30 ./benchmark.sh tcp
-#   PAUSE_BETWEEN_MODES=0 ./benchmark.sh tcp
+# Useful options:
+#   EXAMPLE_DIR=/path/to/facerecon
+#   IFACES="ens1f1np1 ens1f0np0 bond0"
+#   COLLECT_ETHTOOL=1
+#   COLLECT_RDMA_STATS=1
+#   COLLECT_GPU_STATS=1
+#   BUILD_EXTENSION_ONCE=1
+#   PAUSE_BETWEEN_MODES=0
 #
-# Optional:
-#   BACKEND_LOG=/tmp/gvirtus-backend.log ./benchmark.sh rdma
+# Note:
+#   GVIRTUS_LOGLEVEL must be high enough for frontend lines like:
+#   Routine 'cudaMemcpy' returned 0 | server_exec=... | send=... | recv=... | in=...B | out=...B
 
 MODE_ARG="${1:-all}"
 
@@ -38,37 +76,51 @@ GVIRTUS_HOME="${GVIRTUS_HOME:-/home/student.aau.dk/ul11nh/gvirtus-install}"
 LZ4_HOME="${LZ4_HOME:-/home/student.aau.dk/ul11nh/lz4-install}"
 EXAMPLE_DIR="${EXAMPLE_DIR:-$(pwd)}"
 
-RUNS="${RUNS:-10}"
-WARMUPS="${WARMUPS:-2}"
+RUNS="${RUNS:-50}"
+WARMUPS="${WARMUPS:-3}"
+RUN_TIMEOUT="${RUN_TIMEOUT:-180}"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 
-# DEBUG is needed to parse GVirtuS call counts and in/out bytes from frontend logs.
 GVIRTUS_LOGLEVEL="${GVIRTUS_LOGLEVEL:-10000}"
 
-PYTHON_BIN="${PYTHON_BIN:-python3}"
-BUILD_ONCE="${BUILD_ONCE:-1}"
+BUILD_EXTENSION_ONCE="${BUILD_EXTENSION_ONCE:-0}"
 PAUSE_BETWEEN_MODES="${PAUSE_BETWEEN_MODES:-1}"
-CMD_TIMEOUT="${CMD_TIMEOUT:-5}"
-COLLECT_COUNTER_DUMPS="${COLLECT_COUNTER_DUMPS:-0}"
-RUN_TIMEOUT="${RUN_TIMEOUT:-120}"
 
 TCP_CONFIG="${TCP_CONFIG:-$GVIRTUS_HOME/etc/properties.json}"
 RDMA_CONFIG="${RDMA_CONFIG:-$GVIRTUS_HOME/etc/properties_plain_rdma.json}"
 UCX_CONFIG="${UCX_CONFIG:-$GVIRTUS_HOME/etc/properties_ucx.json}"
 
-# Choose relevant DPU/NIC interfaces. Override per mode if desired.
-# RDMA on your machine was ens1f1np1 / 25.25.25.2.
+# Override this to match your active DPU/NIC interfaces.
 IFACES="${IFACES:-ens1f1np1 ens1f0np0 bond0}"
+
+# These are enabled by default because you asked for as much data as possible.
+# Set to 0 if a command is too slow/noisy on the machine.
+COLLECT_SYSFS_NET="${COLLECT_SYSFS_NET:-1}"
+COLLECT_ETHTOOL="${COLLECT_ETHTOOL:-1}"
+COLLECT_RDMA_STATS="${COLLECT_RDMA_STATS:-1}"
+COLLECT_GPU_STATS="${COLLECT_GPU_STATS:-1}"
+
+CMD_TIMEOUT="${CMD_TIMEOUT:-8}"
 
 OUT_ROOT="${OUT_ROOT:-$EXAMPLE_DIR/benchmark_results}"
 STAMP="$(date +%Y%m%d_%H%M%S)"
-OUT_DIR="$OUT_ROOT/frontend_${STAMP}_${MODE_ARG}"
-LOG_DIR="$OUT_DIR/logs"
-COUNTER_DIR="$OUT_DIR/counters"
-ROUTINE_CSV="$OUT_DIR/routines.csv"
-NIC_CSV="$OUT_DIR/nic_counters.csv"
-CSV="$OUT_DIR/results.csv"
+OUT_DIR="$OUT_ROOT/facerecon_full_metrics_${STAMP}_${MODE_ARG}"
 
-mkdir -p "$LOG_DIR" "$COUNTER_DIR"
+LOG_DIR="$OUT_DIR/logs"
+RAW_DIR="$OUT_DIR/raw"
+SYSFS_DIR="$RAW_DIR/sysfs_net"
+ETHTOOL_DIR="$RAW_DIR/ethtool"
+RDMA_DIR="$RAW_DIR/rdma"
+GPU_DIR="$RAW_DIR/gpu"
+SYSTEM_DIR="$OUT_DIR/system"
+
+RESULTS_CSV="$OUT_DIR/results.csv"
+CALLS_CSV="$OUT_DIR/routine_calls.csv"
+ROUTINE_SUMMARY_CSV="$OUT_DIR/routine_summary.csv"
+NIC_SYSFS_CSV="$OUT_DIR/nic_sysfs_deltas.csv"
+GPU_CSV="$OUT_DIR/gpu_snapshots.csv"
+
+mkdir -p "$LOG_DIR" "$SYSFS_DIR" "$ETHTOOL_DIR" "$RDMA_DIR" "$GPU_DIR" "$SYSTEM_DIR"
 
 export GVIRTUS_HOME
 export GVIRTUS_LOGLEVEL
@@ -95,64 +147,43 @@ show_endpoint() {
     local config="$1"
     "$PYTHON_BIN" - "$config" <<'PY' 2>/dev/null || true
 import json, sys
-p = sys.argv[1]
-with open(p) as f:
+with open(sys.argv[1]) as f:
     data = json.load(f)
 e = data["communicator"][0]["endpoint"]
 print(f'{e.get("suite")} / {e.get("protocol")} / {e.get("server_address")}:{e.get("port")}')
 PY
 }
 
-build_face_recognition_once() {
-    if [[ "$BUILD_ONCE" != "1" ]]; then
+build_extension_once_if_requested() {
+    if [[ "$BUILD_EXTENSION_ONCE" != "1" ]]; then
         return 0
     fi
 
-    if [[ -f "extension.cu" && -f "cnn.py" ]]; then
-        echo "Building face-recognition CUDA extension once..."
-        nvcc -shared -Xcompiler -fPIC -o libextension.so extension.cu -lcudart -lcublas
-        if [[ $? -ne 0 ]]; then
-            echo "ERROR: nvcc build failed"
-            exit 1
-        fi
+    if [[ ! -f "extension.cu" ]]; then
+        echo "ERROR: BUILD_EXTENSION_ONCE=1 but extension.cu was not found in $EXAMPLE_DIR"
+        exit 1
     fi
+
+    echo "Building face-recognition CUDA extension once before measurements..."
+    nvcc -shared -Xcompiler -fPIC -o libextension.so extension.cu -lcudart -lcublas
+    echo "Build complete. Build time is not included in benchmark CSVs."
 }
 
-run_example() {
-    local py="${PYTHON_BIN:-python3}"
-
-    if [[ -z "$py" ]]; then
-        py="python3"
-    fi
-
-    if ! command -v "$py" >/dev/null 2>&1; then
-        echo "ERROR: Python command not found: $py"
+run_facerecon() {
+    if [[ ! -f "cnn.py" ]]; then
+        echo "ERROR: cnn.py not found in EXAMPLE_DIR=$EXAMPLE_DIR"
         return 127
     fi
 
-    if [[ -n "${BENCH_CMD:-}" ]]; then
-        timeout "${RUN_TIMEOUT:-120}" bash -lc "$BENCH_CMD"
-        return $?
+    if [[ ! -f "libextension.so" ]]; then
+        echo "ERROR: libextension.so not found. Build it beforehand or run with BUILD_EXTENSION_ONCE=1."
+        return 127
     fi
 
-    if [[ -f "cnn.py" && -f "libextension.so" ]]; then
-        timeout "${RUN_TIMEOUT:-120}" env \
-            LD_PRELOAD="$GVIRTUS_HOME/lib/frontend/libcudart.so:$GVIRTUS_HOME/lib/frontend/libcublas.so" \
-            "$py" cnn.py
-        return $?
-    fi
-
-    if [[ -f "./run.sh" ]]; then
-        sed -i 's/
-$//' ./run.sh
-        timeout "${RUN_TIMEOUT:-120}" bash ./run.sh
-        return $?
-    fi
-
-    echo "ERROR: No BENCH_CMD set, no cnn.py/libextension.so, and no run.sh found."
-    return 127
+    timeout "$RUN_TIMEOUT" env \
+        LD_PRELOAD="$GVIRTUS_HOME/lib/frontend/libcudart.so:$GVIRTUS_HOME/lib/frontend/libcublas.so" \
+        "$PYTHON_BIN" cnn.py
 }
-
 
 extract_accuracy() {
     local file="$1"
@@ -169,76 +200,80 @@ extract_average_time() {
     grep -E 'Average Time:' "$file" | tail -1 | sed -E 's/.*Average Time:[[:space:]]*([0-9.]+).*/\1/' || true
 }
 
-parse_gvirtus_metrics() {
-    local file="$1"
-
-    "$PYTHON_BIN" - "$file" <<'PY'
-import re, sys
-path = sys.argv[1]
-
-call_count = 0
-in_bytes = 0
-out_bytes = 0
-routines = {}
-
-# Example:
-# DEBUG - Routine 'cudaMemcpy' returned 0 | server_exec=0s | send=0s | recv=0s | in=29B | out=168B
-pat = re.compile(r"Routine '([^']+)' returned .*?\|\s*.*?in=([0-9]+)B\s*\|\s*out=([0-9]+)B")
-
-try:
-    with open(path, errors="replace") as f:
-        for line in f:
-            m = pat.search(line)
-            if not m:
-                continue
-            routine = m.group(1)
-            ib = int(m.group(2))
-            ob = int(m.group(3))
-            call_count += 1
-            in_bytes += ib
-            out_bytes += ob
-            routines[routine] = routines.get(routine, 0) + 1
-except FileNotFoundError:
-    pass
-
-routine_summary = ";".join(f"{k}:{v}" for k, v in sorted(routines.items()))
-print(f"{call_count},{in_bytes},{out_bytes},{routine_summary}")
-PY
+safe_cmd() {
+    local out_file="$1"
+    shift
+    timeout "$CMD_TIMEOUT" "$@" > "$out_file" 2>&1 || true
 }
 
-write_routine_rows() {
-    local mode="$1"
-    local phase="$2"
-    local run_no="$3"
-    local log_file="$4"
+safe_cmd_real_gpu() {
+    local out_file="$1"
+    shift
 
-    "$PYTHON_BIN" - "$mode" "$phase" "$run_no" "$log_file" "$ROUTINE_CSV" <<'PY'
-import csv, re, sys
-mode, phase, run_no, log_file, out_csv = sys.argv[1:6]
-pat = re.compile(r"Routine '([^']+)' returned .*?in=([0-9]+)B\s*\|\s*out=([0-9]+)B")
+    # Run GPU/system tools without GVirtuS frontend interception.
+    # Important: do NOT include $GVIRTUS_HOME/lib/frontend here.
+    env \
+        LD_PRELOAD="" \
+        LD_LIBRARY_PATH="/usr/local/cuda-12.6/lib64:/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu" \
+        timeout "$CMD_TIMEOUT" "$@" > "$out_file" 2>&1 || true
+}
 
-stats = {}
-try:
-    with open(log_file, errors="replace") as f:
-        for line in f:
-            m = pat.search(line)
-            if not m:
-                continue
-            name = m.group(1)
-            ib = int(m.group(2))
-            ob = int(m.group(3))
-            s = stats.setdefault(name, [0, 0, 0])
-            s[0] += 1
-            s[1] += ib
-            s[2] += ob
-except FileNotFoundError:
-    pass
 
-with open(out_csv, "a", newline="") as f:
-    w = csv.writer(f)
-    for routine, (calls, ib, ob) in sorted(stats.items()):
-        w.writerow([mode, phase, run_no, routine, calls, ib, ob])
-PY
+collect_system_metadata() {
+    {
+        echo "### date"
+        date -Iseconds
+        echo
+        echo "### hostname"
+        hostname || true
+        echo
+        echo "### uname"
+        uname -a || true
+        echo
+        echo "### environment"
+        echo "GVIRTUS_HOME=$GVIRTUS_HOME"
+        echo "EXAMPLE_DIR=$EXAMPLE_DIR"
+        echo "RUNS=$RUNS"
+        echo "WARMUPS=$WARMUPS"
+        echo "MODES=$MODES"
+        echo "GVIRTUS_LOGLEVEL=$GVIRTUS_LOGLEVEL"
+        echo "IFACES=$IFACES"
+        echo "TCP_CONFIG=$TCP_CONFIG"
+        echo "RDMA_CONFIG=$RDMA_CONFIG"
+        echo "UCX_CONFIG=$UCX_CONFIG"
+        echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH"
+        echo
+        echo "### git"
+        git -C "$EXAMPLE_DIR" branch --show-current 2>/dev/null || true
+        git -C "$EXAMPLE_DIR" rev-parse --short HEAD 2>/dev/null || true
+    } > "$SYSTEM_DIR/run_info.txt"
+
+    safe_cmd "$SYSTEM_DIR/lscpu.txt" lscpu
+    safe_cmd "$SYSTEM_DIR/free_h.txt" free -h
+    safe_cmd "$SYSTEM_DIR/lsblk.txt" lsblk
+    safe_cmd "$SYSTEM_DIR/ip_addr.txt" ip addr
+    safe_cmd "$SYSTEM_DIR/ip_link_stats.txt" ip -s link
+
+    if command -v nvidia-smi >/dev/null 2>&1; then
+        safe_cmd_real_gpu "$SYSTEM_DIR/nvidia_smi_L.txt" nvidia-smi -L
+        safe_cmd_real_gpu "$SYSTEM_DIR/nvidia_smi_q.txt" nvidia-smi -q
+    fi
+
+    if command -v rdma >/dev/null 2>&1; then
+        safe_cmd "$SYSTEM_DIR/rdma_link.txt" rdma link
+        safe_cmd "$SYSTEM_DIR/rdma_statistic.txt" rdma statistic
+    fi
+
+    if command -v ibv_devinfo >/dev/null 2>&1; then
+        safe_cmd "$SYSTEM_DIR/ibv_devinfo.txt" ibv_devinfo
+    fi
+
+    for iface in $IFACES; do
+        if [[ -d "/sys/class/net/$iface" ]]; then
+            safe_cmd "$SYSTEM_DIR/ethtool_${iface}.txt" ethtool "$iface"
+            safe_cmd "$SYSTEM_DIR/ethtool_i_${iface}.txt" ethtool -i "$iface"
+        fi
+    done
 }
 
 net_value() {
@@ -252,138 +287,415 @@ net_value() {
     fi
 }
 
-snapshot_counters() {
-    local prefix="$1"
+capture_sysfs_net_csv() {
+    local file="$1"
+    : > "$file"
 
-    if [[ "${COLLECT_COUNTER_DUMPS:-0}" != "1" ]]; then
+    if [[ "$COLLECT_SYSFS_NET" != "1" ]]; then
         return 0
     fi
 
-    {
-        echo "### date"
-        date -Iseconds
-        echo
-        echo "### interfaces"
-        for iface in $IFACES; do
-            echo "--- $iface ---"
-            timeout "$CMD_TIMEOUT" ip -s link show dev "$iface" 2>&1 || true
-            echo
-        done
-        echo "### rdma link"
-        timeout "$CMD_TIMEOUT" rdma link 2>&1 || true
-        echo
-        echo "### rdma statistic"
-        timeout "$CMD_TIMEOUT" rdma statistic 2>&1 || true
-    } > "$COUNTER_DIR/${prefix}_ip_rdma.txt"
+    local keys=(
+        rx_bytes tx_bytes
+        rx_packets tx_packets
+        rx_errors tx_errors
+        rx_dropped tx_dropped
+        rx_fifo_errors tx_fifo_errors
+        rx_frame_errors tx_carrier_errors
+        rx_compressed tx_compressed
+        multicast collisions
+    )
 
     for iface in $IFACES; do
-        timeout "$CMD_TIMEOUT" ethtool -S "$iface" > "$COUNTER_DIR/${prefix}_ethtool_${iface}.txt" 2>&1 || true
+        if [[ ! -d "/sys/class/net/$iface" ]]; then
+            continue
+        fi
+        for key in "${keys[@]}"; do
+            echo "$iface,$key,$(net_value "$iface" "$key")" >> "$file"
+        done
     done
 }
 
-write_nic_deltas() {
+write_sysfs_net_deltas() {
     local mode="$1"
     local phase="$2"
     local run_no="$3"
     local before_file="$4"
     local after_file="$5"
 
-    "$PYTHON_BIN" - "$mode" "$phase" "$run_no" "$before_file" "$after_file" "$NIC_CSV" <<'PY'
-import csv, sys
+    "$PYTHON_BIN" - "$mode" "$phase" "$run_no" "$before_file" "$after_file" "$NIC_SYSFS_CSV" <<'PY'
+import csv
+import sys
+
 mode, phase, run_no, before_file, after_file, out_csv = sys.argv[1:7]
 
-def read_rows(path):
+def read(path):
     rows = {}
     try:
         with open(path) as f:
             for line in f:
                 parts = line.strip().split(",")
-                if len(parts) != 5:
+                if len(parts) != 3:
                     continue
-                iface, rx_b, tx_b, rx_p, tx_p = parts
-                rows[iface] = tuple(map(int, [rx_b, tx_b, rx_p, tx_p]))
+                iface, key, val = parts
+                try:
+                    rows[(iface, key)] = int(val)
+                except Exception:
+                    rows[(iface, key)] = 0
     except FileNotFoundError:
         pass
     return rows
 
-b = read_rows(before_file)
-a = read_rows(after_file)
+b = read(before_file)
+a = read(after_file)
 
 with open(out_csv, "a", newline="") as f:
     w = csv.writer(f)
-    for iface in sorted(set(b) | set(a)):
-        brx, btx, brxp, btxp = b.get(iface, (0,0,0,0))
-        arx, atx, arxp, atxp = a.get(iface, (0,0,0,0))
-        w.writerow([
-            mode, phase, run_no, iface,
-            arx - brx,
-            atx - btx,
-            arxp - brxp,
-            atxp - btxp,
-        ])
+    for iface, key in sorted(set(b) | set(a)):
+        before = b.get((iface, key), 0)
+        after = a.get((iface, key), 0)
+        w.writerow([mode, phase, run_no, iface, key, before, after, after - before])
 PY
 }
 
-capture_sysfs_net_csv() {
-    local file="$1"
-    : > "$file"
-
-    for iface in $IFACES; do
-        rx_b="$(net_value "$iface" rx_bytes)"
-        tx_b="$(net_value "$iface" tx_bytes)"
-        rx_p="$(net_value "$iface" rx_packets)"
-        tx_p="$(net_value "$iface" tx_packets)"
-        echo "$iface,$rx_b,$tx_b,$rx_p,$tx_p" >> "$file"
-    done
-}
-
-sum_nic_delta_field() {
+sum_sysfs_delta() {
     local mode="$1"
     local phase="$2"
     local run_no="$3"
-    local field="$4"
+    local key="$4"
 
-    # field numbers in nic_counters.csv:
-    # 5 rx_bytes_delta, 6 tx_bytes_delta, 7 rx_packets_delta, 8 tx_packets_delta
-    awk -F, -v m="$mode" -v p="$phase" -v r="$run_no" -v f="$field" '
-        $1==m && $2==p && $3==r { s += $f }
+    awk -F, -v m="$mode" -v p="$phase" -v r="$run_no" -v k="$key" '
+        $1==m && $2==p && $3==r && $5==k { s += $8 }
         END { print s+0 }
-    ' "$NIC_CSV"
+    ' "$NIC_SYSFS_CSV"
 }
 
-echo "timestamp,mode,phase,run,exit_code,wall_s,accuracy_pct,execution_s,per_image_s,gvirtus_calls,gvirtus_in_bytes,gvirtus_out_bytes,nic_rx_bytes,nic_tx_bytes,nic_rx_packets,nic_tx_packets,config,frontend_log,backend_log,routine_summary" > "$CSV"
-echo "mode,phase,run,routine,calls,in_bytes,out_bytes" > "$ROUTINE_CSV"
-echo "mode,phase,run,iface,rx_bytes_delta,tx_bytes_delta,rx_packets_delta,tx_packets_delta" > "$NIC_CSV"
+collect_ethtool_snapshot() {
+    local prefix="$1"
 
-cat > "$OUT_DIR/run_info.txt" <<INFO
-timestamp=$STAMP
-example_dir=$EXAMPLE_DIR
-gvirtus_home=$GVIRTUS_HOME
-runs=$RUNS
-warmups=$WARMUPS
-modes=$MODES
-loglevel=$GVIRTUS_LOGLEVEL
-python=$PYTHON_BIN
-build_once=$BUILD_ONCE
-ifaces=$IFACES
-tcp_config=$TCP_CONFIG
-rdma_config=$RDMA_CONFIG
-ucx_config=$UCX_CONFIG
-bench_cmd=${BENCH_CMD:-AUTO}
-backend_log=${BACKEND_LOG:-}
-INFO
+    if [[ "$COLLECT_ETHTOOL" != "1" ]]; then
+        return 0
+    fi
 
-git -C /home/student.aau.dk/ul11nh/GVirtuS-Project branch --show-current >> "$OUT_DIR/run_info.txt" 2>/dev/null || true
-git -C /home/student.aau.dk/ul11nh/GVirtuS-Project rev-parse --short HEAD >> "$OUT_DIR/run_info.txt" 2>/dev/null || true
+    for iface in $IFACES; do
+        if [[ -d "/sys/class/net/$iface" ]] && command -v ethtool >/dev/null 2>&1; then
+            safe_cmd "$ETHTOOL_DIR/${prefix}_${iface}.txt" ethtool -S "$iface"
+        fi
+    done
+}
 
-build_face_recognition_once
+collect_rdma_snapshot() {
+    local prefix="$1"
+
+    if [[ "$COLLECT_RDMA_STATS" != "1" ]]; then
+        return 0
+    fi
+
+    if command -v rdma >/dev/null 2>&1; then
+        safe_cmd "$RDMA_DIR/${prefix}_rdma_link.txt" rdma link
+        safe_cmd "$RDMA_DIR/${prefix}_rdma_statistic.txt" rdma statistic
+        safe_cmd "$RDMA_DIR/${prefix}_rdma_resource.txt" rdma resource
+    fi
+}
+
+collect_gpu_snapshot() {
+    local prefix="$1"
+    local mode="$2"
+    local phase="$3"
+    local run_no="$4"
+    local point="$5"
+
+    if [[ "$COLLECT_GPU_STATS" != "1" ]]; then
+        return 0
+    fi
+
+    if ! command -v nvidia-smi >/dev/null 2>&1; then
+        return 0
+    fi
+
+    local out="$GPU_DIR/${prefix}_nvidia_smi.csv"
+
+    nvidia-smi \
+        --query-gpu=timestamp,index,name,uuid,driver_version,pstate,temperature.gpu,utilization.gpu,utilization.memory,memory.total,memory.used,memory.free,power.draw,power.limit,clocks.sm,clocks.mem \
+        --format=csv,noheader,nounits \
+        > "$out" 2>/dev/null || true
+
+    "$PYTHON_BIN" - "$mode" "$phase" "$run_no" "$point" "$out" "$GPU_CSV" <<'PY'
+import csv
+import sys
+
+mode, phase, run_no, point, in_file, out_file = sys.argv[1:7]
+
+with open(out_file, "a", newline="") as out:
+    w = csv.writer(out)
+    try:
+        with open(in_file) as f:
+            for line in f:
+                parts = [x.strip() for x in line.rstrip("\n").split(",")]
+                if len(parts) < 16:
+                    continue
+                w.writerow([mode, phase, run_no, point] + parts[:16])
+    except FileNotFoundError:
+        pass
+PY
+}
+
+parse_log_to_csvs() {
+    local mode="$1"
+    local phase="$2"
+    local run_no="$3"
+    local log_file="$4"
+    local timestamp="$5"
+    local exit_code="$6"
+    local wall_s="$7"
+    local accuracy="$8"
+    local execution_s="$9"
+    local per_image_s="${10}"
+    local config="${11}"
+    local nic_rx_bytes="${12}"
+    local nic_tx_bytes="${13}"
+    local nic_rx_packets="${14}"
+    local nic_tx_packets="${15}"
+    local nic_rx_errors="${16}"
+    local nic_tx_errors="${17}"
+    local nic_rx_dropped="${18}"
+    local nic_tx_dropped="${19}"
+
+    "$PYTHON_BIN" - \
+        "$mode" "$phase" "$run_no" "$log_file" "$timestamp" "$exit_code" "$wall_s" \
+        "$accuracy" "$execution_s" "$per_image_s" "$config" \
+        "$nic_rx_bytes" "$nic_tx_bytes" "$nic_rx_packets" "$nic_tx_packets" \
+        "$nic_rx_errors" "$nic_tx_errors" "$nic_rx_dropped" "$nic_tx_dropped" \
+        "$RESULTS_CSV" "$CALLS_CSV" "$ROUTINE_SUMMARY_CSV" <<'PY'
+import csv
+import math
+import re
+import statistics
+import sys
+from collections import defaultdict
+
+(
+    mode,
+    phase,
+    run_no,
+    log_file,
+    timestamp,
+    exit_code,
+    wall_s,
+    accuracy,
+    execution_s,
+    per_image_s,
+    config,
+    nic_rx_bytes,
+    nic_tx_bytes,
+    nic_rx_packets,
+    nic_tx_packets,
+    nic_rx_errors,
+    nic_tx_errors,
+    nic_rx_dropped,
+    nic_tx_dropped,
+    results_csv,
+    calls_csv,
+    summary_csv,
+) = sys.argv[1:23]
+
+def to_ms(value, unit):
+    v = float(value)
+    unit = (unit or "s").lower()
+    if unit == "s":
+        return v * 1000.0
+    if unit == "ms":
+        return v
+    if unit in ("us", "µs"):
+        return v / 1000.0
+    if unit == "ns":
+        return v / 1_000_000.0
+    return v * 1000.0
+
+def percentile(vals, p):
+    vals = sorted(vals)
+    if not vals:
+        return 0.0
+    if len(vals) == 1:
+        return vals[0]
+    pos = (len(vals) - 1) * p
+    lo = math.floor(pos)
+    hi = math.ceil(pos)
+    if lo == hi:
+        return vals[lo]
+    return vals[lo] * (hi - pos) + vals[hi] * (pos - lo)
+
+num = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?"
+pat = re.compile(
+    rf"Routine '([^']+)'\s+returned\s+(-?\d+).*?"
+    rf"server_exec=({num})\s*(s|ms|us|µs|ns)?\s*\|\s*"
+    rf"send=({num})\s*(s|ms|us|µs|ns)?\s*\|\s*"
+    rf"recv=({num})\s*(s|ms|us|µs|ns)?\s*\|\s*"
+    rf"in=(\d+)B\s*\|\s*out=(\d+)B"
+)
+
+calls = []
+try:
+    with open(log_file, errors="replace") as f:
+        for line in f:
+            m = pat.search(line)
+            if not m:
+                continue
+
+            routine, status, server_v, server_u, send_v, send_u, recv_v, recv_u, in_b, out_b = m.groups()
+
+            server_ms = to_ms(server_v, server_u)
+            send_ms = to_ms(send_v, send_u)
+            recv_ms = to_ms(recv_v, recv_u)
+            comm_ms = send_ms + recv_ms
+            total_ms = server_ms + comm_ms
+
+            calls.append({
+                "routine": routine,
+                "status": int(status),
+                "server_exec_ms": server_ms,
+                "send_ms": send_ms,
+                "recv_ms": recv_ms,
+                "comm_ms": comm_ms,
+                "total_call_ms": total_ms,
+                "in_bytes": int(in_b),
+                "out_bytes": int(out_b),
+            })
+except FileNotFoundError:
+    pass
+
+with open(calls_csv, "a", newline="") as f:
+    w = csv.writer(f)
+    for call_index, c in enumerate(calls, start=1):
+        w.writerow([
+            timestamp,
+            mode,
+            phase,
+            run_no,
+            call_index,
+            c["routine"],
+            c["status"],
+            f'{c["server_exec_ms"]:.6f}',
+            f'{c["send_ms"]:.6f}',
+            f'{c["recv_ms"]:.6f}',
+            f'{c["comm_ms"]:.6f}',
+            f'{c["total_call_ms"]:.6f}',
+            c["in_bytes"],
+            c["out_bytes"],
+            config,
+            log_file,
+        ])
+
+by_routine = defaultdict(list)
+for c in calls:
+    by_routine[c["routine"]].append(c)
+
+with open(summary_csv, "a", newline="") as f:
+    w = csv.writer(f)
+    for routine in sorted(by_routine):
+        rows = by_routine[routine]
+
+        server_vals = [r["server_exec_ms"] for r in rows]
+        send_vals = [r["send_ms"] for r in rows]
+        recv_vals = [r["recv_ms"] for r in rows]
+        comm_vals = [r["comm_ms"] for r in rows]
+        total_vals = [r["total_call_ms"] for r in rows]
+
+        w.writerow([
+            timestamp,
+            mode,
+            phase,
+            run_no,
+            routine,
+            len(rows),
+            sum(r["in_bytes"] for r in rows),
+            sum(r["out_bytes"] for r in rows),
+            f"{sum(server_vals):.6f}",
+            f"{sum(send_vals):.6f}",
+            f"{sum(recv_vals):.6f}",
+            f"{sum(comm_vals):.6f}",
+            f"{sum(total_vals):.6f}",
+            f"{statistics.mean(server_vals):.6f}",
+            f"{statistics.mean(send_vals):.6f}",
+            f"{statistics.mean(recv_vals):.6f}",
+            f"{statistics.mean(comm_vals):.6f}",
+            f"{statistics.mean(total_vals):.6f}",
+            f"{statistics.median(total_vals):.6f}",
+            f"{percentile(total_vals, 0.95):.6f}",
+            config,
+            log_file,
+        ])
+
+total_calls = len(calls)
+failed_calls = sum(1 for c in calls if c["status"] != 0)
+total_in = sum(c["in_bytes"] for c in calls)
+total_out = sum(c["out_bytes"] for c in calls)
+total_server = sum(c["server_exec_ms"] for c in calls)
+total_send = sum(c["send_ms"] for c in calls)
+total_recv = sum(c["recv_ms"] for c in calls)
+total_comm = total_send + total_recv
+total_call = total_server + total_comm
+
+routine_summary = ";".join(
+    f"{routine}:{len(rows)}"
+    for routine, rows in sorted(by_routine.items())
+)
+
+# Useful for UCX close hangs: exit 124 can still be analytically useful if app output exists.
+soft_ok = int(exit_code == "0" or (exit_code == "124" and accuracy and execution_s))
+
+with open(results_csv, "a", newline="") as f:
+    w = csv.writer(f)
+    w.writerow([
+        timestamp,
+        mode,
+        phase,
+        run_no,
+        exit_code,
+        soft_ok,
+        wall_s,
+        accuracy,
+        execution_s,
+        per_image_s,
+        total_calls,
+        failed_calls,
+        total_in,
+        total_out,
+        f"{total_server:.6f}",
+        f"{total_send:.6f}",
+        f"{total_recv:.6f}",
+        f"{total_comm:.6f}",
+        f"{total_call:.6f}",
+        nic_rx_bytes,
+        nic_tx_bytes,
+        nic_rx_packets,
+        nic_tx_packets,
+        nic_rx_errors,
+        nic_tx_errors,
+        nic_rx_dropped,
+        nic_tx_dropped,
+        config,
+        log_file,
+        routine_summary,
+    ])
+PY
+}
+
+echo "timestamp,mode,phase,run,exit_code,soft_ok,wall_s,accuracy_pct,execution_s,per_image_s,gvirtus_calls,failed_gvirtus_calls,gvirtus_in_bytes,gvirtus_out_bytes,total_server_exec_ms,total_send_ms,total_recv_ms,total_comm_ms,total_call_ms,nic_rx_bytes,nic_tx_bytes,nic_rx_packets,nic_tx_packets,nic_rx_errors,nic_tx_errors,nic_rx_dropped,nic_tx_dropped,config,frontend_log,routine_summary" > "$RESULTS_CSV"
+echo "timestamp,mode,phase,run,call_index,routine,status,server_exec_ms,send_ms,recv_ms,comm_ms,total_call_ms,in_bytes,out_bytes,config,frontend_log" > "$CALLS_CSV"
+echo "timestamp,mode,phase,run,routine,calls,in_bytes,out_bytes,sum_server_exec_ms,sum_send_ms,sum_recv_ms,sum_comm_ms,sum_total_call_ms,mean_server_exec_ms,mean_send_ms,mean_recv_ms,mean_comm_ms,mean_total_call_ms,median_total_call_ms,p95_total_call_ms,config,frontend_log" > "$ROUTINE_SUMMARY_CSV"
+echo "mode,phase,run,iface,counter,before,after,delta" > "$NIC_SYSFS_CSV"
+echo "mode,phase,run,point,timestamp,gpu_index,name,uuid,driver_version,pstate,temperature_gpu,utilization_gpu,utilization_memory,memory_total_mb,memory_used_mb,memory_free_mb,power_draw_w,power_limit_w,clocks_sm_mhz,clocks_mem_mhz" > "$GPU_CSV"
+
+collect_system_metadata
+build_extension_once_if_requested
 
 echo "Benchmark output directory:"
 echo "$OUT_DIR"
 echo
 
 for mode in $MODES; do
-    config="$(mode_config "$mode")" || exit 1
+    config="$(mode_config "$mode")"
 
     if [[ ! -f "$config" ]]; then
         echo "ERROR: Missing config for mode '$mode': $config"
@@ -396,6 +708,7 @@ for mode in $MODES; do
     echo "Mode: $mode"
     echo "Config: $GVIRTUS_CONFIG"
     echo "Endpoint: $(show_endpoint "$GVIRTUS_CONFIG")"
+    echo "Runs: $RUNS measured + $WARMUPS warmup"
     echo "IFACES: $IFACES"
     echo "============================================================"
 
@@ -418,62 +731,63 @@ for mode in $MODES; do
         fi
 
         log_file="$LOG_DIR/${mode}_${phase}_${run_no}.log"
-        before_net="$COUNTER_DIR/${mode}_${phase}_${run_no}_before_net.csv"
-        after_net="$COUNTER_DIR/${mode}_${phase}_${run_no}_after_net.csv"
+        before_net="$SYSFS_DIR/${mode}_${phase}_${run_no}_before.csv"
+        after_net="$SYSFS_DIR/${mode}_${phase}_${run_no}_after.csv"
+        prefix="${mode}_${phase}_${run_no}"
 
         echo "[$mode] $phase run $run_no..."
 
         capture_sysfs_net_csv "$before_net"
-        snapshot_counters "${mode}_${phase}_${run_no}_before"
+        collect_ethtool_snapshot "${prefix}_before"
+        collect_rdma_snapshot "${prefix}_before"
+        collect_gpu_snapshot "${prefix}_before" "$mode" "$phase" "$run_no" "before"
 
         start_ns="$(date +%s%N)"
-        run_example > "$log_file" 2>&1
+        set +e
+        run_facerecon > "$log_file" 2>&1
         exit_code=$?
+        set -e
         end_ns="$(date +%s%N)"
 
-        snapshot_counters "${mode}_${phase}_${run_no}_after"
+        collect_gpu_snapshot "${prefix}_after" "$mode" "$phase" "$run_no" "after"
+        collect_rdma_snapshot "${prefix}_after"
+        collect_ethtool_snapshot "${prefix}_after"
         capture_sysfs_net_csv "$after_net"
 
-        write_nic_deltas "$mode" "$phase" "$run_no" "$before_net" "$after_net"
+        write_sysfs_net_deltas "$mode" "$phase" "$run_no" "$before_net" "$after_net"
 
         wall_s="$(awk -v s="$start_ns" -v e="$end_ns" 'BEGIN { printf "%.6f", (e-s)/1000000000 }')"
         accuracy="$(extract_accuracy "$log_file")"
         execution_s="$(extract_execution_time "$log_file")"
         per_image_s="$(extract_average_time "$log_file")"
-
-        gvirtus_metrics="$(parse_gvirtus_metrics "$log_file")"
-        gvirtus_calls="$(echo "$gvirtus_metrics" | cut -d, -f1)"
-        gvirtus_in_bytes="$(echo "$gvirtus_metrics" | cut -d, -f2)"
-        gvirtus_out_bytes="$(echo "$gvirtus_metrics" | cut -d, -f3)"
-        routine_summary="$(echo "$gvirtus_metrics" | cut -d, -f4-)"
-
-        write_routine_rows "$mode" "$phase" "$run_no" "$log_file"
-
-        nic_rx_bytes="$(sum_nic_delta_field "$mode" "$phase" "$run_no" 5)"
-        nic_tx_bytes="$(sum_nic_delta_field "$mode" "$phase" "$run_no" 6)"
-        nic_rx_packets="$(sum_nic_delta_field "$mode" "$phase" "$run_no" 7)"
-        nic_tx_packets="$(sum_nic_delta_field "$mode" "$phase" "$run_no" 8)"
-
         timestamp="$(date -Iseconds)"
-        backend_log="${BACKEND_LOG:-}"
 
-        # Keep routine_summary safe for CSV by replacing commas just in case.
-        routine_summary="${routine_summary//,/;}"
+        nic_rx_bytes="$(sum_sysfs_delta "$mode" "$phase" "$run_no" rx_bytes)"
+        nic_tx_bytes="$(sum_sysfs_delta "$mode" "$phase" "$run_no" tx_bytes)"
+        nic_rx_packets="$(sum_sysfs_delta "$mode" "$phase" "$run_no" rx_packets)"
+        nic_tx_packets="$(sum_sysfs_delta "$mode" "$phase" "$run_no" tx_packets)"
+        nic_rx_errors="$(sum_sysfs_delta "$mode" "$phase" "$run_no" rx_errors)"
+        nic_tx_errors="$(sum_sysfs_delta "$mode" "$phase" "$run_no" tx_errors)"
+        nic_rx_dropped="$(sum_sysfs_delta "$mode" "$phase" "$run_no" rx_dropped)"
+        nic_tx_dropped="$(sum_sysfs_delta "$mode" "$phase" "$run_no" tx_dropped)"
 
-        printf "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n" \
-            "$timestamp" "$mode" "$phase" "$run_no" "$exit_code" "$wall_s" \
-            "$accuracy" "$execution_s" "$per_image_s" \
-            "$gvirtus_calls" "$gvirtus_in_bytes" "$gvirtus_out_bytes" \
+        parse_log_to_csvs \
+            "$mode" "$phase" "$run_no" "$log_file" \
+            "$timestamp" "$exit_code" "$wall_s" \
+            "${accuracy:-}" "${execution_s:-}" "${per_image_s:-}" "$GVIRTUS_CONFIG" \
             "$nic_rx_bytes" "$nic_tx_bytes" "$nic_rx_packets" "$nic_tx_packets" \
-            "$GVIRTUS_CONFIG" "$log_file" "$backend_log" "$routine_summary" \
-            >> "$CSV"
+            "$nic_rx_errors" "$nic_tx_errors" "$nic_rx_dropped" "$nic_tx_dropped"
 
-        if [[ "$exit_code" -eq 0 ]]; then
-            echo "  OK wall=${wall_s}s exec=${execution_s:-NA}s per_image=${per_image_s:-NA}s acc=${accuracy:-NA}% calls=${gvirtus_calls} in=${gvirtus_in_bytes}B out=${gvirtus_out_bytes}B nic_tx=${nic_tx_bytes}B nic_rx=${nic_rx_bytes}B"
-        elif [[ "$exit_code" -eq 124 && -n "$accuracy" && -n "$execution_s" ]]; then
-            echo "  SOFT-OK exit_code=124 after valid output; likely UCX close hang. exec=${execution_s}s per_image=${per_image_s:-NA}s acc=${accuracy}% calls=${gvirtus_calls} in=${gvirtus_in_bytes}B out=${gvirtus_out_bytes}B"
+        last_row="$(tail -n 1 "$RESULTS_CSV")"
+        soft_ok="$(echo "$last_row" | awk -F, '{print $6}')"
+        calls="$(echo "$last_row" | awk -F, '{print $11}')"
+        comm_ms="$(echo "$last_row" | awk -F, '{print $18}')"
+        total_ms="$(echo "$last_row" | awk -F, '{print $19}')"
+
+        if [[ "$soft_ok" == "1" ]]; then
+            echo "  OK exit=$exit_code wall=${wall_s}s acc=${accuracy:-NA}% exec=${execution_s:-NA}s per_image=${per_image_s:-NA}s calls=${calls} comm_ms=${comm_ms} total_call_ms=${total_ms} nic_tx=${nic_tx_bytes}B nic_rx=${nic_rx_bytes}B"
         else
-            echo "  FAILED exit_code=$exit_code. See: $log_file"
+            echo "  FAILED exit_code=$exit_code wall=${wall_s}s calls=${calls}. See: $log_file"
         fi
     done
 
@@ -481,31 +795,54 @@ for mode in $MODES; do
 done
 
 echo "Done."
-echo "Main CSV:      $CSV"
-echo "Routine CSV:   $ROUTINE_CSV"
-echo "NIC CSV:       $NIC_CSV"
-echo "Counter dumps: $COUNTER_DIR"
+echo "Main CSV:              $RESULTS_CSV"
+echo "Individual calls CSV:  $CALLS_CSV"
+echo "Routine summary CSV:   $ROUTINE_SUMMARY_CSV"
+echo "NIC sysfs delta CSV:   $NIC_SYSFS_CSV"
+echo "GPU snapshot CSV:      $GPU_CSV"
+echo "Raw snapshots:         $RAW_DIR"
+echo "System metadata:       $SYSTEM_DIR"
 echo
 
-echo "Simple summary, measured runs only:"
-awk -F, '
-NR > 1 && $3 == "measure" && ($5 == 0 || ($5 == 124 && $7 != "" && $8 != "")) {
-    mode=$2
-    wall[mode]+=$6
-    execs[mode]+=$8
-    perimg[mode]+=$9
-    calls[mode]+=$10
-    inb[mode]+=$11
-    outb[mode]+=$12
-    nrx[mode]+=$13
-    ntx[mode]+=$14
-    n[mode]++
-}
-END {
-    for (m in n) {
-        printf "%s: n=%d mean_wall_s=%.6f mean_exec_s=%.6f mean_per_image_s=%.6f mean_calls=%.1f mean_gvirtus_in_B=%.1f mean_gvirtus_out_B=%.1f mean_nic_rx_B=%.1f mean_nic_tx_B=%.1f\n",
-            m, n[m], wall[m]/n[m], execs[m]/n[m], perimg[m]/n[m],
-            calls[m]/n[m], inb[m]/n[m], outb[m]/n[m], nrx[m]/n[m], ntx[m]/n[m]
-    }
-}
-' "$CSV"
+echo "Measured-run summary:"
+"$PYTHON_BIN" - "$RESULTS_CSV" <<'PY'
+import csv
+import statistics
+import sys
+from collections import defaultdict
+
+rows_by_mode = defaultdict(list)
+
+with open(sys.argv[1], newline="") as f:
+    r = csv.DictReader(f)
+    for row in r:
+        if row["phase"] == "measure" and row["soft_ok"] == "1":
+            rows_by_mode[row["mode"]].append(row)
+
+for mode, rows in sorted(rows_by_mode.items()):
+    def vals(col):
+        out = []
+        for x in rows:
+            try:
+                out.append(float(x[col] or 0))
+            except Exception:
+                pass
+        return out
+
+    print(
+        f"{mode}: "
+        f"n={len(rows)} "
+        f"mean_acc={statistics.mean(vals('accuracy_pct')):.4f}% "
+        f"mean_exec_s={statistics.mean(vals('execution_s')):.6f} "
+        f"mean_per_image_s={statistics.mean(vals('per_image_s')):.6f} "
+        f"mean_calls={statistics.mean(vals('gvirtus_calls')):.1f} "
+        f"mean_send_ms={statistics.mean(vals('total_send_ms')):.6f} "
+        f"mean_recv_ms={statistics.mean(vals('total_recv_ms')):.6f} "
+        f"mean_comm_ms={statistics.mean(vals('total_comm_ms')):.6f} "
+        f"mean_total_call_ms={statistics.mean(vals('total_call_ms')):.6f} "
+        f"mean_gvirtus_in_B={statistics.mean(vals('gvirtus_in_bytes')):.1f} "
+        f"mean_gvirtus_out_B={statistics.mean(vals('gvirtus_out_bytes')):.1f} "
+        f"mean_nic_rx_B={statistics.mean(vals('nic_rx_bytes')):.1f} "
+        f"mean_nic_tx_B={statistics.mean(vals('nic_tx_bytes')):.1f}"
+    )
+PY

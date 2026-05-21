@@ -36,6 +36,10 @@
 #include <unistd.h>
 
 #include <cerrno>
+#include <csignal>
+#include <cstdlib>
+#include <cstring>
+#include <vector>
 
 using gvirtus::backend::Backend;
 
@@ -103,63 +107,147 @@ Backend::Backend(const fs::path &path) {
 }
 
 void Backend::Start() {
-    // std::function<void(std::unique_ptr<gvirtus::Thread> & children)> task =
-    // [this](std::unique_ptr<gvirtus::Thread> &children) {
-    //   LOG4CPLUS_DEBUG(logger, "[Thread " << std::this_thread::get_id() <<
-    //   "]: Started."); children->Start(); LOG4CPLUS_DEBUG(logger, "✓ - [Thread "
-    //   << std::this_thread::get_id() << "]: Finished.");
-    // };
-    LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "] " << "Backend::Start() called.");
+    LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "] Backend::Start() called.");
 
-    int pid = 0;
+    if (_children.empty()) {
+        LOG4CPLUS_ERROR(logger, "No backend children/endpoints configured.");
+        return;
+    }
 
-    // _children definition: "std::vector<std::unique_ptr<Process>> _children"
-    for (int i = 0; i < _children.size(); i++) {
-        activeChilds++;
-        if ((pid = fork()) == 0) {
-            _children[i]->Start();
-            LOG4CPLUS_TRACE(logger, "Child exited.");
-            break;
+    auto start_child = [&](int index) -> pid_t {
+        pid_t child_pid = fork();
+
+        if (child_pid < 0) {
+            LOG4CPLUS_ERROR(logger, "fork() failed for endpoint child " << index << ": "
+                                                                      << strerror(errno));
+            return -1;
+        }
+
+        if (child_pid == 0) {
+            // This is the endpoint/server child. It owns Serve()/Accept().
+            // Do not inherit the parent's signal handling policy when respawned.
+            signal(SIGINT, SIG_DFL);
+            signal(SIGHUP, SIG_DFL);
+
+            LOG4CPLUS_INFO(logger, "[Process " << getpid()
+                                               << "] Starting backend endpoint child "
+                                               << index);
+
+            _children[index]->Start();
+
+            // If Process::Start() returns, the listening socket is gone. The parent
+            // will detect this child exit and respawn it so the backend keeps
+            // accepting future frontend connections.
+            LOG4CPLUS_WARN(logger, "[Process " << getpid()
+                                               << "] Backend endpoint child "
+                                               << index
+                                               << " returned from Process::Start().");
+
+            // Avoid running parent-side C++ destructors in the forked child.
+            _exit(EXIT_SUCCESS);
+        }
+
+        LOG4CPLUS_INFO(logger, "[Process " << getpid()
+                                           << "] Spawned backend endpoint child "
+                                           << child_pid
+                                           << " for endpoint " << index);
+        return child_pid;
+    };
+
+    std::vector<pid_t> child_pids(_children.size(), -1);
+    activeChilds = 0;
+
+    for (int i = 0; i < static_cast<int>(_children.size()); i++) {
+        child_pids[i] = start_child(i);
+        if (child_pids[i] > 0) {
+            activeChilds++;
         }
     }
 
-    /* PARENT */
-    pid_t pid_wait = 0;
-    int stat_loc;
-    if (pid != 0) {
-        signal(SIGINT, SIG_IGN);
-        signal(SIGHUP, SIG_IGN);
+    signal(SIGINT, sigint_handler);
+    signal(SIGHUP, SIG_IGN);
 
-        LOG4CPLUS_TRACE(logger, "Active childs: " << activeChilds);
+    // Parent supervisor loop. The old implementation waited for a child once and
+    // then paused forever, which left the parent process alive but without any
+    // listening socket when the endpoint child exited. Here we restart any endpoint
+    // child that exits unexpectedly so the backend remains a persistent service.
+    while (true) {
+        LOG4CPLUS_DEBUG(logger, "[Process " << getpid()
+                                            << "] Waiting for backend children. Active childs: "
+                                            << activeChilds);
 
-        int status;
-        do {
-            LOG4CPLUS_DEBUG(
-                logger, "[Process " << getpid() << "] "
-                                    << "Waiting for childs to terminate. Current active childs: "
-                                    << activeChilds);
-            int waitres = wait(&status);
-            activeChilds--;
+        int status = 0;
+        pid_t dead_pid = wait(&status);
 
-            LOG4CPLUS_TRACE(logger, "Active childs: %d" << activeChilds);
-
-            if (waitres < 0) {
-                LOG4CPLUS_TRACE(logger, "Error " << strerror(errno) << " on wait.");
-            } else {
-                LOG4CPLUS_TRACE(logger, "Process " << waitres << " returned successfully.");
+        if (dead_pid < 0) {
+            if (errno == EINTR) {
+                LOG4CPLUS_INFO(logger, "wait() interrupted. Stopping backend supervisor.");
                 break;
             }
-        } while (not WIFEXITED(status) and not WIFSIGNALED(status));
 
-        LOG4CPLUS_INFO(
-            logger,
-            "No child processes are currently running. Use CTRL + C to terminate the backend.");
+            if (errno == ECHILD) {
+                LOG4CPLUS_WARN(logger, "No child processes found. Respawning endpoint children.");
+                activeChilds = 0;
+                for (int i = 0; i < static_cast<int>(_children.size()); i++) {
+                    child_pids[i] = start_child(i);
+                    if (child_pids[i] > 0) {
+                        activeChilds++;
+                    }
+                }
+                continue;
+            }
 
-        signal(SIGINT, sigint_handler);
-        pause();
+            LOG4CPLUS_WARN(logger, "wait() failed: " << strerror(errno));
+            sleep(1);
+            continue;
+        }
+
+        int child_index = -1;
+        for (int i = 0; i < static_cast<int>(child_pids.size()); i++) {
+            if (child_pids[i] == dead_pid) {
+                child_index = i;
+                break;
+            }
+        }
+
+        if (activeChilds > 0) {
+            activeChilds--;
+        }
+
+        if (WIFEXITED(status)) {
+            LOG4CPLUS_WARN(logger, "Backend child " << dead_pid
+                                                    << " exited with status "
+                                                    << WEXITSTATUS(status));
+        } else if (WIFSIGNALED(status)) {
+            LOG4CPLUS_WARN(logger, "Backend child " << dead_pid
+                                                    << " was killed by signal "
+                                                    << WTERMSIG(status));
+        } else {
+            LOG4CPLUS_WARN(logger, "Backend child " << dead_pid
+                                                    << " ended with unknown status.");
+        }
+
+        if (child_index < 0) {
+            LOG4CPLUS_WARN(logger, "Unknown child " << dead_pid
+                                                    << " exited. Not respawning.");
+            continue;
+        }
+
+        LOG4CPLUS_WARN(logger, "Restarting backend endpoint child " << child_index);
+        child_pids[child_index] = start_child(child_index);
+        if (child_pids[child_index] > 0) {
+            activeChilds++;
+        }
     }
 
-    LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "] " << "Backend::Start() returned.");
+    LOG4CPLUS_INFO(logger, "Stopping backend children.");
+    for (pid_t child_pid : child_pids) {
+        if (child_pid > 0) {
+            kill(child_pid, SIGINT);
+        }
+    }
+
+    LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "] Backend::Start() returned.");
 }
 
 void Backend::EventOccurred(std::string &event, void *object) {
