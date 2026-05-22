@@ -1184,8 +1184,21 @@ CUDNN_ROUTINE_HANDLER(GetConvolutionForwardWorkspaceSize) {
 
 CUDNN_ROUTINE_HANDLER(GetVersion) {
     size_t version = cudnnGetVersion();
-    LOG4CPLUS_DEBUG(pThis->GetLogger(), "cudnnGetVersion Executed, version: " << version);
-    return std::make_shared<Result>(version);  // Return the version as an exit code!
+
+    // cuDNN 9 may report versions as 90501 for 9.5.1.
+    // Some OpenCV-DNN checks expect the older cuDNN encoding: 9501.
+    size_t reported_version = version;
+    if (version >= 90000) {
+        size_t major = version / 10000;
+        size_t minor = (version % 10000) / 100;
+        size_t patch = version % 100;
+        reported_version = major * 1000 + minor * 100 + patch;
+    }
+
+    LOG4CPLUS_DEBUG(pThis->GetLogger(),
+                    "cudnnGetVersion Executed, native version: " << version
+                    << ", reported version: " << reported_version);
+    return std::make_shared<Result>(reported_version);  // Return the version as an exit code!
 }
 
 CUDNN_ROUTINE_HANDLER(GetErrorString) {
