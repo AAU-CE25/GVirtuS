@@ -1,5 +1,3 @@
-static const char *GVIRTUS_CUDART_UNREGISTER_FATBINARY_ONE_SHOT_MARKER = "GVIRTUS_CUDART_UNREGISTER_FATBINARY_ONE_SHOT_20260522";
-static const char *GVIRTUS_CUDART_UNREGISTER_FATBINARY_NOOP_MARKER = "GVIRTUS_CUDART_UNREGISTER_FATBINARY_NOOP_20260522";
 
 /*
  * gVirtuS -- A GPGPU transparent virtualization component.
@@ -262,25 +260,9 @@ extern "C" __host__ void **__cudaRegisterFatBinaryEnd(void *fatCubin) {
 }
 
 extern "C" __host__ void __cudaUnregisterFatBinary(void **fatCubinHandle) {
-    // One-shot CUDA runtime teardown for plain RDMA.
-    //
-    // The first cudaUnregisterFatBinary acts as a useful final teardown signal
-    // for the backend. Repeating this call many times during static/module
-    // cleanup can push the plain RDMA QP into retry/flushed-WR failure.
-    static bool unregister_sent_once = false;
-
-    if (unregister_sent_once) {
-        return;
-    }
-    unregister_sent_once = true;
-
-    try {
-        CudaRtFrontend::Prepare();
-        CudaRtFrontend::AddDevicePointerForArguments(fatCubinHandle);
-        CudaRtFrontend::Execute("cudaUnregisterFatBinary");
-    } catch (...) {
-        // Best-effort teardown: do not fail a completed application during exit.
-    }
+    CudaRtFrontend::Prepare();
+    CudaRtFrontend::AddStringForArguments(CudaUtil::MarshalHostPointer(fatCubinHandle));
+    CudaRtFrontend::Execute("cudaUnregisterFatBinary");
 }
 
 extern "C" __host__ void __cudaRegisterFunction(void **fatCubinHandle, const char *hostFun,
