@@ -55,9 +55,22 @@ class Result {
     void TimeTaken(double time_taken);
     double TimeTaken() const;
 
+    // Optional zero-copy GPU payload (GVIRTUS_GPUDIRECT path). When set, the
+    // OutputBuffer contains only the protocol prefix (size_t count). The
+    // actual `count` bytes live on the GPU at `gpu_addr`. The UCX-AM
+    // response writer (Process.cpp::write_ucx_am_response) detects this and
+    // routes the GPU buffer as a separate iov entry registered with
+    // UCS_MEMORY_TYPE_CUDA in WriteIovRma. Frontend receives the data
+    // contiguously into its host RX slot via peer-DMA.
+    void SetGpuPayload(void *gpu_addr, std::size_t size);
+    void *GetGpuPayload() const;
+    std::size_t GetGpuPayloadSize() const;
+
    private:
     int mExitCode;
     std::shared_ptr<Buffer> mpOutputBuffer;
     double mTimeTaken = 0;
+    void *mGpuPayload = nullptr;
+    std::size_t mGpuPayloadSize = 0;
 };
 }  // namespace gvirtus::communicators

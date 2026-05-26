@@ -1,14 +1,14 @@
 .PHONY: docker-build-push-dev local-docker-build-backend docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test local-docker-build-simple-matrix
-USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
-DOCKER_HUB_USERNAME ?= entr# change username for local dev!
+USER := ll33pq
+DOCKER_HUB_USERNAME ?= ll33pq# change username for local dev!
 
 
 GVIRTUS_LOG_LEVEL ?= 10000
 GVIRTUS_UCX_DATAPATH ?= am
-UCX_TLS ?= tcp,self
-UCX_NET_DEVICES ?= ens1f1np1
+UCX_TLS ?=
+UCX_NET_DEVICES ?=
 UCX_LOG_LEVEL ?= info
-UCX_SOCKADDR_TLS_PRIORITY ?= tcp
+UCX_SOCKADDR_TLS_PRIORITY ?=
 UCX_IB_GID_INDEX ?= # empty by default; set to 3 for RoCEv2
 SIMPLE_MATRIX_GPU_FLAGS ?=
 
@@ -84,10 +84,14 @@ run-gvirtus-backend-dev:
 		--shm-size=8G \
 		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
 		-e GVIRTUS_UCX_DATAPATH=$(GVIRTUS_UCX_DATAPATH) \
-		-e UCX_TLS=$(UCX_TLS) \
-		-e UCX_NET_DEVICES=$(UCX_NET_DEVICES) \
+		$(if $(BACKEND_CONFIG),-e BACKEND_CONFIG=$(BACKEND_CONFIG)) \
+		$(if $(UCX_TLS),-e UCX_TLS=$(UCX_TLS)) \
+		$(if $(UCX_NET_DEVICES),-e UCX_NET_DEVICES=$(UCX_NET_DEVICES)) \
 		-e UCX_LOG_LEVEL=$(UCX_LOG_LEVEL) \
-		-e UCX_SOCKADDR_TLS_PRIORITY=$(UCX_SOCKADDR_TLS_PRIORITY) \
+		$(if $(UCX_SOCKADDR_TLS_PRIORITY),-e UCX_SOCKADDR_TLS_PRIORITY=$(UCX_SOCKADDR_TLS_PRIORITY)) \
+		$(if $(UCX_IB_GID_INDEX),-e UCX_IB_GID_INDEX=$(UCX_IB_GID_INDEX)) \
+		$(if $(GVIRTUS_RMA_ZEROCOPY),-e GVIRTUS_RMA_ZEROCOPY=$(GVIRTUS_RMA_ZEROCOPY)) \
+		$(if $(GVIRTUS_GPUDIRECT),-e GVIRTUS_GPUDIRECT=$(GVIRTUS_GPUDIRECT)) \
 		$(DOCKER_REPO_DEV):cuda12.6.3-cudnn-ubuntu22.04
 
 attach-gvirtus-bash:
@@ -181,11 +185,12 @@ run-simple-matrix-test:
 		--ulimit memlock=-1 \
 		-e GVIRTUS_CONFIG=/opt/GVirtuS/etc/properties_ucx.json \
 		-e GVIRTUS_UCX_DATAPATH=$(GVIRTUS_UCX_DATAPATH) \
-		-e UCX_TLS=$(UCX_TLS) \
-		-e UCX_NET_DEVICES=$(UCX_NET_DEVICES) \
+		$(if $(UCX_TLS),-e UCX_TLS=$(UCX_TLS)) \
+		$(if $(UCX_NET_DEVICES),-e UCX_NET_DEVICES=$(UCX_NET_DEVICES)) \
 		-e UCX_LOG_LEVEL=$(UCX_LOG_LEVEL) \
-		-e UCX_SOCKADDR_TLS_PRIORITY=$(UCX_SOCKADDR_TLS_PRIORITY) \
+		$(if $(UCX_SOCKADDR_TLS_PRIORITY),-e UCX_SOCKADDR_TLS_PRIORITY=$(UCX_SOCKADDR_TLS_PRIORITY)) \
 		$(if $(UCX_IB_GID_INDEX),-e UCX_IB_GID_INDEX=$(UCX_IB_GID_INDEX)) \
+		$(if $(UCX_RNDV_THRESH),-e UCX_RNDV_THRESH=$(UCX_RNDV_THRESH)) \
 		-v ./examples/simple_matrix:/opt/GVirtuS/examples \
 		-v ./etc/properties_ucx.json:/opt/GVirtuS/etc/properties_ucx.json \
 		$(DOCKER_REPO_DEV)/simple_matrix_gvirtus:cuda12.6 \

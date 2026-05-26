@@ -105,6 +105,12 @@ class CudaRtFrontend {
         gvirtus::frontend::Frontend::GetFrontend()->GetInputBuffer()->Add(ptr, n);
     }
 
+    // Fase 5 wrapper - see Frontend.h for the contract.
+    template <class T>
+    static inline void AddHostPointerForArgumentsDirect(const T* ptr, size_t n = 1) {
+        gvirtus::frontend::Frontend::GetFrontend()->AddHostPointerForArgumentsDirect<T>(ptr, n);
+    }
+
     /**
      * Adds a device pointer as an input parameter for the next execution
      * request.
@@ -153,6 +159,25 @@ class CudaRtFrontend {
     template <class T>
     static inline T* GetOutputHostPointer(size_t n = 1) {
         return gvirtus::frontend::Frontend::GetFrontend()->GetOutputBuffer()->Assign<T>(n);
+    }
+
+    // Fase 4 wrappers - register a caller-owned destination so Execute()
+    // writes the big output payload directly there. See Frontend.h for the
+    // contract. Caller pattern:
+    //
+    //   SetOutputDestination(dst, count);
+    //   Execute("...");
+    //   if (Success() && !DirectOutputConsumed())
+    //       memmove(dst, GetOutputHostPointer<char>(count), count);
+    //   ClearOutputDestination();
+    static inline void SetOutputDestination(void *dst, size_t count) {
+        gvirtus::frontend::Frontend::GetFrontend()->SetOutputDestination(dst, count);
+    }
+    static inline void ClearOutputDestination() {
+        gvirtus::frontend::Frontend::GetFrontend()->ClearOutputDestination();
+    }
+    static inline bool DirectOutputConsumed() {
+        return gvirtus::frontend::Frontend::GetFrontend()->DirectOutputConsumed();
     }
 
     /**

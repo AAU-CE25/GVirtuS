@@ -1,5 +1,5 @@
 #! /bin/bash
-export GVIRTUS_LOGLEVEL=${GVIRTUS_LOGLEVEL:-20000}  # default to INFO if not set
+export GVIRTUS_LOGLEVEL=${GVIRTUS_LOGLEVEL:-20000}
 export UCX_DIAG=${UCX_DIAG:-0}
 
 if [[ "${UCX_DIAG}" == "1" ]]; then
@@ -13,6 +13,8 @@ if [[ "${UCX_DIAG}" == "1" ]]; then
 	fi
 fi
 
-mkdir gvirtus/build && cd gvirtus/build && cmake .. && make -j$(nproc) && make install
-${GVIRTUS_HOME}/bin/gvirtus-backend ${GVIRTUS_HOME}/etc/properties_ucx.json
-#tail -f /dev/null # for debugging
+mkdir -p gvirtus/build && cd gvirtus/build && cmake .. && make -j$(nproc) && make install
+
+BACKEND_CONFIG="${BACKEND_CONFIG:-${GVIRTUS_HOME}/etc/properties_ucx.json}"
+echo "Backend config: ${BACKEND_CONFIG}" >&2
+${GVIRTUS_HOME}/bin/gvirtus-backend "${BACKEND_CONFIG}"

@@ -44,7 +44,15 @@ class EndpointFactory {
             throw std::runtime_error("Invalid or missing 'communicator' array in configuration.");
         }
 
-        const auto &endpoint_obj = j["communicator"][0]["endpoint"];
+        // `ind_endpoint` is a static counter that lets a config file declare
+        // multiple endpoints and have N consecutive get_endpoint() calls walk
+        // through them. With a single endpoint reused across N pthreads
+        // (each pthread has its own Frontend → its own get_endpoint() call)
+        // the counter overruns the array and accesses j[N]=null → crash.
+        // Wrap modulo the array size so single-endpoint configs work too.
+        ind_endpoint = ind_endpoint % static_cast<int>(j["communicator"].size());
+
+        const auto &endpoint_obj = j["communicator"][ind_endpoint]["endpoint"];
         if (!endpoint_obj.contains("suite") || endpoint_obj["suite"].is_null()) {
             throw std::runtime_error("Missing or null 'suite' in endpoint configuration.");
         }
