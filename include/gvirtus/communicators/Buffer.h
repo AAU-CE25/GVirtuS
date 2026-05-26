@@ -315,6 +315,18 @@ class Buffer {
     size_t GetBufferSize() const;
     void Dump(Communicator *c) const;
 
+    // GPUDirect (Variant B Step B4): optional GPU-backed payload. When set,
+    // the trailing portion of the LOGICAL message lives on the GPU at
+    // `gpu_addr` rather than in mpBuffer. GPU-aware handlers (e.g. cudaMemcpy
+    // HostToDevice in CudaRtHandler_memory) detect this and route the
+    // payload via cudaMemcpyDeviceToDevice instead of HostToDevice — saving
+    // the backend D2H consolidation + H2D copy pair. Set by Process.cpp
+    // when constructing the input Buffer from a frame whose PooledMsg has
+    // gpu_data != null (post-Step B3 wire format).
+    void SetGpuPayload(void *gpu_addr, std::size_t size);
+    void *GetGpuPayload() const;
+    std::size_t GetGpuPayloadSize() const;
+
    private:
     size_t mBlockSize;
     size_t mSize;
@@ -323,5 +335,7 @@ class Buffer {
     size_t mBackOffset;
     char *mpBuffer;
     bool mOwnBuffer;
+    void *mGpuPayload = nullptr;
+    std::size_t mGpuPayloadSize = 0;
 };
 }  // namespace gvirtus::communicators

@@ -106,11 +106,15 @@ bool read_ucx_am_request(Communicator *client_comm,
                          std::vector<unsigned char> &fallback_storage,
                          const unsigned char *&payload_data,
                          size_t &payload_size,
+                         void *&gpu_payload,
+                         size_t &gpu_payload_size,
                          bool &owns_frame,
                          std::string &error) {
     owns_frame = false;
     payload_data = nullptr;
     payload_size = 0;
+    gpu_payload = nullptr;
+    gpu_payload_size = 0;
 
     const unsigned char *frame = nullptr;
     size_t frame_size = 0;
@@ -154,6 +158,14 @@ bool read_ucx_am_request(Communicator *client_comm,
         payload_data = frame + sizeof(header) + header.routine_size;
         payload_size = static_cast<size_t>(header.payload_size);
         owns_frame = true;
+
+        // GPUDirect (Variant B Step B4): if the UCX peer used the GPU-split
+        // wire format, the trailing portion of the LOGICAL payload lives in
+        // slot.gpu_addr. Surface it via out-params so the caller can attach
+        // it to the input Buffer; GPU-aware handlers route via D2D instead
+        // of H2D-from-host. Base Communicator default returns null/0 for
+        // transports that don't support GPU payloads.
+        client_comm->current_frame_gpu(gpu_payload, gpu_payload_size);
 
         error.clear();
         return true;
@@ -202,15 +214,21 @@ bool write_ucx_am_response(Communicator *client_comm,
                            const gvirtus::communicators::ucxam::EnvelopeHeader &request_header,
                            int exit_code, double server_exec_sec,
                            const std::shared_ptr<Buffer> &output_buffer,
+                           void *gpu_payload, size_t gpu_payload_size,
                            std::string &error) {
-    size_t out_size = 0;
+    // Host-side portion of the response. With GPUDirect, this is just the
+    // protocol prefix (size_t count); without, it's [size_t count][count bytes].
+    size_t host_out_size = 0;
     const char *out_data = nullptr;
     if (output_buffer != nullptr) {
-        out_size = output_buffer->GetBufferSize();
+        host_out_size = output_buffer->GetBufferSize();
         out_data = output_buffer->GetBuffer();
     }
 
-    const size_t payload_size = sizeof(double) + sizeof(size_t) + out_size;
+    // Wire out_size = host prefix + (optional) GPU payload. Frontend reads
+    // this many bytes contiguously, regardless of split origin.
+    const size_t wire_out_size = host_out_size + gpu_payload_size;
+    const size_t payload_size  = sizeof(double) + sizeof(size_t) + wire_out_size;
 
     gvirtus::communicators::ucxam::EnvelopeHeader response_header{};
     response_header.magic = gvirtus::communicators::ucxam::kEnvelopeMagic;
@@ -227,7 +245,12 @@ bool write_ucx_am_response(Communicator *client_comm,
     // copy of the entire output payload (was the dual of the frontend's
     // request-side ~27ms marshal). UCX backend maps this to a single
     // ucp_am_send_nbx with UCP_DATATYPE_IOV.
-    struct iovec iov[4];
+    //
+    // With GPUDirect, iov[4] carries a pointer into GPU memory. WriteIovRma
+    // detects this via cudaPointerGetAttributes and registers it with
+    // UCS_MEMORY_TYPE_CUDA before ucp_put_nbx — NIC peer-DMAs from GPU
+    // directly to frontend host slot.
+    struct iovec iov[5];
     int n = 0;
     iov[n].iov_base = &response_header;
     iov[n].iov_len  = sizeof(response_header);
@@ -235,12 +258,20 @@ bool write_ucx_am_response(Communicator *client_comm,
     iov[n].iov_base = &server_exec_sec;
     iov[n].iov_len  = sizeof(double);
     ++n;
-    iov[n].iov_base = &out_size;
+    // Note: we send wire_out_size on the wire (host prefix + gpu payload),
+    // so frontend's AssignAll/memmove sees a single contiguous logical buffer.
+    size_t wire_out_size_field = wire_out_size;
+    iov[n].iov_base = &wire_out_size_field;
     iov[n].iov_len  = sizeof(size_t);
     ++n;
-    if (out_size > 0 && out_data != nullptr) {
+    if (host_out_size > 0 && out_data != nullptr) {
         iov[n].iov_base = const_cast<char *>(out_data);
-        iov[n].iov_len  = out_size;
+        iov[n].iov_len  = host_out_size;
+        ++n;
+    }
+    if (gpu_payload != nullptr && gpu_payload_size > 0) {
+        iov[n].iov_base = gpu_payload;
+        iov[n].iov_len  = gpu_payload_size;
         ++n;
     }
 
@@ -369,12 +400,16 @@ void Process::Start() {
                     std::vector<unsigned char> am_payload_fallback;
                     const unsigned char *am_payload_data = nullptr;
                     size_t am_payload_size = 0;
+                    void *am_gpu_payload = nullptr;
+                    size_t am_gpu_payload_size = 0;
                     bool owns_frame = false;
                     std::string read_error;
 
                     if (!read_ucx_am_request(client_comm, request_header, am_routine,
                                              am_payload_fallback, am_payload_data,
-                                             am_payload_size, owns_frame, read_error)) {
+                                             am_payload_size,
+                                             am_gpu_payload, am_gpu_payload_size,
+                                             owns_frame, read_error)) {
                         LOG4CPLUS_INFO(logger,
                                        "Client disconnected (UCX AM): " << read_error);
                         break;
@@ -389,6 +424,11 @@ void Process::Start() {
                         am_input = std::make_shared<Buffer>(
                             reinterpret_cast<char *>(const_cast<unsigned char *>(am_payload_data)),
                             am_payload_size);
+                        // GPUDirect Step B4: attach the GPU-resident tail
+                        // (if any) so GPU-aware handlers can route via D2D.
+                        if (am_gpu_payload != nullptr && am_gpu_payload_size > 0) {
+                            am_input->SetGpuPayload(am_gpu_payload, am_gpu_payload_size);
+                        }
                     }
 
                     std::shared_ptr<Handler> h = nullptr;
@@ -404,6 +444,18 @@ void Process::Start() {
                         LOG4CPLUS_ERROR(logger, "[Process " << getpid() << "]: Requested unknown routine '" << am_routine << "'.");
                         result = std::make_shared<communicators::Result>(-1, std::make_shared<Buffer>());
                     } else {
+                        // Per-connection GPUDirect gate (Option 2): publish
+                        // this endpoint's transport capability into a
+                        // thread-local that GPU-aware handlers read in lieu
+                        // of the process-wide GVIRTUS_GPUDIRECT_ACTIVE env.
+                        // Reset to false after Execute() to avoid leaking
+                        // across dispatches (defensive — in the current
+                        // single-threaded per-connection model the worker
+                        // thread is reused for the next request on the
+                        // same connection, so the flag would be re-set
+                        // identically anyway).
+                        gvirtus::communicators::tls_connection_supports_cuda =
+                            client_comm->current_connection_supports_cuda();
                         auto start = steady_clock::now();
                         result = h->Execute(am_routine, am_input);
                         result->TimeTaken(
@@ -411,12 +463,16 @@ void Process::Start() {
                                 steady_clock::now() - start)
                                 .count() /
                             1000.0);
+                        gvirtus::communicators::tls_connection_supports_cuda = false;
                     }
 
                     std::string write_error;
                     bool response_ok = write_ucx_am_response(client_comm, request_header,
                                                              result->GetExitCode(), result->TimeTaken(),
-                                                             result->GetOutputBuffer(), write_error);
+                                                             result->GetOutputBuffer(),
+                                                             result->GetGpuPayload(),
+                                                             result->GetGpuPayloadSize(),
+                                                             write_error);
 
                     // Release the pinned RX-pool slot now that the handler is
                     // done with it and the response has been sent. Must happen

@@ -90,6 +90,29 @@ class Communicator {
     }
     virtual void ReleaseFrame() {}
 
+    // GPUDirect (Variant B Step B4): after a successful TryAcquireFrame, a
+    // transport that supports GPU-resident payload landing (UCX with
+    // GPUDirect) may have an additional GPU pointer + size associated with
+    // the current frame. Default implementation returns no GPU payload —
+    // stream-oriented transports never have one.
+    virtual void current_frame_gpu(void *&gpu, std::size_t &size) const {
+        gpu = nullptr;
+        size = 0;
+    }
+
+    // Per-connection transport capability: true iff this specific endpoint
+    // negotiated an RDMA-class transport (rc_mlx5 / dc_mlx5 / ud_mlx5 / ib)
+    // capable of peer-DMA from CUDA memory. Default false is safe for all
+    // non-UCX transports and for UCX endpoints whose wire-up has not yet
+    // completed. UcxCommunicator overrides with a lazy ucp_ep_query.
+    //
+    // Supersedes the process-wide GVIRTUS_GPUDIRECT_ACTIVE env gate for
+    // per-call activation decisions: a single backend with
+    // UCX_TLS=rc_mlx5,ud_mlx5,tcp,self can now accept both RDMA and TCP
+    // frontends concurrently, enabling GPUDirect only on the connections
+    // that actually negotiated an RDMA lane.
+    virtual bool current_connection_supports_cuda() const { return false; }
+
     virtual void Sync() = 0;
 
     /**
@@ -105,5 +128,15 @@ class Communicator {
 };
 
 using create_t = std::shared_ptr<Communicator>(std::shared_ptr<Endpoint>);
+
+// Per-thread flag set by Process.cpp's UCX-AM dispatch loop immediately
+// before invoking a handler's Execute() — captures whether the active
+// connection's negotiated transport supports CUDA peer-DMA. Plugins
+// (e.g. libgvirtus-plugin-cudart's CudaRtHandler_memory) read it via a
+// plain extern, decoupled from any specific Communicator subclass.
+//
+// Definition lives in CommunicatorFactory.cpp (part of libgvirtus-
+// communicators which both backend and plugins link against).
+extern thread_local bool tls_connection_supports_cuda;
 
 }  // namespace gvirtus::communicators

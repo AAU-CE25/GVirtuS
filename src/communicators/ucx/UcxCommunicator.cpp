@@ -110,6 +110,169 @@ void free_pinned_host(unsigned char *p, bool is_cuda) {
     }
     std::free(p);
 }
+
+// Allocate `n` bytes of GPU memory (cudaMalloc). Forward-declared usage —
+// requires load_cuda_device_funcs() to have been called (probe_gpudirect
+// triggers it via std::call_once). Returns nullptr on failure.
+//
+// Defined LATER in the file so it can see g_cuda_malloc; here we forward-
+// declare both to avoid reordering the whole anonymous-namespace section.
+unsigned char *alloc_gpu_slot(size_t n);
+void           free_gpu_slot(unsigned char *p);
+
+// ---------------------------------------------------------------------------
+// GPUDirect probe + flag (Step 1 of GVIRTUS_GPUDIRECT rollout)
+// ---------------------------------------------------------------------------
+// Runtime resolvers for cudaMalloc/cudaFree/cudaMemcpy/cudaPointerGetAttributes
+// (dlopen, no static link to CUDA). cudaPointerGetAttributes lets WriteIovRma
+// detect whether an iov fragment lives on the GPU so it can pass
+// UCS_MEMORY_TYPE_CUDA to ucp_mem_map (required when rcache is disabled).
+// cudaMemcpy is used by am_recv_handler in Step B3 to consolidate a GPU-split
+// payload back into the host slot (temporary — B4 removes this consolidation).
+using cudaMalloc_t = int (*)(void **, size_t);
+using cudaFree_t   = int (*)(void *);
+using cudaMemcpy_t = int (*)(void *, const void *, size_t, int /*cudaMemcpyKind*/);
+using cudaPointerGetAttributes_t = int (*)(void *, const void *);
+
+// cudaMemcpyKind values (from cuda_runtime_api.h, stable across CUDA versions).
+constexpr int kCudaMemcpyHostToHost     = 0;
+constexpr int kCudaMemcpyHostToDevice   = 1;
+constexpr int kCudaMemcpyDeviceToHost   = 2;
+constexpr int kCudaMemcpyDeviceToDevice = 3;
+
+// Mirror of cudaPointerAttributes (CUDA 11+ layout). `type` 0=Unregistered,
+// 1=Host, 2=Device, 3=Managed. Only `type` is read; remaining fields kept for
+// ABI alignment.
+struct cudaPointerAttributes_layout {
+    int   type;
+    int   device;
+    void *devicePointer;
+    void *hostPointer;
+};
+
+std::atomic<cudaMalloc_t> g_cuda_malloc{nullptr};
+std::atomic<cudaFree_t>   g_cuda_free{nullptr};
+std::atomic<cudaMemcpy_t> g_cuda_memcpy{nullptr};
+std::atomic<cudaPointerGetAttributes_t> g_cuda_pointer_attrs{nullptr};
+std::once_flag            g_cuda_dev_once;
+
+void load_cuda_device_funcs() {
+    const char *candidates[] = {
+        "libcudart.so.12", "libcudart.so.11", "libcudart.so", nullptr,
+    };
+    for (int i = 0; candidates[i]; ++i) {
+        void *h = dlopen(candidates[i], RTLD_NOW | RTLD_LOCAL);
+        if (!h) continue;
+        auto m  = reinterpret_cast<cudaMalloc_t>(dlsym(h, "cudaMalloc"));
+        auto f  = reinterpret_cast<cudaFree_t>(dlsym(h, "cudaFree"));
+        auto mc = reinterpret_cast<cudaMemcpy_t>(dlsym(h, "cudaMemcpy"));
+        auto a  = reinterpret_cast<cudaPointerGetAttributes_t>(
+                     dlsym(h, "cudaPointerGetAttributes"));
+        if (m && f) {
+            g_cuda_malloc.store(m);
+            g_cuda_free.store(f);
+            g_cuda_memcpy.store(mc);          // may be nullptr
+            g_cuda_pointer_attrs.store(a);    // may be nullptr; is_gpu_pointer handles that
+            ucx_debug_log("gpudirect: loaded cuda runtime symbols from %s "
+                          "(memcpy=%s pointer_attrs=%s)",
+                          candidates[i], mc ? "yes" : "no", a ? "yes" : "no");
+            return;
+        }
+        dlclose(h);
+    }
+    ucx_debug_log("gpudirect: cudaMalloc/cudaFree unavailable (libcudart not found)");
+}
+
+// Global flag: true iff GVIRTUS_GPUDIRECT=1 and probe succeeded.
+// Set once at backend startup by init_ucx(); read by handlers (Step 3) and
+// by is_gpu_pointer below as a short-circuit guard.
+std::atomic<bool> g_gpudirect_enabled{false};
+
+// Detect whether `p` is a CUDA device or managed pointer. Returns false on
+// host memory, unregistered memory, NULL, or if cudaPointerGetAttributes is
+// unavailable. Used by WriteIovRma to decide whether to pass
+// UCS_MEMORY_TYPE_CUDA on the ucp_mem_map call.
+//
+// CRITICAL: this function is called from both frontend AND backend (WriteIovRma
+// runs on both sides). On the frontend, libcudart.so is the GVirtuS shim that
+// REMOTES cudaPointerGetAttributes as an RPC — which is both slow and broken
+// for our purposes (the frontend has no local GPU to ask about). So we
+// short-circuit to false whenever GPUDirect isn't active: frontend never has
+// the env var set → returns false → no RPC storm. Only the backend (where
+// GPUDirect probed OK) actually calls into the cuda runtime.
+bool is_gpu_pointer(const void *p) {
+    if (p == nullptr) return false;
+    if (!g_gpudirect_enabled.load()) return false;
+    std::call_once(g_cuda_dev_once, load_cuda_device_funcs);
+    auto fn = g_cuda_pointer_attrs.load();
+    if (fn == nullptr) return false;
+    cudaPointerAttributes_layout attrs{};
+    if (fn(&attrs, p) != 0) return false;
+    return attrs.type == 2 /*Device*/ || attrs.type == 3 /*Managed*/;
+}
+
+// Probe: try cudaMalloc(4K) + ucp_mem_map(CUDA) + cleanup.
+// Returns true iff peermem + UCX-CUDA cooperate in this process.
+// `reason` is populated with the failure description on false.
+bool probe_gpudirect(ucp_context_h ctx, std::string &reason) {
+    if (ctx == nullptr) {
+        reason = "ucp_context is null";
+        return false;
+    }
+    std::call_once(g_cuda_dev_once, load_cuda_device_funcs);
+    auto cmalloc = g_cuda_malloc.load();
+    auto cfree   = g_cuda_free.load();
+    if (cmalloc == nullptr || cfree == nullptr) {
+        reason = "cudaMalloc/cudaFree symbols unavailable";
+        return false;
+    }
+
+    void *gpu = nullptr;
+    if (cmalloc(&gpu, 4096) != 0 || gpu == nullptr) {
+        reason = "cudaMalloc(4K) failed (no GPU? OOM?)";
+        return false;
+    }
+
+    ucp_mem_map_params_t p{};
+    p.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS |
+                   UCP_MEM_MAP_PARAM_FIELD_LENGTH  |
+                   UCP_MEM_MAP_PARAM_FIELD_MEMORY_TYPE;
+    p.address     = gpu;
+    p.length      = 4096;
+    p.memory_type = UCS_MEMORY_TYPE_CUDA;
+
+    ucp_mem_h memh = nullptr;
+    ucs_status_t st = ucp_mem_map(ctx, &p, &memh);
+    if (st != UCS_OK) {
+        reason  = "ucp_mem_map(CUDA) failed: ";
+        reason += ucs_status_string(st);
+        cfree(gpu);
+        return false;
+    }
+    ucp_mem_unmap(ctx, memh);
+    cfree(gpu);
+    reason.clear();
+    return true;
+}
+
+// Definitions for the forward-declared helpers above. They live AFTER
+// probe_gpudirect so the cuda symbol resolver runs at least once (probe
+// triggers std::call_once(load_cuda_device_funcs)). If GPUDirect was never
+// requested, g_cuda_malloc may still be nullptr — callers must check.
+unsigned char *alloc_gpu_slot(size_t n) {
+    std::call_once(g_cuda_dev_once, load_cuda_device_funcs);
+    auto fn = g_cuda_malloc.load();
+    if (fn == nullptr) return nullptr;
+    void *p = nullptr;
+    if (fn(&p, n) != 0 || p == nullptr) return nullptr;
+    return static_cast<unsigned char *>(p);
+}
+
+void free_gpu_slot(unsigned char *p) {
+    if (p == nullptr) return;
+    auto fn = g_cuda_free.load();
+    if (fn != nullptr) fn(p);
+}
 }
 
 UcxCommunicator::UcxCommunicator(const std::string &hostname, std::uint16_t port)
@@ -170,8 +333,15 @@ ucs_status_t UcxCommunicator::am_recv_handler(void *arg, const void *header,
                 return UCS_OK;
             }
             if (peek.message_type == static_cast<std::uint16_t>(MessageType::RmaPosted)) {
-                const size_t slot_idx = static_cast<size_t>(peek.reserved0);
-                const size_t total = static_cast<size_t>(peek.payload_size);
+                const size_t slot_idx   = static_cast<size_t>(peek.reserved0);
+                const size_t total      = static_cast<size_t>(peek.payload_size);
+                // GPUDirect Step B3: non-zero routine_size means the peer
+                // routed `gpu_size` bytes into slot.gpu_addr (via NIC
+                // peer-DMA). status_code carries gpu_offset — the position
+                // in the logical message where the GPU data folds in (i.e.
+                // where to put the consolidation cudaMemcpy destination).
+                const size_t gpu_size   = static_cast<size_t>(peek.routine_size);
+                const size_t gpu_offset = static_cast<size_t>(peek.status_code);
                 std::lock_guard<std::mutex> lk(self->rx_pool_->mu);
                 if (slot_idx >= self->rx_pool_->slots.size()) {
                     std::fprintf(stderr,
@@ -179,8 +349,38 @@ ucs_status_t UcxCommunicator::am_recv_handler(void *arg, const void *header,
                                  slot_idx, self->rx_pool_->slots.size());
                     return UCS_OK;
                 }
-                self->rx_pool_->slots[slot_idx].in_use = true;
-                PooledMsg msg{self->rx_pool_->slots[slot_idx].addr, total, slot_idx};
+                auto &slot = self->rx_pool_->slots[slot_idx];
+                slot.in_use = true;
+
+                PooledMsg msg{slot.addr, total, slot_idx};
+
+                // Step B3 CONSOLIDATION: temporarily cudaMemcpy the GPU
+                // portion back into the host slot at offset (total - gpu_size).
+                // This preserves the legacy contiguous-host parser path so
+                // Buffer/handler dispatch needs no changes. Step B4 removes
+                // this copy and teaches Buffer to read GPU directly.
+                if (gpu_size > 0) {
+                    if (slot.gpu_addr == nullptr ||
+                        gpu_offset + gpu_size > total) {
+                        std::fprintf(stderr,
+                            "RmaPosted B4: gpu_size=%zu offset=%zu but slot %zu has no GPU shadow "
+                            "(or offset+size > total=%zu) — protocol mismatch, dropping\n",
+                            gpu_size, gpu_offset, slot_idx, total);
+                        slot.in_use = false;
+                        return UCS_OK;
+                    }
+                    // Step B4: no consolidation cudaMemcpy. The GPU portion
+                    // stays in slot.gpu_addr and we publish it to the
+                    // consumer via PooledMsg.gpu_data/gpu_size. Handlers
+                    // that recognize the GPU payload (cudaMemcpy H2D) use
+                    // cudaMemcpyDeviceToDevice directly from slot.gpu_addr
+                    // instead of bouncing through host.
+                    msg.gpu_data = slot.gpu_addr;
+                    msg.gpu_size = gpu_size;
+                    ucx_debug_log("RmaPosted B4: slot=%zu host_bytes=%zu gpu_bytes=%zu offset=%zu (no consolidation)",
+                                  slot_idx, total - gpu_size, gpu_size, gpu_offset);
+                }
+
                 self->enqueue_am_message(msg);
                 return UCS_OK;
             }
@@ -252,6 +452,39 @@ void UcxCommunicator::init_ucx() {
         am_state_ = std::make_shared<AmState>();
     }
 
+    // Early read of GVIRTUS_GPUDIRECT (BEFORE ucp_init): UCX reads
+    // UCX_RCACHE_ENABLE / UCX_MEMTYPE_CACHE at context creation time. The
+    // rcache in this container/UCX combo fails on ucp_mem_map(CUDA) with
+    // "failed to insert region [0x0..0x0]: Invalid parameter" — same root
+    // cause as the production manual memh cache in WriteIovRma. Force-disable
+    // rcache + memtype-cache so the CUDA mem_map succeeds. We use overwrite=0
+    // so a user-provided value still wins.
+    const char *gpudirect_env_early = std::getenv("GVIRTUS_GPUDIRECT");
+    const bool gpudirect_env_set = (gpudirect_env_early != nullptr &&
+                                    gpudirect_env_early[0] == '1');
+    // GPUDirect requires the negotiated UCX transport to support CUDA
+    // peer-DMA. UCX-TCP cannot move CUDA memory ("cannot find remote
+    // protocol for put from cuda memory to host" error). Even though the
+    // backend may have RDMA-class transports listed in UCX_TLS, if a
+    // particular client connects over TCP, ucp_put_nbx from GPU mem fails.
+    // Guard at process level: if UCX_TLS doesn't include any CUDA-capable
+    // transport, do not enable GPUDirect even when GVIRTUS_GPUDIRECT=1.
+    // Run a separate backend with UCX_TLS=tcp,self for UCX-TCP benchmarks.
+    const bool tls_supports_cuda = []() {
+        const char *tls = std::getenv("UCX_TLS");
+        if (tls == nullptr) return true;
+        std::string s(tls);
+        return s.find("rc_mlx5") != std::string::npos ||
+               s.find("dc_mlx5") != std::string::npos ||
+               s.find("ud_mlx5") != std::string::npos ||
+               s.find("ib")      != std::string::npos;
+    }();
+    const bool gpudirect_requested = gpudirect_env_set && tls_supports_cuda;
+    if (gpudirect_requested) {
+        setenv("UCX_RCACHE_ENABLE",   "n", /*overwrite=*/0);
+        setenv("UCX_MEMTYPE_CACHE",   "n", /*overwrite=*/0);
+    }
+
     ucp_params_t ucp_params{};
     ucp_params.field_mask = UCP_PARAM_FIELD_FEATURES;
     // AM: small control + legacy data path. RMA: bulk data via ucp_put_nbx
@@ -262,6 +495,42 @@ void UcxCommunicator::init_ucx() {
     if (status != UCS_OK) {
         throw std::runtime_error("UcxCommunicator: ucp_init failed: " +
                                  std::string(ucs_status_string(status)));
+    }
+
+    // GPUDirect probe (Step 1 of GVIRTUS_GPUDIRECT rollout). The early
+    // read above already auto-set UCX_RCACHE_ENABLE=n / UCX_MEMTYPE_CACHE=n
+    // when requested, so the ucp_mem_map(CUDA) below has a chance to succeed.
+    //
+    // Side-effect: we also setenv("GVIRTUS_GPUDIRECT_ACTIVE", "1"/"0") so the
+    // cudart backend plugin can detect the post-probe state via getenv without
+    // needing to link against this UCX library (avoids RTLD_GLOBAL surprises
+    // since plugins are dlopen'd separately from libgvirtus-communicators-ucx).
+    if (!gpudirect_requested) {
+        g_gpudirect_enabled.store(false);
+        setenv("GVIRTUS_GPUDIRECT_ACTIVE", "0", /*overwrite=*/1);
+        if (gpudirect_env_set && !tls_supports_cuda) {
+            std::fprintf(stderr,
+                "[GVS] GPUDirect=disabled (UCX_TLS=%s has no CUDA-capable transport)\n",
+                std::getenv("UCX_TLS") ? std::getenv("UCX_TLS") : "(unset)");
+        } else {
+            std::fprintf(stderr,
+                "[GVS] GPUDirect=disabled (env GVIRTUS_GPUDIRECT not set)\n");
+        }
+    } else {
+        std::string reason;
+        const bool ok = probe_gpudirect(context_, reason);
+        g_gpudirect_enabled.store(ok);
+        setenv("GVIRTUS_GPUDIRECT_ACTIVE", ok ? "1" : "0", /*overwrite=*/1);
+        if (ok) {
+            std::fprintf(stderr,
+                "[GVS] GPUDirect=enabled (cudaMalloc + ucp_mem_map(CUDA) probe OK, "
+                "auto-set UCX_RCACHE_ENABLE=n UCX_MEMTYPE_CACHE=n)\n");
+        } else {
+            std::fprintf(stderr,
+                "[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: %s) "
+                "- falling back to host slots, behavior unchanged\n",
+                reason.c_str());
+        }
     }
 
     // parameters for ucp_worker
@@ -784,19 +1053,112 @@ void UcxCommunicator::ReleaseFrame() {
     current_frame_ = PooledMsg{};
 }
 
-// Register `slot.addr/capacity` with the UCX context so subsequent
-// ucp_am_recv_data_nbx (true-rndv path) can use the memh hint and skip
-// the on-the-fly IB registration. Called with rx_pool_->mu held.
+// Per-connection GPUDirect gate (Option 2). Returns true iff THIS
+// endpoint negotiated an RDMA-class transport (rc_mlx5 / dc_mlx5 /
+// ud_mlx5 / ib) capable of carrying CUDA memory operations.
+//
+// This is a property of the TRANSPORT, not of the local process. In
+// particular it does NOT depend on g_gpudirect_enabled (= local probe
+// of cudaMalloc + ucp_mem_map(CUDA), which requires nvidia-peermem
+// loaded on this host). Reason: frontend Variant B (host → remote GPU
+// shadow) puts data FROM host memory, so the local NIC doesn't need
+// peer-DMA-from-CUDA capability — only RDMA-class transport plus the
+// backend's gpu_rkey suffice.
+//
+// The "process can locally do CUDA peer-DMA" precondition is enforced
+// separately in places where the local side IS the CUDA mem source —
+// notably gvirtus_gpudirect_enabled() in CudaRtHandler_memory.cpp,
+// which AND-s GVIRTUS_GPUDIRECT_ACTIVE (env, set by init_ucx based
+// on the probe) with tls_connection_supports_cuda (this method).
+//
+// Lazy + cached: ucp_ep_query returns the negotiated lanes only after
+// wire-up completes (async, after first AM exchange). The first caller
+// (WriteIovRma at the first cudaMemcpy >= 4 MB, or Process.cpp's pre-
+// Execute set of tls_connection_supports_cuda) happens well after
+// wire-up. ucp_ep_query failures don't cache so a later call retries.
+bool UcxCommunicator::current_connection_supports_cuda() const {
+    int cached = supports_cuda_cached_.load(std::memory_order_acquire);
+    if (cached != -1) return cached == 1;
+
+    if (endpoint_ == nullptr) {
+        return false;  // don't cache — endpoint may still be assigned later
+    }
+
+    // We use ucp_ep_print_info instead of ucp_ep_query(TRANSPORTS) because
+    // in UCX 1.20 (this container) ucp_ep_query returns UCS_OK with
+    // num_entries>0 but transport_name/device_name as NULL pointers — a
+    // quirk likely tied to lane wire-up state or an ABI mismatch between
+    // the pinned header and the loaded .so. ucp_ep_print_info renders the
+    // lane info as text to a FILE* and is the API used by ucx_info and
+    // verbose UCX logs, so its output is well tested across builds.
+    //
+    // Captured via open_memstream and grep'd for RDMA-class transport
+    // tokens. Expected output lines look like:
+    //   #     lane[1]: 2:rc_mlx5/mlx5_1:1.0 md[2] -> md[2]/ib/sysdev[3] ... rma_bw#0 am
+    // Tokens rc_mlx5 / dc_mlx5 / ud_mlx5 (mlx5 driver) and rc_verbs /
+    // dc_verbs / ud_verbs (generic verbs) indicate an RDMA-class lane.
+    char *buf = nullptr;
+    size_t buf_size = 0;
+    FILE *fp = open_memstream(&buf, &buf_size);
+    if (fp == nullptr) {
+        return false;  // memstream alloc failed — retry next call
+    }
+    ucp_ep_print_info(endpoint_, fp);
+    std::fclose(fp);
+
+    if (buf == nullptr || buf_size == 0) {
+        if (buf) std::free(buf);
+        return false;
+    }
+
+    const bool supports = (std::strstr(buf, "rc_mlx5") != nullptr) ||
+                          (std::strstr(buf, "dc_mlx5") != nullptr) ||
+                          (std::strstr(buf, "ud_mlx5") != nullptr) ||
+                          (std::strstr(buf, "rc_verbs") != nullptr) ||
+                          (std::strstr(buf, "dc_verbs") != nullptr) ||
+                          (std::strstr(buf, "ud_verbs") != nullptr);
+    std::free(buf);
+
+    supports_cuda_cached_.store(supports ? 1 : 0, std::memory_order_release);
+    ucx_debug_log("current_connection_supports_cuda: endpoint=%p -> %s",
+                  (void *)endpoint_,
+                  supports ? "RDMA (CUDA-capable)" : "non-RDMA (TCP-class)");
+    return supports;
+}
+
+// Register `slot.addr/capacity` (host) AND `slot.gpu_addr/gpu_capacity` (if
+// present) with the UCX context so subsequent ucp_am_recv_data_nbx and
+// ucp_put_nbx can use the memh hints and skip on-the-fly IB registration.
+// Called with rx_pool_->mu held.
 void UcxCommunicator::map_slot_to_ucp(ucp_context_h ctx, PinnedSlot &slot) {
-    if (ctx == nullptr || slot.memh != nullptr || slot.addr == nullptr) return;
-    ucp_mem_map_params_t map_params{};
-    map_params.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS |
-                            UCP_MEM_MAP_PARAM_FIELD_LENGTH;
-    map_params.address = slot.addr;
-    map_params.length  = slot.capacity;
-    ucs_status_t st = ucp_mem_map(ctx, &map_params, &slot.memh);
-    if (st != UCS_OK) {
-        slot.memh = nullptr;  // continue without — UCX rcache will register on first use
+    if (ctx == nullptr) return;
+    if (slot.memh == nullptr && slot.addr != nullptr) {
+        ucp_mem_map_params_t map_params{};
+        map_params.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS |
+                                UCP_MEM_MAP_PARAM_FIELD_LENGTH;
+        map_params.address = slot.addr;
+        map_params.length  = slot.capacity;
+        ucs_status_t st = ucp_mem_map(ctx, &map_params, &slot.memh);
+        if (st != UCS_OK) {
+            slot.memh = nullptr;  // continue without — UCX rcache will register on first use
+        }
+    }
+    // GPUDirect (Step B1): register the GPU shadow if it exists. UCX needs
+    // UCS_MEMORY_TYPE_CUDA explicitly here since memtype-cache is disabled.
+    if (slot.gpu_memh == nullptr && slot.gpu_addr != nullptr) {
+        ucp_mem_map_params_t gpu_params{};
+        gpu_params.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS |
+                                UCP_MEM_MAP_PARAM_FIELD_LENGTH  |
+                                UCP_MEM_MAP_PARAM_FIELD_MEMORY_TYPE;
+        gpu_params.address     = slot.gpu_addr;
+        gpu_params.length      = slot.gpu_capacity;
+        gpu_params.memory_type = UCS_MEMORY_TYPE_CUDA;
+        ucs_status_t st = ucp_mem_map(ctx, &gpu_params, &slot.gpu_memh);
+        if (st != UCS_OK) {
+            slot.gpu_memh = nullptr;
+            ucx_debug_log("map_slot_to_ucp: gpu_addr map FAILED (%s) — slot will keep host-only path",
+                          ucs_status_string(st));
+        }
     }
 }
 
@@ -804,6 +1166,10 @@ void UcxCommunicator::unmap_slot_from_ucp(ucp_context_h ctx, PinnedSlot &slot) {
     if (ctx != nullptr && slot.memh != nullptr) {
         ucp_mem_unmap(ctx, slot.memh);
         slot.memh = nullptr;
+    }
+    if (ctx != nullptr && slot.gpu_memh != nullptr) {
+        ucp_mem_unmap(ctx, slot.gpu_memh);
+        slot.gpu_memh = nullptr;
     }
 }
 
@@ -826,6 +1192,13 @@ void UcxCommunicator::init_rx_pool() {
     std::lock_guard<std::mutex> lk(rx_pool_->mu);
     if (!rx_pool_->slots.empty()) return;  // already initialized
 
+    // GPUDirect (Step B1): when active, each slot ALSO gets a GPU shadow
+    // region of the same capacity, mem_map'd as CUDA. The shadow is unused
+    // in B1 — purely additive. Step B2 will advertise its rkey to peers;
+    // Step B3 will route big H2D payloads here via NIC peer-DMA.
+    const bool gpudirect_active = g_gpudirect_enabled.load();
+    size_t gpu_allocated_count = 0;
+
     rx_pool_->slots.resize(kInitialSlotCount);
     for (size_t i = 0; i < kInitialSlotCount; ++i) {
         bool is_cuda = false;
@@ -834,10 +1207,28 @@ void UcxCommunicator::init_rx_pool() {
             throw std::runtime_error("UcxCommunicator: failed to allocate RX pool slot");
         }
         rx_pool_->slots[i] = PinnedSlot{p, kInitialSlotCap, /*in_use*/false, is_cuda, nullptr};
+
+        if (gpudirect_active) {
+            unsigned char *gp = alloc_gpu_slot(kInitialSlotCap);
+            if (gp != nullptr) {
+                rx_pool_->slots[i].gpu_addr = gp;
+                rx_pool_->slots[i].gpu_capacity = kInitialSlotCap;
+                ++gpu_allocated_count;
+            } else {
+                ucx_debug_log("rx_pool: slot %zu gpu shadow alloc FAILED — host-only", i);
+            }
+        }
+
         map_slot_to_ucp(context_, rx_pool_->slots[i]);
     }
-    ucx_debug_log("rx_pool: initialized %zu slots x %zu bytes",
-                  kInitialSlotCount, kInitialSlotCap);
+    if (gpudirect_active) {
+        std::fprintf(stderr,
+            "[GVS] rx_pool: initialized %zu slots x %zu bytes (host) + %zu/%zu GPU shadows x %zu bytes\n",
+            kInitialSlotCount, kInitialSlotCap,
+            gpu_allocated_count, kInitialSlotCount, kInitialSlotCap);
+    }
+    ucx_debug_log("rx_pool: initialized %zu slots x %zu bytes (gpu_shadows=%zu)",
+                  kInitialSlotCount, kInitialSlotCap, gpu_allocated_count);
 }
 
 void UcxCommunicator::destroy_rx_pool() {
@@ -845,6 +1236,9 @@ void UcxCommunicator::destroy_rx_pool() {
     for (auto &slot : rx_pool_->slots) {
         unmap_slot_from_ucp(context_, slot);
         free_pinned_host(slot.addr, slot.is_cuda_host);
+        free_gpu_slot(slot.gpu_addr);  // no-op if nullptr
+        slot.gpu_addr = nullptr;
+        slot.gpu_capacity = 0;
     }
     rx_pool_->slots.clear();
 }
@@ -862,19 +1256,32 @@ size_t UcxCommunicator::acquire_rx_slot(size_t needed) {
             return i;
         }
     }
+    // GPUDirect (Step B1): mirror host grow with a GPU shadow grow if active.
+    const bool gpudirect_active = g_gpudirect_enabled.load();
+
     // No free slot big enough — grow the first free one (or append if none free).
     for (size_t i = 0; i < rx_pool_->slots.size(); ++i) {
         if (!rx_pool_->slots[i].in_use) {
             unmap_slot_from_ucp(context_, rx_pool_->slots[i]);
             free_pinned_host(rx_pool_->slots[i].addr, rx_pool_->slots[i].is_cuda_host);
+            free_gpu_slot(rx_pool_->slots[i].gpu_addr);
             bool is_cuda = false;
             unsigned char *p = alloc_pinned_host(needed, is_cuda);
             if (p == nullptr) {
                 throw std::runtime_error("UcxCommunicator: rx_pool grow failed");
             }
             rx_pool_->slots[i] = PinnedSlot{p, needed, /*in_use*/true, is_cuda, nullptr};
+            if (gpudirect_active) {
+                unsigned char *gp = alloc_gpu_slot(needed);
+                if (gp != nullptr) {
+                    rx_pool_->slots[i].gpu_addr = gp;
+                    rx_pool_->slots[i].gpu_capacity = needed;
+                }
+            }
             map_slot_to_ucp(context_, rx_pool_->slots[i]);
-            ucx_debug_log("rx_pool: grew slot %zu to %zu bytes", i, needed);
+            ucx_debug_log("rx_pool: grew slot %zu to %zu bytes (gpu=%s)",
+                          i, needed,
+                          rx_pool_->slots[i].gpu_addr ? "yes" : "no");
             return i;
         }
     }
@@ -886,9 +1293,18 @@ size_t UcxCommunicator::acquire_rx_slot(size_t needed) {
     }
     rx_pool_->slots.push_back(PinnedSlot{p, needed, /*in_use*/true, is_cuda, nullptr});
     size_t idx = rx_pool_->slots.size() - 1;
+    if (gpudirect_active) {
+        unsigned char *gp = alloc_gpu_slot(needed);
+        if (gp != nullptr) {
+            rx_pool_->slots[idx].gpu_addr = gp;
+            rx_pool_->slots[idx].gpu_capacity = needed;
+        }
+    }
     map_slot_to_ucp(context_, rx_pool_->slots[idx]);
-    ucx_debug_log("rx_pool: appended slot %zu (%zu bytes), total=%zu",
-                  idx, needed, rx_pool_->slots.size());
+    ucx_debug_log("rx_pool: appended slot %zu (%zu bytes, gpu=%s), total=%zu",
+                  idx, needed,
+                  rx_pool_->slots[idx].gpu_addr ? "yes" : "no",
+                  rx_pool_->slots.size());
     return idx;
 }
 
@@ -905,12 +1321,19 @@ void UcxCommunicator::release_rx_slot(size_t slot_idx) {
 void UcxCommunicator::send_rma_setup() {
     if (endpoint_ == nullptr || context_ == nullptr) return;
 
-    // Snapshot rx slot metadata.
+    // Snapshot rx slot metadata. With GPUDirect Step B2 each slot may also
+    // expose a GPU shadow (gpu_addr / gpu_capacity / gpu_rkey).
     struct PackedSlot {
         std::uint64_t addr;
         std::uint64_t capacity;
         void *rkey_buf{nullptr};
         size_t rkey_len{0};
+        // GPU shadow (optional). When gpu_rkey_buf == nullptr the slot
+        // advertises host only — matches the pre-B2 wire format byte for byte.
+        std::uint64_t gpu_addr{0};
+        std::uint64_t gpu_capacity{0};
+        void *gpu_rkey_buf{nullptr};
+        size_t gpu_rkey_len{0};
     };
     std::vector<PackedSlot> packed;
     {
@@ -929,6 +1352,19 @@ void UcxCommunicator::send_rma_setup() {
                              ucs_status_string(st));
                 continue;
             }
+            // Pack GPU shadow rkey if present.
+            if (slot.gpu_memh != nullptr && slot.gpu_addr != nullptr) {
+                ucs_status_t gst = ucp_rkey_pack(context_, slot.gpu_memh,
+                                                 &ps.gpu_rkey_buf, &ps.gpu_rkey_len);
+                if (gst == UCS_OK) {
+                    ps.gpu_addr = reinterpret_cast<std::uint64_t>(slot.gpu_addr);
+                    ps.gpu_capacity = slot.gpu_capacity;
+                } else {
+                    ucx_debug_log("rma_setup: gpu rkey_pack FAILED (%s) — advertising host only",
+                                  ucs_status_string(gst));
+                    ps.gpu_rkey_buf = nullptr;
+                }
+            }
             packed.push_back(ps);
         }
     }
@@ -945,10 +1381,32 @@ void UcxCommunicator::send_rma_setup() {
     using gvirtus::communicators::ucxam::kEnvelopeMagic;
     using gvirtus::communicators::ucxam::kEnvelopeVersion;
 
+    // Wire format (Step B2 extension):
+    //   [EnvelopeHeader]
+    //   [N * RmaSlotDescriptor]     ← per-slot header; descriptor.reserved0
+    //                                  bit 0 = "has_gpu_shadow" flag
+    //   For each slot in order:
+    //     [host_rkey_blob (rkey_size bytes)]
+    //     If has_gpu_shadow:
+    //       [u64 gpu_addr][u64 gpu_capacity][u32 gpu_rkey_size][gpu_rkey_blob]
+    //
+    // Old peers (pre-B2) see descriptor.reserved0=0 always → no GPU block →
+    // identical to pre-B2 layout.
+    constexpr std::uint32_t kHasGpuShadow = 1u << 0;
+
     size_t descriptors_bytes = packed.size() * sizeof(RmaSlotDescriptor);
     size_t rkeys_bytes = 0;
-    for (auto &p : packed) rkeys_bytes += p.rkey_len;
-    size_t total_bytes = sizeof(EnvelopeHeader) + descriptors_bytes + rkeys_bytes;
+    size_t gpu_extension_bytes = 0;
+    for (auto &p : packed) {
+        rkeys_bytes += p.rkey_len;
+        if (p.gpu_rkey_buf != nullptr) {
+            gpu_extension_bytes += sizeof(std::uint64_t)  // gpu_addr
+                                 + sizeof(std::uint64_t)  // gpu_capacity
+                                 + sizeof(std::uint32_t)  // gpu_rkey_size
+                                 + p.gpu_rkey_len;
+        }
+    }
+    size_t total_bytes = sizeof(EnvelopeHeader) + descriptors_bytes + rkeys_bytes + gpu_extension_bytes;
 
     std::vector<unsigned char> buf(total_bytes);
     auto *hdr = reinterpret_cast<EnvelopeHeader *>(buf.data());
@@ -968,13 +1426,25 @@ void UcxCommunicator::send_rma_setup() {
         d.remote_addr = p.addr;
         d.slot_capacity = p.capacity;
         d.rkey_size = static_cast<std::uint32_t>(p.rkey_len);
-        d.reserved0 = 0;
+        d.reserved0 = (p.gpu_rkey_buf != nullptr) ? kHasGpuShadow : 0u;
         std::memcpy(buf.data() + off, &d, sizeof(d));
         off += sizeof(d);
     }
+    // Per-slot rkey blobs, interleaved with optional gpu extension.
     for (auto &p : packed) {
         std::memcpy(buf.data() + off, p.rkey_buf, p.rkey_len);
         off += p.rkey_len;
+        if (p.gpu_rkey_buf != nullptr) {
+            std::memcpy(buf.data() + off, &p.gpu_addr, sizeof(std::uint64_t));
+            off += sizeof(std::uint64_t);
+            std::memcpy(buf.data() + off, &p.gpu_capacity, sizeof(std::uint64_t));
+            off += sizeof(std::uint64_t);
+            std::uint32_t gsz = static_cast<std::uint32_t>(p.gpu_rkey_len);
+            std::memcpy(buf.data() + off, &gsz, sizeof(std::uint32_t));
+            off += sizeof(std::uint32_t);
+            std::memcpy(buf.data() + off, p.gpu_rkey_buf, p.gpu_rkey_len);
+            off += p.gpu_rkey_len;
+        }
     }
 
     // Send as a single AM.
@@ -988,14 +1458,19 @@ void UcxCommunicator::send_rma_setup() {
         wait_request_completion(request, "rma_setup_send");
     }
 
-    // Release the packed rkey buffers.
+    // Release the packed rkey buffers (host + optional GPU).
+    size_t gpu_advertised = 0;
     for (auto &p : packed) {
         if (p.rkey_buf != nullptr) {
             ucp_rkey_buffer_release(p.rkey_buf);
         }
+        if (p.gpu_rkey_buf != nullptr) {
+            ucp_rkey_buffer_release(p.gpu_rkey_buf);
+            ++gpu_advertised;
+        }
     }
-    ucx_debug_log("rma_setup: advertised %zu slots (%zu rkey bytes)",
-                  packed.size(), rkeys_bytes);
+    ucx_debug_log("rma_setup: advertised %zu slots (%zu rkey bytes, %zu with gpu shadow)",
+                  packed.size(), rkeys_bytes, gpu_advertised);
 }
 
 // Client-side: parse an incoming RmaSetup AM body, unpack each rkey, and
@@ -1023,8 +1498,11 @@ void UcxCommunicator::handle_rma_setup_am(const void *data, size_t length) {
     const unsigned char *rkey_cursor = base + sizeof(hdr) + descriptors_bytes;
     const unsigned char *rkey_end = base + length;
 
+    constexpr std::uint32_t kHasGpuShadow = 1u << 0;
+
     std::vector<RemoteSlot> new_slots;
     new_slots.reserve(num_slots);
+    size_t gpu_received = 0;
     for (size_t i = 0; i < num_slots; ++i) {
         if (rkey_cursor + desc_ptr[i].rkey_size > rkey_end) {
             std::fprintf(stderr, "RmaSetup: rkey blob %zu truncated\n", i);
@@ -1038,9 +1516,48 @@ void UcxCommunicator::handle_rma_setup_am(const void *data, size_t length) {
                          i, ucs_status_string(st));
             rkey = nullptr;
         }
-        new_slots.push_back(RemoteSlot{desc_ptr[i].remote_addr,
-                                       desc_ptr[i].slot_capacity, rkey});
         rkey_cursor += desc_ptr[i].rkey_size;
+
+        RemoteSlot rs{desc_ptr[i].remote_addr,
+                      desc_ptr[i].slot_capacity, rkey};
+
+        // GPUDirect Step B2: parse optional GPU extension after the host
+        // rkey blob if the descriptor's flag bit is set. Old peers don't
+        // set this flag → no extension to read → rs.gpu_rkey stays null.
+        if ((desc_ptr[i].reserved0 & kHasGpuShadow) != 0u) {
+            const size_t kFixedExt = sizeof(std::uint64_t)  // gpu_addr
+                                   + sizeof(std::uint64_t)  // gpu_capacity
+                                   + sizeof(std::uint32_t); // gpu_rkey_size
+            if (rkey_cursor + kFixedExt > rkey_end) {
+                std::fprintf(stderr, "RmaSetup: gpu extension header %zu truncated\n", i);
+                break;
+            }
+            std::uint64_t gpu_addr = 0, gpu_cap = 0;
+            std::uint32_t gpu_rkey_size = 0;
+            std::memcpy(&gpu_addr,      rkey_cursor + 0,  sizeof(std::uint64_t));
+            std::memcpy(&gpu_cap,       rkey_cursor + 8,  sizeof(std::uint64_t));
+            std::memcpy(&gpu_rkey_size, rkey_cursor + 16, sizeof(std::uint32_t));
+            rkey_cursor += kFixedExt;
+            if (rkey_cursor + gpu_rkey_size > rkey_end) {
+                std::fprintf(stderr, "RmaSetup: gpu rkey blob %zu truncated\n", i);
+                break;
+            }
+            ucp_rkey_h gpu_rkey = nullptr;
+            ucs_status_t gst = ucp_ep_rkey_unpack(endpoint_, rkey_cursor, &gpu_rkey);
+            if (gst == UCS_OK) {
+                rs.gpu_addr     = gpu_addr;
+                rs.gpu_capacity = gpu_cap;
+                rs.gpu_rkey     = gpu_rkey;
+                ++gpu_received;
+            } else {
+                std::fprintf(stderr,
+                             "RmaSetup: gpu rkey unpack[%zu] failed (%s), skipping gpu path\n",
+                             i, ucs_status_string(gst));
+            }
+            rkey_cursor += gpu_rkey_size;
+        }
+
+        new_slots.push_back(rs);
     }
 
     {
@@ -1050,13 +1567,15 @@ void UcxCommunicator::handle_rma_setup_am(const void *data, size_t length) {
         rma_setup_received_.store(true);
     }
     rma_setup_cv_.notify_all();
-    ucx_debug_log("rma_setup: received %zu remote slots", remote_slots_.size());
+    ucx_debug_log("rma_setup: received %zu remote slots (%zu with gpu shadow)",
+                  remote_slots_.size(), gpu_received);
 }
 
 void UcxCommunicator::destroy_rma_state() {
     std::lock_guard<std::mutex> lk(rma_state_mu_);
     for (auto &rs : remote_slots_) {
         if (rs.rkey != nullptr) ucp_rkey_destroy(rs.rkey);
+        if (rs.gpu_rkey != nullptr) ucp_rkey_destroy(rs.gpu_rkey);
     }
     remote_slots_.clear();
     rma_setup_received_.store(false);
@@ -1114,6 +1633,17 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
         return v != nullptr && std::strcmp(v, "0") != 0;
     }();
 
+    // GPUDirect Step B3: set when the big iov fragment is routed to the
+    // peer's GPU shadow. Communicated to the peer via RmaPosted:
+    //   routine_size = gpu_split_bytes (= big_size routed to GPU)
+    //   status_code  = gpu_split_offset (= pre_size in host slot — the
+    //                  position where the GPU data belongs in the logical
+    //                  message). Allows biggest to be at ANY iov index, not
+    //                  just last (Fase 5 puts user_src at index 3 with a
+    //                  trailing [count][kind] = 12-byte input_post).
+    std::uint64_t gpu_split_bytes  = 0;
+    std::uint32_t gpu_split_offset = 0;
+
     // Find the biggest iov fragment regardless of position. The zerocopy
     // path treats it as the payload to ucp_put directly from caller memory
     // and stages every other fragment through tx_scratch_. With the legacy
@@ -1136,9 +1666,16 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
     size_t pre_size = 0;
     for (size_t i = 0; i < biggest_idx; ++i) pre_size += iov[i].iov_len;
     const size_t post_size = small_size - pre_size;
+    // Detect GPU mem in the biggest fragment ONCE here so we can both (a)
+    // force zerocopy when GPU is present (staged path would memcpy from GPU
+    // into tx_scratch → SIGSEGV) and (b) reuse the value for the memh
+    // registration further down.
+    const bool big_is_gpu = is_gpu_pointer(iov[biggest_idx].iov_base);
     // Only worth splitting when the "big" fragment is genuinely big and the
     // "small" prefix isn't empty (otherwise we'd just be issuing one put).
-    const bool use_zerocopy = zerocopy_enabled &&
+    // big_is_gpu overrides zerocopy_enabled: with GPU mem we have no choice,
+    // the staged fallback can't memcpy device memory through CPU.
+    const bool use_zerocopy = (zerocopy_enabled || big_is_gpu) &&
                               iov_count >= 2 &&
                               big_size >= (16u * 1024u) &&
                               small_size > 0;
@@ -1209,6 +1746,23 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
         ucp_mem_h user_memh = nullptr;
         bool memh_owned = false;  // true iff we own this memh and must unmap after the put
 
+        // big_is_gpu was already computed at WriteIovRma entry (used to force
+        // zerocopy when GPU mem is present). Reused here for the mem_map hint
+        // — when rcache + memtype-cache are disabled (this container), UCX
+        // won't auto-detect CUDA memory and we MUST pass UCS_MEMORY_TYPE_CUDA
+        // explicitly.
+
+        auto fill_mp = [&](ucp_mem_map_params_t &mp) {
+            mp.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS |
+                            UCP_MEM_MAP_PARAM_FIELD_LENGTH;
+            mp.address = const_cast<void *>(user_addr);
+            mp.length  = big_size;
+            if (big_is_gpu) {
+                mp.field_mask  |= UCP_MEM_MAP_PARAM_FIELD_MEMORY_TYPE;
+                mp.memory_type  = UCS_MEMORY_TYPE_CUDA;
+            }
+        };
+
         if (use_memh_cache) {
             auto cit = user_memh_cache.find(user_addr);
 
@@ -1216,10 +1770,7 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
                 user_memh = cit->second;
             } else {
                 ucp_mem_map_params_t mp{};
-                mp.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS |
-                                UCP_MEM_MAP_PARAM_FIELD_LENGTH;
-                mp.address = const_cast<void *>(user_addr);
-                mp.length  = big_size;
+                fill_mp(mp);
 
                 if (ucp_mem_map(context_, &mp, &user_memh) == UCS_OK) {
                     user_memh_cache.emplace(user_addr, user_memh);
@@ -1230,10 +1781,7 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
         } else {
             // Small buffer path: register fresh each call, unmap after wait.
             ucp_mem_map_params_t mp{};
-            mp.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS |
-                            UCP_MEM_MAP_PARAM_FIELD_LENGTH;
-            mp.address = const_cast<void *>(user_addr);
-            mp.length  = big_size;
+            fill_mp(mp);
 
             if (ucp_mem_map(context_, &mp, &user_memh) == UCS_OK) {
                 memh_owned = true;
@@ -1249,9 +1797,48 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
             p_big.op_attr_mask = 0;
         }
 
+        // GPUDirect Step B3: route the big fragment to the peer's GPU shadow
+        // when available. Triggers NIC peer-DMA into remote GPU memory via
+        // peermem. The biggest fragment can sit at ANY iov index (Fase 5
+        // puts user_src at idx 3 with a 12-byte [count][kind] post). We
+        // pass the GPU offset (= pre_size) via RmaPosted.status_code so the
+        // receiver knows where to fold the GPU bytes back into the host slot.
+        //
+        // 4 MB threshold (raised from 64 KB after the B4 sweep showed N=256
+        // and N=512 regressed): below this size the 3-put orchestration +
+        // peer-DMA setup overhead exceeds the savings from skipping the
+        // host bounce. 4 MB matches simple_matrix N=1024 (4 MB), the
+        // smallest payload where GPUDirect demonstrably wins.
+        //
+        // Transport gate: ucp_ep_rkey_unpack(gpu_rkey) returns UCS_OK even
+        // when the negotiated transport is TCP (the unpack just parses the
+        // blob; transport check happens at put time). If we then attempt
+        // ucp_put_nbx to GPU memory over a TCP endpoint, UCX errors out or
+        // hangs, killing the connection. Defensive check at WriteIovRma init
+        // time: query THIS endpoint's negotiated lanes via ucp_ep_query
+        // (lazy + cached). Supersedes the previous process-wide UCX_TLS env
+        // probe, so a single backend with UCX_TLS=rc_mlx5,ud_mlx5,tcp,self
+        // serves mixed RDMA + TCP frontends correctly — GPUDirect activates
+        // only on connections that actually negotiated an RDMA lane.
+        const bool route_big_to_gpu = (rs.gpu_rkey != nullptr) &&
+                                      (rs.gpu_addr != 0) &&
+                                      (big_size >= (4u * 1024u * 1024u)) &&
+                                      current_connection_supports_cuda();
+        std::uint64_t big_target_addr = route_big_to_gpu
+                                        ? rs.gpu_addr
+                                        : (rs.addr + pre_size);
+        ucp_rkey_h    big_target_rkey = route_big_to_gpu ? rs.gpu_rkey : rs.rkey;
+
+        if (route_big_to_gpu) {
+            gpu_split_bytes  = big_size;
+            gpu_split_offset = static_cast<std::uint32_t>(pre_size);
+            ucx_debug_log("WriteIovRma(B3 gpu-split) slot=%zu pre=%zu big=%zu post=%zu (to gpu_addr=0x%lx)",
+                          slot_idx, pre_size, big_size, post_size, big_target_addr);
+        }
+
         void *req_big = ucp_put_nbx(endpoint_,
                                     iov[biggest_idx].iov_base, big_size,
-                                    rs.addr + pre_size, rs.rkey, &p_big);
+                                    big_target_addr, big_target_rkey, &p_big);
 
         wait_request_completion(req_pre,  "rma_put_pre");
         wait_request_completion(req_big,  "rma_put_big");
@@ -1296,9 +1883,15 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
             gvirtus::communicators::ucxam::MessageType::RmaPosted);
         notif.header_size = sizeof(notif);
         notif.reserved0 = static_cast<std::uint16_t>(slot_idx);
-        notif.status_code = 0;
+        // GPUDirect Step B3: status_code carries the gpu_split_offset (=
+        // pre_size, the position in the host slot where the GPU data folds in).
+        notif.status_code = gpu_split_offset;
         notif.request_id = 0;
-        notif.routine_size = 0;
+        // GPUDirect Step B3: non-zero routine_size = bytes that landed in
+        // slot.gpu_addr (vs slot.host_addr). The receiver uses this together
+        // with status_code (offset) to build a dual PooledMsg. Zero = legacy
+        // single-region path.
+        notif.routine_size = gpu_split_bytes;
         notif.payload_size = static_cast<std::uint64_t>(total);
 
         ucp_request_param_t send_param{};
