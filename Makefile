@@ -1,6 +1,6 @@
-.PHONY: docker-build-push-dev local-docker-build-backend docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test local-docker-build-simple-matrix
-USER := ll33pq
-DOCKER_HUB_USERNAME ?= ll33pq# change username for local dev!
+.PHONY: docker-build-push-dev local-docker-build-backend docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test local-docker-build-simple-matrix build-native-bench run-native-bench
+USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
+DOCKER_HUB_USERNAME ?= entr# change username for local dev!
 
 
 GVIRTUS_LOG_LEVEL ?= 10000
@@ -209,3 +209,19 @@ run-simple-matrix-reconnect-test:
 
 stop-simple-matrix-test:
 	docker stop simple_matrix_test_container-$(USER) || true
+
+build-native-bench:
+	docker build \
+		-f examples/simple_matrix/Dockerfile.native \
+		-t cuda-native-bench \
+		examples/simple_matrix
+
+run-native-bench:
+	docker run \
+		--rm \
+		--runtime=nvidia \
+		--name native-bench-$(USER) \
+		-e MATRIX_SIZES="$(or $(MATRIX_SIZES),128 256 512 1024 2048 4096 8192 16384)" \
+		-e ITERATIONS="$(or $(ITERATIONS),10)" \
+		-e WARMUP="$(or $(WARMUP),2)" \
+		cuda-native-bench
