@@ -36,7 +36,7 @@ class CommunicatorFactory {
         std::cout << "DEBUG: protocol string is [" << end->protocol() << "]" << std::endl;
         // Supported unsecure communicators
         std::vector<std::string> unsecureMatches = {
-            "tcp", "http", "oldtcp", "ws", "ib", "hybrid",
+            "tcp", "http", "oldtcp", "ws", "ib", "hybrid", "ucx",
 
         };
 

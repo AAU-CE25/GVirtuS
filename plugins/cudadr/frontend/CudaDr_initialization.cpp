@@ -28,12 +28,72 @@
 
 #include "CudaDr.h"
 
+#include <atomic>
+#include <cstdio>
+#include <dlfcn.h>
+#include <mutex>
+
 using namespace std;
 
-/* Initialize the CUDA driver API */
+// cuInit reentrancy fix.
+//
+// UCX's libuct_cuda.so calls cuInit(0) during its module init, which happens
+// inside ucp_init() while Frontend::Init() is still constructing the
+// frontend. The original implementation below called Frontend::Prepare() ->
+// Buffer::Reset() on a not-yet-initialised buffer -> SIGSEGV. Forwarding the
+// call to the real local libcuda fixes both the reentrancy crash and lets
+// libuct_cuda do its memory-type probing for future GPUDirect work.
+
+namespace {
+typedef CUresult (*cuInit_fn_t)(unsigned int);
+
+std::once_flag g_real_cuinit_once;
+std::atomic<cuInit_fn_t> g_real_cuinit{nullptr};
+
+void gvs_load_real_cuinit() {
+    const char *candidates[] = {
+        "/usr/local/cuda/compat/libcuda.so.1",
+        "/usr/lib/x86_64-linux-gnu/libcuda.so.1",
+        "/usr/local/nvidia/lib64/libcuda.so.1",
+        "/usr/local/cuda/lib64/libcuda.so.1",
+        "/usr/local/cuda/lib64/stubs/libcuda.so",
+        nullptr,
+    };
+    for (int i = 0; candidates[i] != nullptr; ++i) {
+        void *handle = dlopen(candidates[i], RTLD_NOW | RTLD_LOCAL);
+        if (handle == nullptr) continue;
+        cuInit_fn_t fn = reinterpret_cast<cuInit_fn_t>(dlsym(handle, "cuInit"));
+        if (fn != nullptr) {
+            g_real_cuinit.store(fn);
+            fprintf(stderr,
+                    "[GVIRTUS] cuInit passthrough wired to %s\n",
+                    candidates[i]);
+            fflush(stderr);
+            return;
+        }
+        dlclose(handle);
+    }
+    fprintf(stderr,
+            "[GVIRTUS] cuInit passthrough: no real libcuda.so found, "
+            "returning CUDA_SUCCESS to satisfy callers\n");
+    fflush(stderr);
+}
+}  // namespace
+
+/* Initialize the CUDA driver API.
+ *
+ * Always passthrough to the real local libcuda. The RPC path is unsafe
+ * during early library initialisation (libuct_cuda calls cuInit while
+ * ucp_init runs inside Frontend::Init() -> recursion -> SIGSEGV).
+ */
 extern "C" CUresult cuInit(unsigned int flags) {
-    CudaDrFrontend::Prepare();
-    CudaDrFrontend::AddVariableForArguments(flags);
-    CudaDrFrontend::Execute("cuInit");
-    return CudaDrFrontend::GetExitCode();
+    std::call_once(g_real_cuinit_once, gvs_load_real_cuinit);
+
+    cuInit_fn_t fn = g_real_cuinit.load();
+    if (fn != nullptr) {
+        return fn(flags);
+    }
+    // No real libcuda available locally - best-effort SUCCESS so optional
+    // consumers (libuct_cuda capability probing) don't abort.
+    return CUDA_SUCCESS;
 }

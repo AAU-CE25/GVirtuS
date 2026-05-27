@@ -74,6 +74,7 @@ add_library(gvirtus-communicators SHARED
     src/communicators/CommunicatorFactory.cpp
     src/communicators/Endpoint_Tcp.cpp
     src/communicators/Endpoint_Rdma.cpp
+    src/communicators/Endpoint_Ucx.cpp
     src/communicators/Endpoint_Hybrid.cpp
     src/communicators/EndpointFactory.cpp
     src/communicators/rdma/ktmrdma.cpp
@@ -110,6 +111,13 @@ target_link_libraries(gvirtus-communicators-hybrid
     gvirtus-communicators-ib
 )
 gvirtus_install_target(gvirtus-communicators-hybrid)
+
+## UCX COMMUNICATOR
+add_library(gvirtus-communicators-ucx SHARED
+    src/communicators/ucx/UcxCommunicator.cpp
+)
+target_link_libraries(gvirtus-communicators-ucx gvirtus-communicators ucp ucs)
+gvirtus_install_target(gvirtus-communicators-ucx)
 
 # ===== FRONTEND =====
 add_library(gvirtus-frontend SHARED

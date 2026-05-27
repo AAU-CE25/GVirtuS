@@ -1,7 +1,36 @@
+/*
+ * Communicator — abstract transport interface for GVirtuS.
+ *
+ * Extended for the UCX communicator feature with the following virtual methods:
+ *
+ *   WriteIov()  — gather-send: pass N non-contiguous iov fragments in a single
+ *     call. UCX maps this to ucp_am_send_nbx with UCP_DATATYPE_IOV; other
+ *     transports use the default concatenate-and-Write fallback. (Phase 4)
+ *
+ *   TryAcquireFrame() / ReleaseFrame()  — zero-copy frame handoff for message-
+ *     oriented transports. Returns a pointer into the pinned RX-pool slot;
+ *     caller parses in-place and releases when done. (Phase 4)
+ *
+ *   current_frame_gpu()  — exposes the GPU-resident portion of the current
+ *     frame (GPUDirect B4). Handlers can route via cudaMemcpyDeviceToDevice
+ *     instead of bouncing through host. (Phase 6)
+ *
+ *   current_connection_supports_cuda()  — per-connection RDMA transport gate.
+ *     Enables mixed RDMA + TCP frontends on a single backend. (Phase 6)
+ *
+ *   tls_connection_supports_cuda (extern thread_local)  — per-thread flag set
+ *     by Process.cpp before handler dispatch so plugins can query transport
+ *     capability without coupling to UcxCommunicator. (Phase 3/6)
+ *
+ * Optimization phases: 3, 4, 6
+ */
 #pragma once
 
 #include <cstddef>
+#include <cstring>
 #include <memory>
+#include <vector>
+#include <sys/uio.h>
 
 #include "Endpoint.h"
 
@@ -52,6 +81,64 @@ class Communicator {
 
     virtual size_t Read(char *buffer, size_t size) = 0;
     virtual size_t Write(const char *buffer, size_t size) = 0;
+
+    // Gather-send: allows callers to send a logically-contiguous message
+    // assembled from N non-contiguous fragments without concatenating them
+    // first. Concrete UCX-style transports can map this to a single
+    // ucp_am_send_nbx with UCP_DATATYPE_IOV, avoiding host-RAM staging for
+    // large payloads (e.g. cudaMemcpy of 64MB). The default fallback below
+    // preserves correctness for transports that don't support scatter — at
+    // the cost of one concatenation memcpy.
+    virtual size_t WriteIov(const struct iovec *iov, size_t iov_count) {
+        if (iov == nullptr || iov_count == 0) return 0;
+        size_t total = 0;
+        for (size_t i = 0; i < iov_count; ++i) total += iov[i].iov_len;
+        std::vector<char> buf(total);
+        size_t off = 0;
+        for (size_t i = 0; i < iov_count; ++i) {
+            std::memcpy(buf.data() + off, iov[i].iov_base, iov[i].iov_len);
+            off += iov[i].iov_len;
+        }
+        return Write(buf.data(), total);
+    }
+
+    // Zero-copy frame handoff for transports that buffer entire messages
+    // internally (e.g. UCX active messages). If the implementation can
+    // expose the next received message as a contiguous buffer it owns,
+    // it returns true and sets `data`/`size`. The caller must then call
+    // ReleaseFrame() when done to return the buffer to the underlying pool.
+    // Default no-op fallback: returns false, forces callers to use the
+    // byte-stream Read() path. Stream-oriented transports (TCP, etc.) keep
+    // working with the default.
+    virtual bool TryAcquireFrame(const unsigned char *&data, size_t &size) {
+        (void)data; (void)size;
+        return false;
+    }
+    virtual void ReleaseFrame() {}
+
+    // GPUDirect (Variant B Step B4): after a successful TryAcquireFrame, a
+    // transport that supports GPU-resident payload landing (UCX with
+    // GPUDirect) may have an additional GPU pointer + size associated with
+    // the current frame. Default implementation returns no GPU payload —
+    // stream-oriented transports never have one.
+    virtual void current_frame_gpu(void *&gpu, std::size_t &size) const {
+        gpu = nullptr;
+        size = 0;
+    }
+
+    // Per-connection transport capability: true iff this specific endpoint
+    // negotiated an RDMA-class transport (rc_mlx5 / dc_mlx5 / ud_mlx5 / ib)
+    // capable of peer-DMA from CUDA memory. Default false is safe for all
+    // non-UCX transports and for UCX endpoints whose wire-up has not yet
+    // completed. UcxCommunicator overrides with a lazy ucp_ep_query.
+    //
+    // Supersedes the process-wide GVIRTUS_GPUDIRECT_ACTIVE env gate for
+    // per-call activation decisions: a single backend with
+    // UCX_TLS=rc_mlx5,ud_mlx5,tcp,self can now accept both RDMA and TCP
+    // frontends concurrently, enabling GPUDirect only on the connections
+    // that actually negotiated an RDMA lane.
+    virtual bool current_connection_supports_cuda() const { return false; }
+
     virtual void Sync() = 0;
 
     /**
@@ -67,5 +154,15 @@ class Communicator {
 };
 
 using create_t = std::shared_ptr<Communicator>(std::shared_ptr<Endpoint>);
+
+// Per-thread flag set by Process.cpp's UCX-AM dispatch loop immediately
+// before invoking a handler's Execute() — captures whether the active
+// connection's negotiated transport supports CUDA peer-DMA. Plugins
+// (e.g. libgvirtus-plugin-cudart's CudaRtHandler_memory) read it via a
+// plain extern, decoupled from any specific Communicator subclass.
+//
+// Definition lives in CommunicatorFactory.cpp (part of libgvirtus-
+// communicators which both backend and plugins link against).
+extern thread_local bool tls_connection_supports_cuda;
 
 }  // namespace gvirtus::communicators
