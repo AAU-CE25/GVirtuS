@@ -1,3 +1,13 @@
+/*
+ * Endpoint_Ucx — JSON deserialization and validation for UCX endpoint config.
+ *
+ * Reads "suite": "ucx", "server_address", and "port" from properties_ucx.json.
+ * Mirrors the existing Endpoint_Tcp / Endpoint_Rdma pattern so the UCX
+ * communicator plugs into the existing EndpointFactory / CommunicatorFactory
+ * infrastructure without special-casing.
+ *
+ * Optimization phase: 1 (baseline UCX integration)
+ */
 #include "gvirtus/communicators/Endpoint_Ucx.h"
 
 #include <regex>

@@ -1,3 +1,34 @@
+/*
+ * UcxCommunicator — UCX-based transport for GVirtuS with GPUDirect RDMA.
+ *
+ * Implements the Communicator interface using OpenUCX Active Messages (AM) for
+ * RPC control and ucp_put_nbx (RMA) for bulk data transfer. Designed to replace
+ * the original TCP and verb-level RDMA communicators with a unified, high-
+ * performance transport that negotiates the best available path (TCP, RoCE,
+ * InfiniBand) per connection at runtime.
+ *
+ * Key design decisions visible in this header:
+ *
+ *   - Pinned RX pool (PinnedSlot / RxPool): pre-allocated cudaHostAlloc'd
+ *     buffers avoid per-message zero-init and guarantee PCIe line-rate on
+ *     subsequent cudaMemcpy. Shared between listener and accepted connections.
+ *
+ *   - RMA data path (RemoteSlot / WriteIovRma): after an RmaSetup handshake
+ *     the sender RDMA-puts directly into the receiver's pre-registered slots,
+ *     bypassing UCX's per-message rendezvous protocol.
+ *
+ *   - GPUDirect RDMA (gpu_addr in PinnedSlot / RemoteSlot): when nvidia-peermem
+ *     is active, each RX slot has a GPU shadow region. The sender's NIC writes
+ *     large payloads directly into remote GPU memory via peer-DMA, eliminating
+ *     the host-bounce copy entirely.
+ *
+ *   - Per-connection transport gate (current_connection_supports_cuda): lazy
+ *     ucp_ep_query determines whether the negotiated lanes are RDMA-class,
+ *     enabling mixed RDMA + TCP frontends on a single backend.
+ *
+ * Optimization phases: 1 (baseline AM), 2 (protocol), 4 (gather-send),
+ *                      5 (RMA), 6 (GPUDirect RDMA)
+ */
 #pragma once
 
 #include <atomic>

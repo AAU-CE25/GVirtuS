@@ -1,3 +1,13 @@
+/*
+ * Endpoint_Ucx — configuration object for the UCX communicator endpoint.
+ *
+ * Parsed from etc/properties_ucx.json at startup. Carries the address and port
+ * that UcxCommunicator uses for ucp_listener_create (server) or ucp_ep_create
+ * (client). Suite string "ucx" triggers CommunicatorFactory to dlopen the UCX
+ * communicator shared library.
+ *
+ * Optimization phase: 1 (baseline UCX integration)
+ */
 #pragma once
 
 #include <nlohmann/json.hpp>

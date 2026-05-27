@@ -2,6 +2,19 @@
 // Created by gco on 3/21/20.
 //
 
+/*
+ * CommunicatorFactory — transport selection and shared state.
+ *
+ * UCX additions:
+ *   tls_connection_supports_cuda: thread-local flag set by Process.cpp's
+ *   dispatch loop before each handler invocation. Allows GPU-aware plugins
+ *   (e.g. CudaRtHandler_memory) to query whether the current connection's
+ *   negotiated transport supports CUDA peer-DMA, without linking against the
+ *   UCX communicator library. Decouples handler code from transport internals.
+ *
+ * Optimization phases: 3 (handler TLS slot), 6 (per-connection GPUDirect gate)
+ */
+
 #include <gvirtus/communicators/CommunicatorFactory.h>
 #include <gvirtus/communicators/Communicator.h>
 

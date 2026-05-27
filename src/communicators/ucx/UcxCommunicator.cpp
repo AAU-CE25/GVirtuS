@@ -1,3 +1,31 @@
+/*
+ * UcxCommunicator implementation — all six optimization phases in one file.
+ *
+ * Phase 1 (Baseline AM): UCX context/worker init, listener/accept/connect,
+ *   AM receive callback, stream-style Read()/Write() over active messages.
+ *
+ * Phase 2 (Protocol): EnvelopeHeader framing parsed in am_recv_handler;
+ *   RmaSetup and RmaPosted message types dispatched inline.
+ *
+ * Phase 4 (Gather-send): WriteIov() with UCP_DATATYPE_IOV passes scatter
+ *   fragments natively to ucp_am_send_nbx. TryAcquireFrame()/ReleaseFrame()
+ *   expose pinned RX-pool slots zero-copy to the caller.
+ *
+ * Phase 5 (RMA): WriteIovRma() stages or zero-copies iov fragments into a
+ *   pre-registered remote slot via ucp_put_nbx, followed by a tiny RmaPosted
+ *   AM notification. send_rma_setup() / handle_rma_setup_am() exchange rkeys
+ *   at connection time. Manual memh cache bypasses broken UCX rcache.
+ *
+ * Phase 6 (GPUDirect): probe_gpudirect() validates cudaMalloc + ucp_mem_map
+ *   (CUDA) at startup. init_rx_pool() allocates GPU shadow regions alongside
+ *   host slots. WriteIovRma routes the big iov fragment to the peer's GPU
+ *   shadow when the connection has an RDMA lane (per-connection transport gate
+ *   via current_connection_supports_cuda()). am_recv_handler publishes the GPU
+ *   portion via PooledMsg.gpu_data for B4 handler-side zero-copy.
+ *
+ * Runtime-resolved CUDA symbols (dlopen): cudaHostAlloc, cudaMalloc, cudaFree,
+ * cudaMemcpy, cudaPointerGetAttributes — no static link to libcudart.
+ */
 #include "UcxCommunicator.h"
 
 #include <arpa/inet.h>

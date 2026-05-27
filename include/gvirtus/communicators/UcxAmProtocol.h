@@ -1,3 +1,22 @@
+/*
+ * UCX Active Message wire protocol for GVirtuS RPC.
+ *
+ * Defines the binary envelope framing shared between frontend and backend.
+ * Every AM payload begins with an EnvelopeHeader identifying the message type,
+ * request ID, routine name length, and serialized-buffer length.
+ *
+ * Message types:
+ *   Request/Response/Error — standard RPC (Phase 2)
+ *   RmaSetup  — server advertises RX-slot rkeys at connection time (Phase 5)
+ *   RmaPosted — notification after ucp_put_nbx completes into a slot (Phase 5)
+ *
+ * RmaSlotDescriptor carries per-slot metadata in the RmaSetup body. The
+ * reserved0 field doubles as a feature-flag bitfield: bit 0 = has_gpu_shadow
+ * (Phase 6 extension, backward-compatible with pre-GPUDirect peers).
+ *
+ * Optimization phases: 2 (protocol definition), 5 (RMA extensions),
+ *                      6 (GPU shadow advertisement in RmaSetup)
+ */
 #pragma once
 
 #include <cstdint>

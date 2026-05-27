@@ -33,6 +33,27 @@
  *
  */
 
+/*
+ * Frontend — per-thread RPC stub extended for UCX zero-copy transfers.
+ *
+ * UCX communicator additions (Phases 4-5):
+ *
+ *   SetOutputDestination() / DirectOutputConsumed()  — Fase 4 (D2H zero-copy):
+ *     caller pre-registers a destination buffer. Execute()'s response handler
+ *     writes the big output payload directly there from the pinned RX-pool
+ *     frame, skipping the intermediate mpOutputBuffer staging.
+ *
+ *   AddHostPointerForArgumentsDirect()  — Fase 5 (H2D zero-copy): records the
+ *     caller's buffer pointer for splice into WriteIov's iov array. The 64 MB
+ *     payload travels straight from user memory into RMA without memcpy into
+ *     mpInputBuffer. Falls back to standard marshal for non-UCX transports.
+ *
+ *   Reentrancy guard (mpInitialized)  — prevents recursive RPC during UCX's
+ *     libuct_cuda module init (dlopen fires cu* calls through the frontend
+ *     shim before Connect() completes).
+ *
+ * Optimization phases: 4 (gather-send, frame receive), 5 (zero-copy H2D/D2H)
+ */
 #pragma once
 
 #include <gvirtus/common/LD_Lib.h>

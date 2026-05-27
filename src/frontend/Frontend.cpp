@@ -33,6 +33,32 @@
  *            Department of Computer Science, University College Dublin
  */
 
+/*
+ * UCX communicator changes to Frontend::Execute():
+ *
+ * The UCX AM path (ucx_am_mode branch) replaces the original sequential
+ * Write(routine) + Dump(buffer) + Read(exit_code) + Read(output) flow with a
+ * single-message envelope protocol:
+ *
+ *   Send: [EnvelopeHeader][routine_name][serialized_buffer] via WriteIov()
+ *   Recv: TryAcquireFrame() → parse header + payload in-place from pinned slot
+ *
+ * Fase 4: gather-send via WriteIov avoids staging the 64 MB payload into a
+ *   contiguous buffer before sending. Frame-based receive skips the per-byte
+ *   Add<char> loop (was ~1.3s for 64 MB).
+ *
+ * Fase 5: AddHostPointerForArgumentsDirect() splices the user's buffer into
+ *   the iov at the recorded offset — the payload never touches mpInputBuffer.
+ *   SetOutputDestination() lets the response path write directly into the
+ *   caller's dst buffer.
+ *
+ * Reentrancy guard: UCX's libuct_cuda fires cu* calls during ucp_init. These
+ *   reach Execute() before mpInitialized is set; we return CUDA_ERROR_NOT_-
+ *   INITIALIZED so UCX's probe concludes "no local CUDA" gracefully.
+ *
+ * Optimization phases: 2 (protocol), 4 (gather-send + frame recv), 5 (zero-copy)
+ */
+
 #include <gvirtus/communicators/CommunicatorFactory.h>
 #include <gvirtus/communicators/EndpointFactory.h>
 #include <gvirtus/frontend/Frontend.h>

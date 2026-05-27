@@ -1,3 +1,29 @@
+/*
+ * Communicator — abstract transport interface for GVirtuS.
+ *
+ * Extended for the UCX communicator feature with the following virtual methods:
+ *
+ *   WriteIov()  — gather-send: pass N non-contiguous iov fragments in a single
+ *     call. UCX maps this to ucp_am_send_nbx with UCP_DATATYPE_IOV; other
+ *     transports use the default concatenate-and-Write fallback. (Phase 4)
+ *
+ *   TryAcquireFrame() / ReleaseFrame()  — zero-copy frame handoff for message-
+ *     oriented transports. Returns a pointer into the pinned RX-pool slot;
+ *     caller parses in-place and releases when done. (Phase 4)
+ *
+ *   current_frame_gpu()  — exposes the GPU-resident portion of the current
+ *     frame (GPUDirect B4). Handlers can route via cudaMemcpyDeviceToDevice
+ *     instead of bouncing through host. (Phase 6)
+ *
+ *   current_connection_supports_cuda()  — per-connection RDMA transport gate.
+ *     Enables mixed RDMA + TCP frontends on a single backend. (Phase 6)
+ *
+ *   tls_connection_supports_cuda (extern thread_local)  — per-thread flag set
+ *     by Process.cpp before handler dispatch so plugins can query transport
+ *     capability without coupling to UcxCommunicator. (Phase 3/6)
+ *
+ * Optimization phases: 3, 4, 6
+ */
 #pragma once
 
 #include <cstddef>
