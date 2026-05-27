@@ -15,6 +15,14 @@ DEFINE_string(output_dir, "/opt/openpose/examples/media",
               "Where the rendered image will be saved.");
 DEFINE_bool(no_display, true, "Disable visual display.");
 
+// Force higher net input resolution to stress per-call H2D bytes. Default is
+// OpenPose's normal "-1x368" which produces ~1 MB H2D regardless of input size.
+// Bigger values: -1x720 (~3MB), -1x1024 (~5MB), -1x1080 (~6MB), 1920x1080 (~6MB),
+// 3840x2160 (~25 MB, "4K equivalent"). The aspect-preserving "-1xH" form keeps
+// the input image's width and only constrains height.
+DEFINE_string(custom_net_resolution, "-1x368",
+              "Net input size, e.g. -1x368 (default), -1x720, -1x1080, 1920x1080.");
+
 static std::string deriveOutputPath(const std::string& inputPath,
                                     const std::string& outDir)
 {
@@ -105,6 +113,13 @@ int tutorialApiCpp()
 
         // Initialize OpenPose wrapper
         op::Wrapper opWrapper{op::ThreadManagerMode::Asynchronous};
+        // Apply --custom_net_resolution to stress per-call payload sizes.
+        op::WrapperStructPose poseParams;
+        poseParams.netInputSize = op::flagsToPoint(
+            op::String(FLAGS_custom_net_resolution), "-1x368");
+        opWrapper.configure(poseParams);
+        op::opLog("Net input resolution: " + FLAGS_custom_net_resolution,
+                  op::Priority::High);
         if (FLAGS_disable_multi_thread) opWrapper.disableMultiThreading();
         opWrapper.start();
 

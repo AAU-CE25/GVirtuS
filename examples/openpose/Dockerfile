@@ -49,10 +49,28 @@ RUN ln -fs /usr/share/zoneinfo/Etc/UTC /etc/localtime && \
 # # Install Python packages
 RUN pip3 install opencv-python
 
-# # Clone and build GVirtuS
+# Install UCX 1.20 (same release used by the dev backend image) so GVirtuS's
+# UCX communicator can compile. The tarball contains three .deb files at root
+# level (no top-level dir), so we install them directly via apt to handle
+# dependency resolution automatically.
+WORKDIR /tmp
+RUN apt-get update && \
+    wget -q https://github.com/openucx/ucx/releases/download/v1.20.0/ucx-1.20.0-ubuntu22.04-mofed5-cuda12-x86_64.tar.bz2 && \
+    tar xf ucx-1.20.0-ubuntu22.04-mofed5-cuda12-x86_64.tar.bz2 && \
+    apt-get install -y ./ucx-1.20.0.deb ./ucx-cuda-1.20.0.deb && \
+    rm -f ucx-*.deb ucx-1.20.0-ubuntu22.04-mofed5-cuda12-x86_64.tar.bz2 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Embed local GVirtuS source (our optimized fork with UCX support) — NOT the
+# upstream git clone, since that doesn't have our UCX communicator, Fase 4/5
+# zero-copy, WriteIovRma argmax, etc.
 WORKDIR /opt
-RUN git clone https://github.com/ecn-aau/GVirtuS.git && \
-    cd GVirtuS && mkdir build && cd build && \
+COPY gvirtus_src.tar.gz /tmp/gvirtus_src.tar.gz
+RUN mkdir -p /opt/GVirtuS_src && \
+    cd /opt/GVirtuS_src && \
+    tar xzf /tmp/gvirtus_src.tar.gz && \
+    rm /tmp/gvirtus_src.tar.gz && \
+    mkdir build && cd build && \
     cmake -DCMAKE_INSTALL_PREFIX=${GVIRTUS_HOME} .. && \
     make -j$(nproc) && make install
 
@@ -66,8 +84,9 @@ COPY cmake/Cuda.cmake ${OPENPOSE_HOME}/cmake/Cuda.cmake
 # Copy patched Caffe (after OpenPose clone)
 COPY caffe/ ${OPENPOSE_HOME}/3rdparty/caffe/
 
-# Optional: Copy models directory if needed
-# COPY models/ ${OPENPOSE_HOME}/models/
+# Pre-staged BODY_25 model (face/hand downloads disabled via cmake flags).
+# Required because CMU's model server returns empty files (HTTP 22).
+COPY models/ ${OPENPOSE_HOME}/models/
 
 WORKDIR ${OPENPOSE_HOME}/build
 RUN cmake .. \
@@ -77,6 +96,10 @@ RUN cmake .. \
     -DBUILD_DOCS=OFF \
     -DBUILD_TESTS=OFF \
     -DCUDA_USE_STATIC_CUDA_RUNTIME=OFF \
+    -DDOWNLOAD_FACE_MODEL=OFF \
+    -DDOWNLOAD_HAND_MODEL=OFF \
+    -DDOWNLOAD_BODY_COCO_MODEL=OFF \
+    -DDOWNLOAD_BODY_MPI_MODEL=OFF \
     -DCUDA_INCLUDE_DIRS="${GVIRTUS_HOME}/include;/usr/local/cuda-12.6/include" \
     -DCMAKE_CXX_FLAGS="-L${GVIRTUS_HOME}/lib -L${GVIRTUS_HOME}/lib/frontend" \
     && make -j"$(nproc)"
