@@ -1,4 +1,4 @@
-.PHONY: docker-build-push-dev local-docker-build-backend docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test local-docker-build-simple-matrix build-native-bench run-native-bench
+.PHONY: docker-build-push-dev local-docker-build-backend docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test local-docker-build-simple-matrix
 USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
 DOCKER_HUB_USERNAME ?= aauce25
 
@@ -193,17 +193,6 @@ run-simple-matrix-test:
 		$(DOCKER_REPO_DEV)/simple_matrix_gvirtus:cuda12.6 \
 		bash /opt/GVirtuS/examples/frontend.sh
 
-run-simple-matrix-reconnect-test:
-	@set -e; \
-	loops="$${LOOPS:-$(UCX_RECONNECT_LOOPS)}"; \
-	i=1; \
-	while [ "$$i" -le "$$loops" ]; do \
-		echo "[UCX reconnect] iteration $$i/$$loops"; \
-		$(MAKE) run-simple-matrix-test; \
-		i=$$((i + 1)); \
-	done; \
-	echo "[UCX reconnect] completed $$loops iterations"
-
 stop-simple-matrix-test:
 	docker stop simple_matrix_test_container-$(USER) || true
 
@@ -212,19 +201,3 @@ ucx-discover:
 
 ucx-discover-docker:
 	docker exec gvirtus-$(USER) bash /gvirtus/scripts/ucx-discover.sh
-
-build-native-bench:
-	docker build \
-		-f examples/simple_matrix/Dockerfile.native \
-		-t cuda-native-bench \
-		examples/simple_matrix
-
-run-native-bench:
-	docker run \
-		--rm \
-		--runtime=nvidia \
-		--name native-bench-$(USER) \
-		-e MATRIX_SIZES="$(or $(MATRIX_SIZES),128 256 512 1024 2048 4096 8192 16384)" \
-		-e ITERATIONS="$(or $(ITERATIONS),10)" \
-		-e WARMUP="$(or $(WARMUP),2)" \
-		cuda-native-bench
