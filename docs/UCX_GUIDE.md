@@ -351,5 +351,5 @@ Frontend (GPU-less)                   Backend (GPU host)
 
 - [UCX_OPTIMIZATIONS.md](UCX_OPTIMIZATIONS.md) — Detailed optimization stack walkthrough
 - [GPUDIRECT.md](GPUDIRECT.md) — GPUDirect implementation phases (B1-B4)
-- [UCX_PROPERTIES_GUIDE.md](../UCX_PROPERTIES_GUIDE.md) — Makefile variable reference
+- [UCX_PROPERTIES_GUIDE.md](UCX_PROPERTIES_GUIDE.md) — Makefile variable reference
 - [system-requirements-guide.md](system-requirements-guide.md) — Full system setup
