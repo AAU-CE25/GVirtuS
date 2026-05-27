@@ -21,6 +21,10 @@ RUN rm -f /etc/apt/sources.list.d/cuda*.list \
     liblz4-dev \
     cmake \
     wget \
+    # Dev-only: RDMA/network discovery tools (make ucx-discover-docker)
+    rdma-core \
+    infiniband-diags \
+    iproute2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install UCX with mlx5 + CUDA support (install all UCX debs from the bundle)
