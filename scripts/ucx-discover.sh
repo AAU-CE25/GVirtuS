@@ -56,7 +56,16 @@ fi
 # ---------------------------------------------------------------------------
 section "UCX Available Transports"
 if command -v ucx_info &>/dev/null; then
-    ucx_info -d 2>/dev/null | grep -E "^#.*Transport|Device:" | head -30 | sed 's/^/  /'
+    printf "  %-16s %s\n" "TRANSPORT" "DEVICE"
+    printf "  %-16s %s\n" "---------" "------"
+    ucx_info -d 2>/dev/null | grep -E "Transport:|Device:" | paste - - | \
+        awk '{
+            for(i=1;i<=NF;i++) {
+                if($i=="Transport:") t=$(i+1)
+                if($i=="Device:") d=$(i+1)
+            }
+            printf "  %-16s %s\n", t, d
+        }'
 else
     skip "ucx_info (install ucx or ucx-utils)"
 fi
