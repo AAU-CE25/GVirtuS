@@ -2,14 +2,10 @@
 USER := ll33pq
 DOCKER_HUB_USERNAME ?= ll33pq# change username for local dev!
 
+# Load UCX transport config from etc/ucx.env (edit that file to switch presets).
+# Command-line overrides still work: UCX_TLS=tcp,self make run-gvirtus-backend-dev
+-include etc/ucx.env
 
-GVIRTUS_LOG_LEVEL ?= 10000
-GVIRTUS_UCX_DATAPATH ?= am
-UCX_TLS ?=
-UCX_NET_DEVICES ?=
-UCX_LOG_LEVEL ?= info
-UCX_SOCKADDR_TLS_PRIORITY ?=
-UCX_IB_GID_INDEX ?= # empty by default; set to 3 for RoCEv2
 SIMPLE_MATRIX_GPU_FLAGS ?=
 
 
@@ -78,6 +74,7 @@ run-gvirtus-backend-dev:
 		-v ./CMakeLists.txt:/gvirtus/CMakeLists.txt \
 		-v ./docker/dev/entrypoint.sh:/entrypoint.sh \
 		-v ./examples:/gvirtus/examples/ \
+		-v ./scripts:/gvirtus/scripts/ \
 		--entrypoint /entrypoint.sh \
 		--name gvirtus-$(USER) \
 		--runtime=nvidia \
@@ -209,3 +206,9 @@ run-simple-matrix-reconnect-test:
 
 stop-simple-matrix-test:
 	docker stop simple_matrix_test_container-$(USER) || true
+
+ucx-discover:
+	@bash scripts/ucx-discover.sh
+
+ucx-discover-docker:
+	docker exec gvirtus-$(USER) bash /gvirtus/scripts/ucx-discover.sh
