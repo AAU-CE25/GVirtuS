@@ -128,6 +128,24 @@ class Buffer {
         mBackOffset = mLength;
     }
 
+    // Bulk-append raw bytes with NO size prefix (unlike Add<T*>(item, n)
+    // which prepends an 8-byte size header). Used by Frontend.cpp to flush
+    // a large response payload (e.g. 64MB cudaMemcpy D2H) into the output
+    // buffer in a single memcpy. Replacing this with the per-byte Add<char>
+    // loop costs ~67M function calls + repeated reallocs = ~1.3s for 64MB;
+    // this is ~3ms instead.
+    void AppendBytes(const char *src, size_t n) {
+        if (n == 0 || src == NULL) return;
+        if ((mLength + n) >= mSize) {
+            mSize = ((mLength + n) / mBlockSize + 1) * mBlockSize;
+            if ((mpBuffer = (char *)realloc(mpBuffer, mSize)) == NULL)
+                throw std::runtime_error("Buffer::AppendBytes: Can't reallocate memory.");
+        }
+        std::memcpy(mpBuffer + mLength, src, n);
+        mLength += n;
+        mBackOffset = mLength;
+    }
+
     template <class T>
     void AddConst(const T item) {
         if ((mLength + safe_sizeof<T>()) >= mSize) {
@@ -297,6 +315,18 @@ class Buffer {
     size_t GetBufferSize() const;
     void Dump(Communicator *c) const;
 
+    // GPUDirect (Variant B Step B4): optional GPU-backed payload. When set,
+    // the trailing portion of the LOGICAL message lives on the GPU at
+    // `gpu_addr` rather than in mpBuffer. GPU-aware handlers (e.g. cudaMemcpy
+    // HostToDevice in CudaRtHandler_memory) detect this and route the
+    // payload via cudaMemcpyDeviceToDevice instead of HostToDevice — saving
+    // the backend D2H consolidation + H2D copy pair. Set by Process.cpp
+    // when constructing the input Buffer from a frame whose PooledMsg has
+    // gpu_data != null (post-Step B3 wire format).
+    void SetGpuPayload(void *gpu_addr, std::size_t size);
+    void *GetGpuPayload() const;
+    std::size_t GetGpuPayloadSize() const;
+
    private:
     size_t mBlockSize;
     size_t mSize;
@@ -305,5 +335,7 @@ class Buffer {
     size_t mBackOffset;
     char *mpBuffer;
     bool mOwnBuffer;
+    void *mGpuPayload = nullptr;
+    std::size_t mGpuPayloadSize = 0;
 };
 }  // namespace gvirtus::communicators

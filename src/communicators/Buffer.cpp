@@ -114,6 +114,15 @@ const char *const Buffer::GetBuffer() const { return mpBuffer; }
 
 size_t Buffer::GetBufferSize() const { return mLength; }
 
+void Buffer::SetGpuPayload(void *gpu_addr, std::size_t size) {
+    mGpuPayload = gpu_addr;
+    mGpuPayloadSize = size;
+}
+
+void *Buffer::GetGpuPayload() const { return mGpuPayload; }
+
+std::size_t Buffer::GetGpuPayloadSize() const { return mGpuPayloadSize; }
+
 void Buffer::Dump(Communicator *c) const {
     /**
      *  TO-DO scrivi al message dispatcher che stai per scrivere

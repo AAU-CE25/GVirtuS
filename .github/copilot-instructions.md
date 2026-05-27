@@ -17,8 +17,6 @@ Application → Frontend (stub) → Communicator (TCP/RDMA) → Backend → Plug
 
 > **Important**: Do NOT modify files under `plugins/` unless the task explicitly requires it.
 
-See [src/architecture.md](src/architecture.md) for the full component breakdown.
-
 ---
 
 ## Hardware & Network Setup

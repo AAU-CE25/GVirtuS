@@ -1,8 +1,13 @@
-.PHONY: docker-build-push-dev docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test
+.PHONY: docker-build-push-dev local-docker-build-backend docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test local-docker-build-simple-matrix
 USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
 DOCKER_HUB_USERNAME ?= aauce25
 
-GVIRTUS_LOG_LEVEL ?= 20000
+# Load UCX transport config from etc/ucx.env (edit that file to switch presets).
+# Command-line overrides still work: UCX_TLS=tcp,self make run-gvirtus-backend-dev
+-include etc/ucx.env
+
+SIMPLE_MATRIX_GPU_FLAGS ?=
+
 
 DOCKER_REPO_DEV := $(DOCKER_HUB_USERNAME)/gvirtus-dev
 DOCKER_REPO_TEST := $(DOCKER_HUB_USERNAME)/gvirtus-test
@@ -12,6 +17,15 @@ docker-build-push-dev:
 	docker buildx build \
 		--platform linux/amd64 \
 		--push \
+		--no-cache \
+		-f docker/dev/Dockerfile \
+		-t $(DOCKER_REPO_DEV):cuda12.6.3-cudnn-ubuntu22.04 \
+		.
+
+local-docker-build-backend:
+	docker buildx build \
+		--platform linux/amd64 \
+		--load \
 		--no-cache \
 		-f docker/dev/Dockerfile \
 		-t $(DOCKER_REPO_DEV):cuda12.6.3-cudnn-ubuntu22.04 \
@@ -60,11 +74,21 @@ run-gvirtus-backend-dev:
 		-v ./CMakeLists.txt:/gvirtus/CMakeLists.txt \
 		-v ./docker/dev/entrypoint.sh:/entrypoint.sh \
 		-v ./examples:/gvirtus/examples/ \
+		-v ./scripts:/gvirtus/scripts/ \
 		--entrypoint /entrypoint.sh \
 		--name gvirtus-$(USER) \
 		--runtime=nvidia \
 		--shm-size=8G \
 		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \
+		-e GVIRTUS_UCX_DATAPATH=$(GVIRTUS_UCX_DATAPATH) \
+		$(if $(BACKEND_CONFIG),-e BACKEND_CONFIG=$(BACKEND_CONFIG)) \
+		$(if $(UCX_TLS),-e UCX_TLS=$(UCX_TLS)) \
+		$(if $(UCX_NET_DEVICES),-e UCX_NET_DEVICES=$(UCX_NET_DEVICES)) \
+		-e UCX_LOG_LEVEL=$(UCX_LOG_LEVEL) \
+		$(if $(UCX_SOCKADDR_TLS_PRIORITY),-e UCX_SOCKADDR_TLS_PRIORITY=$(UCX_SOCKADDR_TLS_PRIORITY)) \
+		$(if $(UCX_IB_GID_INDEX),-e UCX_IB_GID_INDEX=$(UCX_IB_GID_INDEX)) \
+		$(if $(GVIRTUS_RMA_ZEROCOPY),-e GVIRTUS_RMA_ZEROCOPY=$(GVIRTUS_RMA_ZEROCOPY)) \
+		$(if $(GVIRTUS_GPUDIRECT),-e GVIRTUS_GPUDIRECT=$(GVIRTUS_GPUDIRECT)) \
 		$(DOCKER_REPO_DEV):cuda12.6.3-cudnn-ubuntu22.04
 
 attach-gvirtus-bash:
@@ -139,14 +163,41 @@ docker-build-simple-matrix:
 		-t $(DOCKER_HUB_USERNAME)/simple_matrix_gvirtus:cuda12.6 \
 		.	
 
-run-simple-matrix-test: 
+local-docker-build-simple-matrix:
+	docker buildx build \
+		--platform linux/amd64 \
+		--load \
+		--no-cache \
+		-f examples/simple_matrix/Dockerfile \
+		-t $(DOCKER_REPO_DEV)/simple_matrix_gvirtus:cuda12.6 \
+		.
+
+run-simple-matrix-test:
 	docker run --rm \
 		--name simple_matrix_test_container-$(USER) \
+		$(SIMPLE_MATRIX_GPU_FLAGS) \
 		--network host \
+		--device /dev/infiniband \
+		--cap-add IPC_LOCK \
+		--ulimit memlock=-1 \
+		-e GVIRTUS_CONFIG=/opt/GVirtuS/etc/properties_ucx.json \
+		-e GVIRTUS_UCX_DATAPATH=$(GVIRTUS_UCX_DATAPATH) \
+		$(if $(UCX_TLS),-e UCX_TLS=$(UCX_TLS)) \
+		$(if $(UCX_NET_DEVICES),-e UCX_NET_DEVICES=$(UCX_NET_DEVICES)) \
+		-e UCX_LOG_LEVEL=$(UCX_LOG_LEVEL) \
+		$(if $(UCX_SOCKADDR_TLS_PRIORITY),-e UCX_SOCKADDR_TLS_PRIORITY=$(UCX_SOCKADDR_TLS_PRIORITY)) \
+		$(if $(UCX_IB_GID_INDEX),-e UCX_IB_GID_INDEX=$(UCX_IB_GID_INDEX)) \
+		$(if $(UCX_RNDV_THRESH),-e UCX_RNDV_THRESH=$(UCX_RNDV_THRESH)) \
 		-v ./examples/simple_matrix:/opt/GVirtuS/examples \
-		-v ./etc/properties.json:/opt/GVirtuS/etc/properties.json \
-		$(DOCKER_HUB_USERNAME)/simple_matrix_gvirtus:cuda12.6 \
+		-v ./etc/properties_ucx.json:/opt/GVirtuS/etc/properties_ucx.json \
+		$(DOCKER_REPO_DEV)/simple_matrix_gvirtus:cuda12.6 \
 		bash /opt/GVirtuS/examples/frontend.sh
 
 stop-simple-matrix-test:
 	docker stop simple_matrix_test_container-$(USER) || true
+
+ucx-discover:
+	@bash scripts/ucx-discover.sh
+
+ucx-discover-docker:
+	docker exec gvirtus-$(USER) bash /gvirtus/scripts/ucx-discover.sh

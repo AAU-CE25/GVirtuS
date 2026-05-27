@@ -7,12 +7,16 @@ Result::Result(int exit_code) {
     mpOutputBuffer = NULL;
 }
 
-Result::Result(int exit_code, const std::shared_ptr<Buffer> output_buffer) {
+Result::Result(int exit_code, const std::shared_ptr<gvirtus::communicators::Buffer> output_buffer) {
     mExitCode = exit_code;
     mpOutputBuffer = (output_buffer);
 }
 
 int Result::GetExitCode() { return mExitCode; }
+
+std::shared_ptr<gvirtus::communicators::Buffer> Result::GetOutputBuffer() const {
+    return mpOutputBuffer;
+}
 
 void Result::Dump(Communicator *c) {
     c->Write((char *)&mExitCode, sizeof(int));
@@ -29,3 +33,12 @@ void Result::Dump(Communicator *c) {
 void Result::TimeTaken(double time_taken) { mTimeTaken = time_taken; }
 
 double Result::TimeTaken() const { return mTimeTaken; }
+
+void Result::SetGpuPayload(void *gpu_addr, std::size_t size) {
+    mGpuPayload = gpu_addr;
+    mGpuPayloadSize = size;
+}
+
+void *Result::GetGpuPayload() const { return mGpuPayload; }
+
+std::size_t Result::GetGpuPayloadSize() const { return mGpuPayloadSize; }
