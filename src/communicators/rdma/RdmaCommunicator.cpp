@@ -147,6 +147,13 @@ size_t RdmaCommunicator::Read(char *buffer, size_t size) {
     std::cout << "Called Read(char *buffer, size_t size) - Size: " << size << std::endl;
 #endif
 
+    // Zero-byte reads must short-circuit. ktm_rdma_post_recv with length=0
+    // enqueues a WR that the peer never matches (peer's Write() does NOT post
+    // a 0-byte send when size==0 — symmetric short-circuit below), so the
+    // ibv_poll_cq spin would hang forever. Empty payloads are legitimate
+    // (e.g. cublasCreate has no input args → input Buffer size 0).
+    if (size == 0) return 0;
+
     if (size < 1024 * 5) {
         ktm_rdma_post_recv(rdmaCmId, nullptr, preregisteredBuffer, size, preregisteredMr);
     } else {
@@ -172,6 +179,11 @@ size_t RdmaCommunicator::Write(const char *buffer, size_t size) {
 #ifdef DEBUG
     std::cout << "Called Write(const char *buffer, size_t size) - Size: " << size << std::endl;
 #endif
+
+    // Symmetric short-circuit to Read() — see comment there. Posting a 0-byte
+    // send works on its own but would orphan the peer's matching recv WR.
+    // Skipping the round-trip entirely keeps both sides' CQs in sync.
+    if (size == 0) return 0;
 
     char *actualBuffer = nullptr;
 

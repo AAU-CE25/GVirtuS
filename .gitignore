@@ -147,3 +147,30 @@ examples/simple_matrix/benchmark_results/
 
 #Opencv-DNN
 build_cudnn_patch/
+
+# === EuroMLSys LM serving example ===
+examples/euromlsys-lm/upstream/
+examples/euromlsys-lm/__pycache__/
+**/__pycache__/
+*.pyc
+
+# === face-recognition example ===
+examples/face-recognition/*.pth
+examples/face-recognition/dataset/
+
+# === opencv-dnn example (downloaded models + datasets + bench outputs) ===
+examples/opencv-dnn/*.onnx
+examples/opencv-dnn/imagenet_test_1000/
+examples/opencv-dnn/dnn_test
+examples/opencv-dnn/dnn_test_native
+examples/opencv-dnn/total_times_*.txt
+examples/opencv-dnn/benchmark/benchmark_results/
+
+# === opencv-yolo example (compiled binary + sample output) ===
+examples/opencv-yolo/yolo_test
+examples/opencv-yolo/output.jpg
+
+# === simple_matrix bench binaries ===
+examples/simple_matrix/simple_matrix_native
+examples/simple_matrix/simple_matrix_rdma
+examples/simple_matrix/matrixMul_aponte
