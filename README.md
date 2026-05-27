@@ -229,6 +229,19 @@ This will connect to the GVirtuS backend component, **transparently redirect all
 ---
 
 
+# 🚀 UCX Communicator (High-Performance Transport)
+
+GVirtuS includes a UCX-based communicator that auto-negotiates TCP, RoCE, or InfiniBand per connection. It supports GPUDirect RDMA for zero-copy GPU transfers over the network.
+
+See the full setup and tuning guide: **[docs/UCX_GUIDE.md](docs/UCX_GUIDE.md)**
+
+Additional UCX documentation:
+- [UCX Properties Guide](UCX_PROPERTIES_GUIDE.md) — Makefile variable reference
+- [docs/UCX_OPTIMIZATIONS.md](docs/UCX_OPTIMIZATIONS.md) — Optimization stack details
+- [docs/GPUDIRECT.md](docs/GPUDIRECT.md) — GPUDirect RDMA implementation
+
+---
+
 # ⚠️ Disclaimers
 
 > [!IMPORTANT]
