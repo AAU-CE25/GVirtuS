@@ -79,7 +79,7 @@ run-gvirtus-backend-dev:
 		-v ./docker/dev/entrypoint.sh:/entrypoint.sh \
 		-v ./examples:/gvirtus/examples/ \
 		--entrypoint /entrypoint.sh \
-		--name gvirtus-$(USER) \
+		--name gvirtus-$(USER)-test \
 		--runtime=nvidia \
 		--shm-size=8G \
 		-e GVIRTUS_LOGLEVEL=$(GVIRTUS_LOG_LEVEL) \

@@ -1,3 +1,6 @@
+#include <stdexcept>
+#include <cstring>
+#include <cerrno>
 //
 // Created by Mariano Aponte on 07/12/23.
 //
@@ -164,9 +167,29 @@ size_t RdmaCommunicator::Read(char *buffer, size_t size) {
     int num_comp;
     do num_comp = ibv_poll_cq(rdmaCmId->recv_cq, 1, &workCompletion);
     while (num_comp == 0);
-    if (num_comp < 0) throw "ibv_poll_cq() failed";
-    if (workCompletion.status != IBV_WC_SUCCESS)
-        throw "Failed status " + std::string(ibv_wc_status_str(workCompletion.status));
+    if (num_comp < 0) {
+        std::cerr << "[RDMA ERROR] ibv_poll_cq() failed"
+                  << " errno=" << errno
+                  << " (" << strerror(errno) << ")"
+                  << std::endl;
+        throw std::runtime_error("RdmaCommunicator: ibv_poll_cq() failed");
+    }
+
+    if (workCompletion.status != IBV_WC_SUCCESS) {
+        std::cerr << "[RDMA ERROR] completion failed"
+                  << " status=" << workCompletion.status
+                  << " (" << ibv_wc_status_str(workCompletion.status) << ")"
+                  << " opcode=" << workCompletion.opcode
+                  << " vendor_err=" << workCompletion.vendor_err
+                  << " wr_id=" << workCompletion.wr_id
+                  << " byte_len=" << workCompletion.byte_len
+                  << std::endl;
+
+        throw std::runtime_error(
+            std::string("RdmaCommunicator: completion failed: ") +
+            ibv_wc_status_str(workCompletion.status)
+        );
+    }
 
     if (size < 1024 * 5) {
         memcpy(buffer, preregisteredBuffer, size);
@@ -201,9 +224,29 @@ size_t RdmaCommunicator::Write(const char *buffer, size_t size) {
     int num_comp;
     do num_comp = ibv_poll_cq(rdmaCmId->send_cq, 1, &workCompletion);
     while (num_comp == 0);
-    if (num_comp < 0) throw "ibv_poll_cq() failed";
-    if (workCompletion.status != IBV_WC_SUCCESS)
-        throw "Failed status " + std::string(ibv_wc_status_str(workCompletion.status));
+    if (num_comp < 0) {
+        std::cerr << "[RDMA ERROR] ibv_poll_cq() failed"
+                  << " errno=" << errno
+                  << " (" << strerror(errno) << ")"
+                  << std::endl;
+        throw std::runtime_error("RdmaCommunicator: ibv_poll_cq() failed");
+    }
+
+    if (workCompletion.status != IBV_WC_SUCCESS) {
+        std::cerr << "[RDMA ERROR] completion failed"
+                  << " status=" << workCompletion.status
+                  << " (" << ibv_wc_status_str(workCompletion.status) << ")"
+                  << " opcode=" << workCompletion.opcode
+                  << " vendor_err=" << workCompletion.vendor_err
+                  << " wr_id=" << workCompletion.wr_id
+                  << " byte_len=" << workCompletion.byte_len
+                  << std::endl;
+
+        throw std::runtime_error(
+            std::string("RdmaCommunicator: completion failed: ") +
+            ibv_wc_status_str(workCompletion.status)
+        );
+    }
 
     if (size > 1024 * 5) {
         free(actualBuffer);

@@ -702,15 +702,20 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
         cudaMemcpyKind kind = input_buffer->BackGet<cudaMemcpyKind>();
         size_t count = input_buffer->BackGet<size_t>();
 
-        cudaError_t exit_code;
+        cudaError_t exit_code = cudaSuccess;
         std::shared_ptr<Buffer> out;
         std::shared_ptr<Result> result = NULL;
 
         switch (kind) {
             case cudaMemcpyDefault:
             case cudaMemcpyHostToHost:
+                /*
+                 * Original behavior preserved.
+                 * In GVirtuS this path does not need a real backend CUDA copy.
+                 */
                 result = std::make_shared<Result>(cudaSuccess);
                 break;
+
             case cudaMemcpyHostToDevice:
                 try {
                     dst = input_buffer->GetFromMarshal<void *>();
@@ -719,42 +724,131 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
                     cerr << e.what() << endl;
                     return std::make_shared<Result>(cudaErrorMemoryAllocation);
                 }
+
+                LOG4CPLUS_DEBUG(Logger::getInstance(LOG4CPLUS_TEXT("GVirtuS")),
+                                "cudaMemcpyAsync HostToDevice: dst: "
+                                    << dst << ", src: " << src << ", count: " << count
+                                    << ", kind: " << kind << ", stream: " << stream);
+
                 exit_code = cudaMemcpyAsync(dst, src, count, kind, stream);
+
+                /*
+                 * IMPORTANT:
+                 * The source buffer belongs to the marshalled input buffer / UCX slot.
+                 * If we return immediately, the slot may be released or reused while
+                 * the GPU is still reading from it.
+                 *
+                 * This makes cudaMemcpyAsync effectively synchronous for now,
+                 * but it validates whether the crash is caused by async lifetime issues.
+                 */
+                if (exit_code == cudaSuccess) {
+                    cudaError_t sync_err = cudaStreamSynchronize(stream);
+                    if (sync_err != cudaSuccess) {
+                        exit_code = sync_err;
+                    }
+                }
+
                 result = std::make_shared<Result>(exit_code);
                 break;
+
             case cudaMemcpyDeviceToHost:
-                // FIXME: use buffer delegate
+                /*
+                 * Allocate temporary host output buffer.
+                 * This buffer must NOT be copied into the Result or freed until
+                 * cudaMemcpyAsync has actually completed.
+                 */
                 dst = new char[count];
-                /* skipping a char for fake host pointer */
+
                 try {
+                    /*
+                     * Skipping a char for fake host pointer.
+                     */
                     input_buffer->Assign<char>();
+                    src = input_buffer->GetFromMarshal<void *>();
+                } catch (const std::exception &e) {
+                    cerr << e.what() << endl;
+                    delete[] (char *)dst;
+                    return std::make_shared<Result>(cudaErrorMemoryAllocation);
+                }
+
+                LOG4CPLUS_DEBUG(Logger::getInstance(LOG4CPLUS_TEXT("GVirtuS")),
+                                "cudaMemcpyAsync DeviceToHost: dst: "
+                                    << dst << ", src: " << src << ", count: " << count
+                                    << ", kind: " << kind << ", stream: " << stream);
+
+                exit_code = cudaMemcpyAsync(dst, src, count, kind, stream);
+
+                /*
+                 * We must wait before:
+                 *   1. serializing dst into the output Buffer
+                 *   2. deleting dst
+                 *
+                 * Otherwise the GPU may still be writing into freed or stale memory.
+                 */
+                if (exit_code == cudaSuccess) {
+                    cudaError_t sync_err = cudaStreamSynchronize(stream);
+                    if (sync_err != cudaSuccess) {
+                        exit_code = sync_err;
+                    }
+                }
+
+                try {
+                    out = std::make_shared<Buffer>();
+
+                    /*
+                     * Only add output payload if the CUDA copy completed correctly.
+                     * If it failed, return just the CUDA error.
+                     */
+                    if (exit_code == cudaSuccess) {
+                        out->Add<char>((char *)dst, count);
+                        result = std::make_shared<Result>(exit_code, out);
+                    } else {
+                        result = std::make_shared<Result>(exit_code);
+                    }
+                } catch (const std::exception &e) {
+                    cerr << e.what() << endl;
+                    delete[] (char *)dst;
+                    return std::make_shared<Result>(cudaErrorMemoryAllocation);
+                }
+
+                delete[] (char *)dst;
+                break;
+
+            case cudaMemcpyDeviceToDevice:
+                try {
+                    dst = input_buffer->GetFromMarshal<void *>();
                     src = input_buffer->GetFromMarshal<void *>();
                 } catch (const std::exception &e) {
                     cerr << e.what() << endl;
                     return std::make_shared<Result>(cudaErrorMemoryAllocation);
                 }
+
+                LOG4CPLUS_DEBUG(Logger::getInstance(LOG4CPLUS_TEXT("GVirtuS")),
+                                "cudaMemcpyAsync DeviceToDevice: dst: "
+                                    << dst << ", src: " << src << ", count: " << count
+                                    << ", kind: " << kind << ", stream: " << stream);
+
                 exit_code = cudaMemcpyAsync(dst, src, count, kind, stream);
-                try {
-                    LOG4CPLUS_DEBUG(Logger::getInstance(LOG4CPLUS_TEXT("GVirtuS")),
-                                    "cudaMemcpyAsync HostToDevice: dst: "
-                                        << dst << ", src: " << src << ", count: " << count
-                                        << ", kind: " << kind << ", stream: " << stream);
-                    out = std::make_shared<Buffer>();
-                    out->Add<char>((char *)dst, count);
-                } catch (const std::exception &e) {
-                    cerr << e.what() << endl;
-                    return std::make_shared<Result>(cudaErrorMemoryAllocation);
+
+                /*
+                 * Debug/stability mode: force completion before returning.
+                 * Later this can be replaced with cudaEventRecord + pending operation tracking.
+                 */
+                if (exit_code == cudaSuccess) {
+                    cudaError_t sync_err = cudaStreamSynchronize(stream);
+                    if (sync_err != cudaSuccess) {
+                        exit_code = sync_err;
+                    }
                 }
-                delete[] (char *)dst;
-                result = std::make_shared<Result>(exit_code, out);
-                break;
-            case cudaMemcpyDeviceToDevice:
-                dst = input_buffer->GetFromMarshal<void *>();
-                src = input_buffer->GetFromMarshal<void *>();
-                exit_code = cudaMemcpyAsync(dst, src, count, kind, stream);
+
                 result = std::make_shared<Result>(exit_code);
                 break;
+
+            default:
+                result = std::make_shared<Result>(cudaErrorInvalidMemcpyDirection);
+                break;
         }
+
         return result;
     } catch (const std::exception &e) {
         cerr << e.what() << endl;
