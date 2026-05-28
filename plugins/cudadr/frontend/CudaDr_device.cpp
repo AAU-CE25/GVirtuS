@@ -110,3 +110,62 @@ extern "C" CUresult cuDeviceTotalMem(size_t *bytes, CUdevice dev) {
     if (CudaDrFrontend::Success()) *bytes = *(CudaDrFrontend::GetOutputHostPointer<size_t>());
     return CudaDrFrontend::GetExitCode();
 }
+
+// Undefine CUDA header macros that rename these functions
+#ifdef cuDeviceGetUuid
+#undef cuDeviceGetUuid
+#endif
+#ifdef cuDevicePrimaryCtxSetFlags
+#undef cuDevicePrimaryCtxSetFlags
+#endif
+
+/*Returns a UUID for the device (v2).*/
+extern "C" CUresult cuDeviceGetUuid_v2(CUuuid *uuid, CUdevice dev) {
+    CudaDrFrontend::Prepare();
+    CudaDrFrontend::AddVariableForArguments(dev);
+    CudaDrFrontend::Execute("cuDeviceGetUuid");
+    if (CudaDrFrontend::Success()) {
+        memmove(uuid->bytes, CudaDrFrontend::GetOutputHostPointer<char>(16), 16);
+    }
+    return CudaDrFrontend::GetExitCode();
+}
+
+// Provide unversioned alias
+extern "C" CUresult cuDeviceGetUuid(CUuuid *uuid, CUdevice dev)
+    __attribute__((alias("cuDeviceGetUuid_v2")));
+
+/*Returns a PCI Bus Id string for the device.*/
+extern "C" CUresult cuDeviceGetPCIBusId(char *pciBusId, int len, CUdevice dev) {
+    CudaDrFrontend::Prepare();
+    CudaDrFrontend::AddVariableForArguments(len);
+    CudaDrFrontend::AddVariableForArguments(dev);
+    CudaDrFrontend::Execute("cuDeviceGetPCIBusId");
+    if (CudaDrFrontend::Success()) {
+        char *temp = CudaDrFrontend::GetOutputString();
+        strncpy(pciBusId, temp, len);
+        pciBusId[len - 1] = '\0';
+    }
+    return CudaDrFrontend::GetExitCode();
+}
+
+/*Returns a device handle given a PCI bus ID string.*/
+extern "C" CUresult cuDeviceGetByPCIBusId(CUdevice *dev, const char *pciBusId) {
+    CudaDrFrontend::Prepare();
+    CudaDrFrontend::AddStringForArguments(pciBusId);
+    CudaDrFrontend::Execute("cuDeviceGetByPCIBusId");
+    if (CudaDrFrontend::Success()) *dev = *(CudaDrFrontend::GetOutputHostPointer<CUdevice>());
+    return CudaDrFrontend::GetExitCode();
+}
+
+/*Sets the flags for a device's primary context (v2).*/
+extern "C" CUresult cuDevicePrimaryCtxSetFlags_v2(CUdevice dev, unsigned int flags) {
+    CudaDrFrontend::Prepare();
+    CudaDrFrontend::AddVariableForArguments(dev);
+    CudaDrFrontend::AddVariableForArguments(flags);
+    CudaDrFrontend::Execute("cuDevicePrimaryCtxSetFlags");
+    return CudaDrFrontend::GetExitCode();
+}
+
+// Provide unversioned alias
+extern "C" CUresult cuDevicePrimaryCtxSetFlags(CUdevice dev, unsigned int flags)
+    __attribute__((alias("cuDevicePrimaryCtxSetFlags_v2")));

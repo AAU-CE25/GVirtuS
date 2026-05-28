@@ -102,3 +102,69 @@ CUDA_DRIVER_HANDLER(DeviceTotalMem) {
     out->Add(bytes);
     return std::make_shared<Result>((cudaError_t)exit_code, out);
 }
+
+/*Returns a UUID for the device.*/
+CUDA_DRIVER_HANDLER(DeviceGetUuid) {
+    CUdevice dev = input_buffer->Get<CUdevice>();
+    CUuuid uuid;
+    memset(&uuid, 0, sizeof(uuid));
+    CUresult exit_code = cuDeviceGetUuid(&uuid, dev);
+    std::shared_ptr<Buffer> out = std::make_shared<Buffer>();
+    out->Add<char>(uuid.bytes, 16);
+    return std::make_shared<Result>((cudaError_t)exit_code, out);
+}
+
+/*Returns a PCI Bus Id string for the device.*/
+CUDA_DRIVER_HANDLER(DeviceGetPCIBusId) {
+    int len = input_buffer->Get<int>();
+    CUdevice dev = input_buffer->Get<CUdevice>();
+    char *pciBusId = new char[len];
+    memset(pciBusId, 0, len);
+    CUresult exit_code = cuDeviceGetPCIBusId(pciBusId, len, dev);
+    std::shared_ptr<Buffer> out = std::make_shared<Buffer>();
+    out->AddString(pciBusId);
+    delete[] pciBusId;
+    return std::make_shared<Result>((cudaError_t)exit_code, out);
+}
+
+/*Returns a device handle given a PCI bus ID string.*/
+CUDA_DRIVER_HANDLER(DeviceGetByPCIBusId) {
+    char *pciBusId = input_buffer->AssignString();
+    CUdevice dev;
+    CUresult exit_code = cuDeviceGetByPCIBusId(&dev, pciBusId);
+    std::shared_ptr<Buffer> out = std::make_shared<Buffer>();
+    out->Add(dev);
+    return std::make_shared<Result>((cudaError_t)exit_code, out);
+}
+
+/*Sets the flags for a device's primary context.*/
+CUDA_DRIVER_HANDLER(DevicePrimaryCtxSetFlags) {
+    CUdevice dev = input_buffer->Get<CUdevice>();
+    unsigned int flags = input_buffer->Get<unsigned int>();
+    CUresult exit_code = cuDevicePrimaryCtxSetFlags(dev, flags);
+    return std::make_shared<Result>((cudaError_t)exit_code);
+}
+
+/*Retains the primary context.*/
+CUDA_DRIVER_HANDLER(DevicePrimaryCtxRetain) {
+    CUdevice dev = input_buffer->Get<CUdevice>();
+    CUcontext pctx;
+    CUresult exit_code = cuDevicePrimaryCtxRetain(&pctx, dev);
+    std::shared_ptr<Buffer> out = std::make_shared<Buffer>();
+    out->AddMarshal(pctx);
+    return std::make_shared<Result>((cudaError_t)exit_code, out);
+}
+
+/*Releases the primary context.*/
+CUDA_DRIVER_HANDLER(DevicePrimaryCtxRelease) {
+    CUdevice dev = input_buffer->Get<CUdevice>();
+    CUresult exit_code = cuDevicePrimaryCtxRelease(dev);
+    return std::make_shared<Result>((cudaError_t)exit_code);
+}
+
+/*Resets the primary context.*/
+CUDA_DRIVER_HANDLER(DevicePrimaryCtxReset) {
+    CUdevice dev = input_buffer->Get<CUdevice>();
+    CUresult exit_code = cuDevicePrimaryCtxReset(dev);
+    return std::make_shared<Result>((cudaError_t)exit_code);
+}

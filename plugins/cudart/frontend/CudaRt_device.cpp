@@ -56,11 +56,17 @@ extern "C" __host__ __device__ cudaError_t CUDARTAPI cudaGetDevice(int *device) 
 }
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaGetDeviceCount(int *count) {
+    std::cerr << "[GVIRTUS DEBUG] cudaGetDeviceCount() - Starting" << std::endl;
     CudaRtFrontend::Prepare();
+    std::cerr << "[GVIRTUS DEBUG] cudaGetDeviceCount - Prepare() done" << std::endl;
     CudaRtFrontend::AddHostPointerForArguments(count);
+    std::cerr << "[GVIRTUS DEBUG] cudaGetDeviceCount - Calling Execute()..." << std::endl;
     CudaRtFrontend::Execute("cudaGetDeviceCount");
+    std::cerr << "[GVIRTUS DEBUG] cudaGetDeviceCount - Execute() done" << std::endl;
     if (CudaRtFrontend::Success()) *count = *(CudaRtFrontend::GetOutputHostPointer<int>());
-    return CudaRtFrontend::GetExitCode();
+    cudaError_t result = CudaRtFrontend::GetExitCode();
+    std::cerr << "[GVIRTUS DEBUG] cudaGetDeviceCount - Returning " << result << ", count=" << (count ? *count : -1) << std::endl;
+    return result;
 }
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaGetDeviceProperties(cudaDeviceProp *prop,

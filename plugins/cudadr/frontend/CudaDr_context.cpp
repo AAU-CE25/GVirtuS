@@ -233,3 +233,63 @@ extern "C" CUresult cuCtxSetLimit(CUlimit limit, size_t value) {
     CudaDrFrontend::Execute("cuCtxSetLimit");
     return CudaDrFrontend::GetExitCode();
 }
+
+/*Returns the flags for the current context.*/
+extern "C" CUresult cuCtxGetFlags(unsigned int *flags) {
+    CudaDrFrontend::Prepare();
+    CudaDrFrontend::Execute("cuCtxGetFlags");
+    if (CudaDrFrontend::Success()) *flags = CudaDrFrontend::GetOutputVariable<unsigned int>();
+    return CudaDrFrontend::GetExitCode();
+}
+
+/*Gets the context's API version.*/
+extern "C" CUresult cuCtxGetApiVersion(CUcontext ctx, unsigned int *version) {
+    CudaDrFrontend::Prepare();
+    CudaDrFrontend::AddDevicePointerForArguments(ctx);
+    CudaDrFrontend::Execute("cuCtxGetApiVersion");
+    if (CudaDrFrontend::Success()) *version = CudaDrFrontend::GetOutputVariable<unsigned int>();
+    return CudaDrFrontend::GetExitCode();
+}
+
+/*Returns the preferred cache configuration for the current context.*/
+extern "C" CUresult cuCtxGetCacheConfig(CUfunc_cache *pconfig) {
+    CudaDrFrontend::Prepare();
+    CudaDrFrontend::Execute("cuCtxGetCacheConfig");
+    if (CudaDrFrontend::Success()) *pconfig = CudaDrFrontend::GetOutputVariable<CUfunc_cache>();
+    return CudaDrFrontend::GetExitCode();
+}
+
+/*Sets the preferred cache configuration for the current context.*/
+extern "C" CUresult cuCtxSetCacheConfig(CUfunc_cache config) {
+    CudaDrFrontend::Prepare();
+    CudaDrFrontend::AddVariableForArguments(config);
+    CudaDrFrontend::Execute("cuCtxSetCacheConfig");
+    return CudaDrFrontend::GetExitCode();
+}
+
+/*Returns the current shared memory configuration for the current context.*/
+extern "C" CUresult cuCtxGetSharedMemConfig(CUsharedconfig *pConfig) {
+    CudaDrFrontend::Prepare();
+    CudaDrFrontend::Execute("cuCtxGetSharedMemConfig");
+    if (CudaDrFrontend::Success()) *pConfig = CudaDrFrontend::GetOutputVariable<CUsharedconfig>();
+    return CudaDrFrontend::GetExitCode();
+}
+
+/*Sets the shared memory configuration for the current context.*/
+extern "C" CUresult cuCtxSetSharedMemConfig(CUsharedconfig config) {
+    CudaDrFrontend::Prepare();
+    CudaDrFrontend::AddVariableForArguments(config);
+    CudaDrFrontend::Execute("cuCtxSetSharedMemConfig");
+    return CudaDrFrontend::GetExitCode();
+}
+
+/*Returns the numerical values that correspond to the least and greatest stream priorities.*/
+extern "C" CUresult cuCtxGetStreamPriorityRange(int *leastPriority, int *greatestPriority) {
+    CudaDrFrontend::Prepare();
+    CudaDrFrontend::Execute("cuCtxGetStreamPriorityRange");
+    if (CudaDrFrontend::Success()) {
+        *leastPriority = CudaDrFrontend::GetOutputVariable<int>();
+        *greatestPriority = CudaDrFrontend::GetOutputVariable<int>();
+    }
+    return CudaDrFrontend::GetExitCode();
+}

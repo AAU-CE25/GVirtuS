@@ -155,6 +155,17 @@ CUDA_DRIVER_HANDLER(CtxDisablePeerAccess);
 CUDA_DRIVER_HANDLER(CtxEnablePeerAccess);
 CUDA_DRIVER_HANDLER(DeviceCanAccessPeer);
 CUDA_DRIVER_HANDLER(DevicePrimaryCtxGetState);
+CUDA_DRIVER_HANDLER(DevicePrimaryCtxSetFlags);
+CUDA_DRIVER_HANDLER(DevicePrimaryCtxRetain);
+CUDA_DRIVER_HANDLER(DevicePrimaryCtxRelease);
+CUDA_DRIVER_HANDLER(DevicePrimaryCtxReset);
+CUDA_DRIVER_HANDLER(CtxGetFlags);
+CUDA_DRIVER_HANDLER(CtxGetApiVersion);
+CUDA_DRIVER_HANDLER(CtxGetCacheConfig);
+CUDA_DRIVER_HANDLER(CtxSetCacheConfig);
+CUDA_DRIVER_HANDLER(CtxGetSharedMemConfig);
+CUDA_DRIVER_HANDLER(CtxSetSharedMemConfig);
+CUDA_DRIVER_HANDLER(CtxGetStreamPriorityRange);
 
 /*CudaDrHandler_device*/
 CUDA_DRIVER_HANDLER(DeviceComputeCapability);
@@ -164,6 +175,9 @@ CUDA_DRIVER_HANDLER(DeviceGetCount);
 CUDA_DRIVER_HANDLER(DeviceGetName);
 CUDA_DRIVER_HANDLER(DeviceGetProperties);
 CUDA_DRIVER_HANDLER(DeviceTotalMem);
+CUDA_DRIVER_HANDLER(DeviceGetUuid);
+CUDA_DRIVER_HANDLER(DeviceGetPCIBusId);
+CUDA_DRIVER_HANDLER(DeviceGetByPCIBusId);
 
 /*CudaDrHandler_driver_entry_point*/
 CUDA_DRIVER_HANDLER(GetProcAddress);
@@ -198,6 +212,11 @@ CUDA_DRIVER_HANDLER(MemAllocPitch);
 CUDA_DRIVER_HANDLER(MemGetAddressRange);
 CUDA_DRIVER_HANDLER(MemGetInfo);
 CUDA_DRIVER_HANDLER(MemsetD32Async);
+CUDA_DRIVER_HANDLER(MemAllocManaged);
+CUDA_DRIVER_HANDLER(MemHostRegister);
+CUDA_DRIVER_HANDLER(MemHostUnregister);
+CUDA_DRIVER_HANDLER(MemcpyDtoD);
+CUDA_DRIVER_HANDLER(MemcpyDtoDAsync);
 
 /*CudaDrHandler_virtmemory*/
 CUDA_DRIVER_HANDLER(MemCreate);
@@ -229,6 +248,11 @@ CUDA_DRIVER_HANDLER(StreamSynchronize);
 
 /* CudaDrHandler_streammemory */
 CUDA_DRIVER_HANDLER(StreamWriteValue32);
+CUDA_DRIVER_HANDLER(StreamWaitEvent);
+CUDA_DRIVER_HANDLER(StreamCreateWithPriority);
+CUDA_DRIVER_HANDLER(StreamGetPriority);
+CUDA_DRIVER_HANDLER(StreamGetFlags);
+CUDA_DRIVER_HANDLER(StreamGetCtx);
 
 /*CudaDrHandler_event*/
 CUDA_DRIVER_HANDLER(EventCreate);

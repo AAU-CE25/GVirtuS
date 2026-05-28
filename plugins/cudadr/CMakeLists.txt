@@ -19,9 +19,18 @@ function(configure_cudadr_plugin)
 
     include_directories(${CUDADR_INCLUDE_DIRECTORY} ${CUDA_INCLUDE_DIRS})
 
+    # Derive library path from CUDA toolkit location
+    get_filename_component(CUDA_LIBRARIES_PATH ${CUDA_CUDART_LIBRARY} DIRECTORY FALSE)
+
+    # Search for libcuda.so in standard locations AND stubs directory
+    # The stubs library is available even without a GPU (for compile/link purposes)
     find_library(CUDADR_LIBRARY
         cuda
-        PATHS ${CUDA_LIBRARIES_PATH})
+        PATHS 
+            ${CUDA_LIBRARIES_PATH}
+            ${CUDA_LIBRARIES_PATH}/stubs
+            ${CUDA_TOOLKIT_ROOT_DIR}/lib64/stubs
+            /usr/local/cuda/lib64/stubs)
 
     if(NOT CUDADR_LIBRARY)
         message(WARNING "cudaDr library not found, skipping plugins/cudadr")
@@ -39,7 +48,16 @@ function(configure_cudadr_plugin)
         )
     endwhile()
     message(STATUS "Resolved CUDADR version: ${CUDADR_VERSION}")
-    string(REGEX REPLACE ".*\\.so\\.([0-9]+(\\.[0-9]+)*)" "\\1" CUDADR_VERSION "${CUDADR_VERSION}")
+    
+    # Extract version from libcuda.so.XXX — if no version suffix, default to "1"
+    # This handles the CUDA stubs library which has no version suffix
+    # This would allow us to support both the stubs library and the actual CUDA library without needing separate handling for GPU-less environments
+    if(CUDADR_VERSION MATCHES ".*\\.so\\.([0-9]+(\\.[0-9]+)*)")
+        string(REGEX REPLACE ".*\\.so\\.([0-9]+(\\.[0-9]+)*)" "\\1" CUDADR_VERSION "${CUDADR_VERSION}")
+    else()
+        set(CUDADR_VERSION "1")
+        message(STATUS "No version suffix found in libcuda.so, using default: ${CUDADR_VERSION}")
+    endif()
 
 
     gvirtus_add_backend(cuda ${CUDADR_VERSION}

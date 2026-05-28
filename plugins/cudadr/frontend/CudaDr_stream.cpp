@@ -62,3 +62,50 @@ extern "C" CUresult cuStreamSynchronize(CUstream hStream) {
     CudaDrFrontend::Execute("cuStreamSynchronize");
     return CudaDrFrontend::GetExitCode();
 }
+
+/*Make a stream wait on an event.*/
+extern "C" CUresult cuStreamWaitEvent(CUstream hStream, CUevent hEvent, unsigned int Flags) {
+    CudaDrFrontend::Prepare();
+    CudaDrFrontend::AddDevicePointerForArguments((void *)hStream);
+    CudaDrFrontend::AddDevicePointerForArguments((void *)hEvent);
+    CudaDrFrontend::AddVariableForArguments(Flags);
+    CudaDrFrontend::Execute("cuStreamWaitEvent");
+    return CudaDrFrontend::GetExitCode();
+}
+
+/*Create a stream with the given priority.*/
+extern "C" CUresult cuStreamCreateWithPriority(CUstream *phStream, unsigned int flags, int priority) {
+    CudaDrFrontend::Prepare();
+    CudaDrFrontend::AddVariableForArguments(flags);
+    CudaDrFrontend::AddVariableForArguments(priority);
+    CudaDrFrontend::Execute("cuStreamCreateWithPriority");
+    if (CudaDrFrontend::Success()) *phStream = (CUstream)(CudaDrFrontend::GetOutputDevicePointer());
+    return CudaDrFrontend::GetExitCode();
+}
+
+/*Query the priority of a given stream.*/
+extern "C" CUresult cuStreamGetPriority(CUstream hStream, int *priority) {
+    CudaDrFrontend::Prepare();
+    CudaDrFrontend::AddDevicePointerForArguments((void *)hStream);
+    CudaDrFrontend::Execute("cuStreamGetPriority");
+    if (CudaDrFrontend::Success()) *priority = CudaDrFrontend::GetOutputVariable<int>();
+    return CudaDrFrontend::GetExitCode();
+}
+
+/*Query the flags of a given stream.*/
+extern "C" CUresult cuStreamGetFlags(CUstream hStream, unsigned int *flags) {
+    CudaDrFrontend::Prepare();
+    CudaDrFrontend::AddDevicePointerForArguments((void *)hStream);
+    CudaDrFrontend::Execute("cuStreamGetFlags");
+    if (CudaDrFrontend::Success()) *flags = CudaDrFrontend::GetOutputVariable<unsigned int>();
+    return CudaDrFrontend::GetExitCode();
+}
+
+/*Query the context associated with a stream.*/
+extern "C" CUresult cuStreamGetCtx(CUstream hStream, CUcontext *pctx) {
+    CudaDrFrontend::Prepare();
+    CudaDrFrontend::AddDevicePointerForArguments((void *)hStream);
+    CudaDrFrontend::Execute("cuStreamGetCtx");
+    if (CudaDrFrontend::Success()) *pctx = (CUcontext)(CudaDrFrontend::GetOutputDevicePointer());
+    return CudaDrFrontend::GetExitCode();
+}

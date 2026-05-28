@@ -1,0 +1,10 @@
+2026/04/18 09:37:35 [INFO ] [SimpleMatrix] (simple_matrix.py:223) - Env: docker | Mode: cpu | Matrix size: 100x100  (scale factor 1)
+2026/04/18 09:37:35 [DEBUG] [SimpleMatrix] (simple_matrix.py:226) - Spark config for docker environment, cpu mode: {'spark.local.dir': '/data/wg38up/spark-temp', 'spark.executor.memory': '8g', 'spark.driver.memory': '4g', 'spark.jars': '/app/jars/rapids-4-spark_2.12-26.02.1.jar', 'spark.driver.extraJavaOptions': '-Dlog4j.configurationFile=file:/app/src/log4j2.properties', 'spark.executor.extraJavaOptions': '-Dlog4j.configurationFile=file:/app/src/log4j2.properties'}
+2026/04/18 09:37:35 [DEBUG] [SimpleMatrix] (simple_matrix.py:78) - Initializing Spark config for SimpleMatrixMultiply-CPU-DOCKER...
+2026/04/18 09:37:35 [INFO ] [SimpleMatrix] (simple_matrix.py:79) - >>> About to call SparkSession.builder.getOrCreate() - this triggers RAPIDS/CUDA init
+2026/04/18 09:37:39 [INFO ] [SimpleMatrix] (simple_matrix.py:87) - <<< SparkSession created successfully
+2026/04/18 09:37:39 [DEBUG] [SimpleMatrix] (simple_matrix.py:88) - Spark config for SimpleMatrixMultiply-CPU-DOCKER: {'spark.local.dir': '/data/wg38up/spark-temp', 'spark.executor.memory': '8g', 'spark.driver.memory': '4g', 'spark.jars': '/app/jars/rapids-4-spark_2.12-26.02.1.jar', 'spark.driver.extraJavaOptions': '-Dlog4j.configurationFile=file:/app/src/log4j2.properties', 'spark.executor.extraJavaOptions': '-Dlog4j.configurationFile=file:/app/src/log4j2.properties'}
+2026/04/18 09:37:43 [DEBUG] [SimpleMatrix] (simple_matrix.py:246) - Result has 10000 elements (100x100 = 10000 expected)
+2026/04/18 09:37:43 [DEBUG] [SimpleMatrix] (simple_matrix.py:247) - Elapsed: 3.9387s
+2026/04/18 09:37:43 [DEBUG] [SimpleMatrix] (simple_matrix.py:248) - Matrix multiplication time: 0.1008s
+2026/04/18 09:37:43 [INFO ] [SimpleMatrix] (simple_matrix.py:219) - Results saved to ../results/sf1/simple_matrix_docker_cpu_results.json (overwrite=True)
