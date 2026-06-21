@@ -3,7 +3,6 @@
 #include <regex>
 
 #include "gvirtus/communicators/EndpointFactory.h"
-#include "gvirtus/communicators/Endpoint_Rdma.h"
 
 using gvirtus::communicators::Endpoint;
 using gvirtus::communicators::Endpoint_Tcp;

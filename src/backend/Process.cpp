@@ -43,7 +43,6 @@
 #include <thread>
 #include <vector>
 
-#include "communicators/hybrid/HybridCommunicator.h"
 #include "gvirtus/communicators/UcxAmProtocol.h"
 
 // DEBUG replaced with log4cplus, so that all diagnostics respect GVIRTUS_LOGLEVEL and share the unified format.
@@ -309,7 +308,9 @@ bool getstring(Communicator *c, string &s) {
                         << " rtti=" << rtti << " to_string()=" << name);
     }
 
-    // TODO: FIX LISKOV SUBSTITUTION AND DIPENDENCE INVERSION!!!!!
+    // TCP is the only stream transport that uses getstring(); UCX has its own
+    // active-message dispatch loop (see the ucx_am branch in Start) and never
+    // reaches here.
     if (c->to_string() == "tcpcommunicator") {
         s = "";
         char ch = 0;
@@ -321,35 +322,6 @@ bool getstring(Communicator *c, string &s) {
             s += ch;
         }
         return false;
-    } else if (c->to_string() == "rdmacommunicator") {
-        try {
-            s = "";
-            size_t size = 30;
-            char *buf = (char *)malloc(size);
-            size = c->Read(buf, size);
-
-            // if read, return true
-            if (size > 0) {
-                s += std::string(buf);
-                return true;
-            }
-        } catch (const std::exception &e) {
-            cerr << e.what() << endl;
-        }
-        return false;
-    } else if (c->to_string() == "hybridcommunicator") {
-        s.clear();
-        char ch = 0;
-        // same as tcp/ip, and stop until read /0
-        while (c->Read(&ch, 1) == 1) {
-            if (ch == 0) {
-                return true;  // take the complete routine name
-            }
-            s += ch;
-        }
-        return false;
-    } else if (c->to_string() == "ucxcommunicator") {
-        throw runtime_error("Not available for UCX anymore. Delete later this else if.");
     }
 
     throw runtime_error("Communicator getstring read error... Unknown communicator type...");
@@ -504,25 +476,7 @@ void Process::Start() {
             while (getstring(client_comm, routine)) {
                 LOG4CPLUS_TRACE(logger, "Received routine " << routine);
 
-                // === before reading buffer, chose the protocol of this round by rountine ===
-                gvirtus::communicators::HybridCommunicator *hybrid = nullptr;
-                if (client_comm && client_comm->to_string() == "hybridcommunicator") {
-                    hybrid = dynamic_cast<gvirtus::communicators::HybridCommunicator *>(client_comm);
-                }
-                if (hybrid) {
-                    // all those function payload will transfer by RDMA
-                    const bool use_rdma = routine.rfind("cudaRegisterFatBinary", 0) == 0 || routine.rfind("cudaRegisterFatBinaryEnd", 0) == 0 || routine.rfind("cudaMemcpyAsync", 0) == 0 || routine.rfind("cudaMemcpy", 0) == 0;
-
-                    if (use_rdma) {
-                        // bytes_hint if >0 ,then trigger the first 8B under TCP moniter.
-                        // real payload size after 8B head.
-                        hybrid->begin_call(routine, gvirtus::communicators::Transport::RDMA, /*bytes_hint*/ 1);
-                    } else {
-                        hybrid->begin_call(routine, gvirtus::communicators::Transport::TCP, 0);
-                    }
-                }
-
-                // now reading buffer：8B from TCP, payload will transfer by the selected protocol
+                // Read the request payload (size-prefixed) off the TCP stream.
                 input_buffer->Reset(client_comm);
 
                 std::shared_ptr<Handler> h = nullptr;
@@ -547,13 +501,8 @@ void Process::Start() {
                                       1000.0);
                 }
 
-                // return info：control the head transfer by TCP，then payload RDMA
+                // return info over TCP
                 result->Dump(client_comm);
-
-                // stop this round, and clean all context
-                if (hybrid) {
-                    hybrid->end_call();
-                }
 
                 LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "]: Routine '" << routine
                                                      << "' returned " << result->GetExitCode()

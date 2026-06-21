@@ -49,7 +49,6 @@ static bool initialized = false;
 #endif
 
 #include <gvirtus/communicators/Endpoint.h>
-#include <gvirtus/communicators/Endpoint_Rdma.h>
 #include <gvirtus/communicators/Endpoint_Tcp.h>
 
 #include <cstdlib>

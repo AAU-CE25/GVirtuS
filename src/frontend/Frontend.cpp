@@ -77,7 +77,6 @@
 #include <atomic>
 #include <vector>
 
-#include "communicators/hybrid/HybridCommunicator.h"
 #include "gvirtus/communicators/UcxAmProtocol.h"
 #include "log4cplus/configurator.h"
 #include "log4cplus/logger.h"
@@ -600,22 +599,6 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
     auto start_send = steady_clock::now();
     frontend->_communicator->obj_ptr()->Write(routine, strlen(routine) + 1);
 
-    // ===== chose protocol by different routine =====
-    if (frontend->_communicator->obj_ptr()->to_string() == "hybridcommunicator") {
-        auto *hybrid = dynamic_cast<gvirtus::communicators::HybridCommunicator *>(
-            frontend->_communicator->obj_ptr().get());
-        if (hybrid) {
-            if (std::string(routine).find("cudaMemcpy") != std::string::npos ||
-                std::string(routine).find("cudaRegisterFatBinary") != std::string::npos ||
-                std::string(routine).find("cudaRegisterFatBinaryEnd") != std::string::npos ||
-                std::string(routine).find("cudaMemcpyAsync") != std::string::npos) {
-                hybrid->begin_call(routine, gvirtus::communicators::Transport::RDMA, in_size);
-            } else {
-                hybrid->begin_call(routine, gvirtus::communicators::Transport::TCP, in_size);
-            }
-        }
-    }
-
     // ===== send paramemter data =====
     frontend->mDataSent += in_size;
     LOG4CPLUS_DEBUG(logger, "Write " << in_size << " bytes to the buffer");
@@ -664,15 +647,6 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
                                         << " | pid=" << pid << " tid=" << tid);
 
     LOG4CPLUS_DEBUG(logger, "DEBUG - Called: " << routine);
-
-    // ===== stop this call，clean HybridCommunicator status =====
-    if (frontend->_communicator->obj_ptr()->to_string() == "hybridcommunicator") {
-        auto hybrid = std::dynamic_pointer_cast<gvirtus::communicators::HybridCommunicator>(
-            frontend->_communicator->obj_ptr());
-        if (hybrid) {
-            hybrid->end_call();
-        }
-    }
 }
 
 void Frontend::Prepare() {
