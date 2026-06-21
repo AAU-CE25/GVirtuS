@@ -43,6 +43,7 @@
 #include <thread>
 #include <vector>
 
+#include "gvirtus/communicators/AmProtocol.h"
 #include "gvirtus/communicators/UcxAmProtocol.h"
 
 // DEBUG replaced with log4cplus, so that all diagnostics respect GVIRTUS_LOGLEVEL and share the unified format.
@@ -65,266 +66,6 @@ Process::Process(std::shared_ptr<LD_Lib<Communicator, std::shared_ptr<Endpoint>>
     signal(SIGCHLD, SIG_IGN);
     _communicator = communicator;
     mPlugins = plugins;
-}
-
-// File-scope logger for the free function getstring(), which has no access to
-// the Process class member.  Using log4cplus instead of raw printf so every
-// diagnostic message respects GVIRTUS_LOGLEVEL and shares the unified format.
-static log4cplus::Logger gs_logger =
-    log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("Process.getstring"));
-
-namespace {
-bool read_exact(Communicator *c, char *buffer, size_t size) {
-    size_t copied = 0;
-    while (copied < size) {
-        size_t n = c->Read(buffer + copied, size - copied);
-        if (n == 0) {
-            return false;
-        }
-        copied += n;
-    }
-    return true;
-}
-
-// Reads one AM request from the communicator. Two modes:
-//
-//   1. Frame mode (UcxCommunicator): TryAcquireFrame returns a pointer to
-//      the pinned RX-pool slot containing [header][routine][payload]. We
-//      parse those views in-place. `owns_frame` is set to true and the
-//      caller MUST call client_comm->ReleaseFrame() once it's done with
-//      payload_data (i.e., after the handler returns and the response is
-//      built — we already copied the routine string out, so only payload
-//      stays in the slot).
-//
-//   2. Stream fallback (TCP, IB, hybrid, …): byte-stream Read() into
-//      `fallback_storage`, exposed via payload_data/payload_size.
-//      `owns_frame` is set to false.
-bool read_ucx_am_request(Communicator *client_comm,
-                         gvirtus::communicators::ucxam::EnvelopeHeader &header,
-                         std::string &routine,
-                         std::vector<unsigned char> &fallback_storage,
-                         const unsigned char *&payload_data,
-                         size_t &payload_size,
-                         void *&gpu_payload,
-                         size_t &gpu_payload_size,
-                         bool &owns_frame,
-                         std::string &error) {
-    owns_frame = false;
-    payload_data = nullptr;
-    payload_size = 0;
-    gpu_payload = nullptr;
-    gpu_payload_size = 0;
-
-    const unsigned char *frame = nullptr;
-    size_t frame_size = 0;
-    if (client_comm->TryAcquireFrame(frame, frame_size)) {
-        // Frame mode: validate frame is big enough for the header.
-        if (frame_size < sizeof(header)) {
-            client_comm->ReleaseFrame();
-            error = "AM frame smaller than header";
-            return false;
-        }
-        std::memcpy(&header, frame, sizeof(header));
-
-        if (header.magic != gvirtus::communicators::ucxam::kEnvelopeMagic ||
-            header.version != gvirtus::communicators::ucxam::kEnvelopeVersion ||
-            header.header_size != sizeof(header)) {
-            client_comm->ReleaseFrame();
-            error = "invalid AM header";
-            return false;
-        }
-        if (header.message_type !=
-            static_cast<uint16_t>(gvirtus::communicators::ucxam::MessageType::Request)) {
-            client_comm->ReleaseFrame();
-            error = "unexpected AM message type";
-            return false;
-        }
-
-        const size_t want = sizeof(header) +
-                            static_cast<size_t>(header.routine_size) +
-                            static_cast<size_t>(header.payload_size);
-        if (frame_size < want) {
-            client_comm->ReleaseFrame();
-            error = "AM frame truncated";
-            return false;
-        }
-
-        // Copy out the routine name (small, simpler than dealing with pool lifetime).
-        routine.assign(reinterpret_cast<const char *>(frame + sizeof(header)),
-                       static_cast<size_t>(header.routine_size));
-
-        // Payload stays in the pool slot — caller releases when done.
-        payload_data = frame + sizeof(header) + header.routine_size;
-        payload_size = static_cast<size_t>(header.payload_size);
-        owns_frame = true;
-
-        // GPUDirect (Variant B Step B4): if the UCX peer used the GPU-split
-        // wire format, the trailing portion of the LOGICAL payload lives in
-        // slot.gpu_addr. Surface it via out-params so the caller can attach
-        // it to the input Buffer; GPU-aware handlers route via D2D instead
-        // of H2D-from-host. Base Communicator default returns null/0 for
-        // transports that don't support GPU payloads.
-        client_comm->current_frame_gpu(gpu_payload, gpu_payload_size);
-
-        error.clear();
-        return true;
-    }
-
-    // Stream fallback (non-UCX transports).
-    if (!read_exact(client_comm, reinterpret_cast<char *>(&header), sizeof(header))) {
-        error = "unable to read AM header";
-        return false;
-    }
-
-    if (header.magic != gvirtus::communicators::ucxam::kEnvelopeMagic ||
-        header.version != gvirtus::communicators::ucxam::kEnvelopeVersion ||
-        header.header_size != sizeof(gvirtus::communicators::ucxam::EnvelopeHeader)) {
-        error = "invalid AM header";
-        return false;
-    }
-
-    if (header.message_type !=static_cast<uint16_t>(gvirtus::communicators::ucxam::MessageType::Request)) {
-        error = "unexpected AM message type";
-        return false;
-    }
-
-    routine.assign(static_cast<size_t>(header.routine_size), '\0');
-    if (!routine.empty() &&
-        !read_exact(client_comm, routine.data(), static_cast<size_t>(header.routine_size))) {
-        error = "unable to read AM routine bytes";
-        return false;
-    }
-
-    fallback_storage.assign(static_cast<size_t>(header.payload_size), 0);
-    if (!fallback_storage.empty() &&
-        !read_exact(client_comm, reinterpret_cast<char *>(fallback_storage.data()),
-                    fallback_storage.size())) {
-        error = "unable to read AM payload bytes";
-        return false;
-    }
-    payload_data = fallback_storage.data();
-    payload_size = fallback_storage.size();
-
-    error.clear();
-    return true;
-}
-
-bool write_ucx_am_response(Communicator *client_comm,
-                           const gvirtus::communicators::ucxam::EnvelopeHeader &request_header,
-                           int exit_code, double server_exec_sec,
-                           const std::shared_ptr<Buffer> &output_buffer,
-                           void *gpu_payload, size_t gpu_payload_size,
-                           std::string &error) {
-    // Host-side portion of the response. With GPUDirect, this is just the
-    // protocol prefix (size_t count); without, it's [size_t count][count bytes].
-    size_t host_out_size = 0;
-    const char *out_data = nullptr;
-    if (output_buffer != nullptr) {
-        host_out_size = output_buffer->GetBufferSize();
-        out_data = output_buffer->GetBuffer();
-    }
-
-    // Wire out_size = host prefix + (optional) GPU payload. Frontend reads
-    // this many bytes contiguously, regardless of split origin.
-    const size_t wire_out_size = host_out_size + gpu_payload_size;
-    const size_t payload_size  = sizeof(double) + sizeof(size_t) + wire_out_size;
-
-    gvirtus::communicators::ucxam::EnvelopeHeader response_header{};
-    response_header.magic = gvirtus::communicators::ucxam::kEnvelopeMagic;
-    response_header.version = gvirtus::communicators::ucxam::kEnvelopeVersion;
-    response_header.message_type = static_cast<uint16_t>(gvirtus::communicators::ucxam::MessageType::Response);
-    response_header.header_size = static_cast<uint16_t>(sizeof(gvirtus::communicators::ucxam::EnvelopeHeader));
-    response_header.reserved0 = 0;
-    response_header.status_code = static_cast<uint32_t>(exit_code);
-    response_header.request_id = request_header.request_id;
-    response_header.routine_size = 0;
-    response_header.payload_size = static_cast<uint64_t>(payload_size);
-
-    // Gather-send response via WriteIov — eliminates the std::vector staging
-    // copy of the entire output payload (was the dual of the frontend's
-    // request-side ~27ms marshal). UCX backend maps this to a single
-    // ucp_am_send_nbx with UCP_DATATYPE_IOV.
-    //
-    // With GPUDirect, iov[4] carries a pointer into GPU memory. WriteIovRma
-    // detects this via cudaPointerGetAttributes and registers it with
-    // UCS_MEMORY_TYPE_CUDA before ucp_put_nbx — NIC peer-DMAs from GPU
-    // directly to frontend host slot.
-    struct iovec iov[5];
-    int n = 0;
-    iov[n].iov_base = &response_header;
-    iov[n].iov_len  = sizeof(response_header);
-    ++n;
-    iov[n].iov_base = &server_exec_sec;
-    iov[n].iov_len  = sizeof(double);
-    ++n;
-    // Note: we send wire_out_size on the wire (host prefix + gpu payload),
-    // so frontend's AssignAll/memmove sees a single contiguous logical buffer.
-    size_t wire_out_size_field = wire_out_size;
-    iov[n].iov_base = &wire_out_size_field;
-    iov[n].iov_len  = sizeof(size_t);
-    ++n;
-    if (host_out_size > 0 && out_data != nullptr) {
-        iov[n].iov_base = const_cast<char *>(out_data);
-        iov[n].iov_len  = host_out_size;
-        ++n;
-    }
-    if (gpu_payload != nullptr && gpu_payload_size > 0) {
-        iov[n].iov_base = gpu_payload;
-        iov[n].iov_len  = gpu_payload_size;
-        ++n;
-    }
-
-    try {
-        client_comm->WriteIov(iov, static_cast<size_t>(n));
-        client_comm->Sync();
-    } catch (const std::exception &e) {
-        error = e.what();
-        return false;
-    }
-
-    error.clear();
-    return true;
-}
-}
-
-bool getstring(Communicator *c, string &s) {
-    // TRACE: fires on every routine call, too noisy for DEBUG
-    // RTTI diagnostics merged into one TRACE log.
-    // Only fires when GVIRTUS_LOGLEVEL=0 (TRACE).
-    if (gs_logger.isEnabledFor(log4cplus::TRACE_LOG_LEVEL)) {
-        const char *rtti = "<no-rtti>";
-        try {
-            rtti = typeid(*c).name();
-        } catch (...) {
-        }
-        std::string name;
-        try {
-            name = c->to_string();
-        } catch (...) {
-            name = "<no to_string()>";
-        }
-        LOG4CPLUS_TRACE(gs_logger,
-                        "[getstring] c=" << (void *)c
-                        << " rtti=" << rtti << " to_string()=" << name);
-    }
-
-    // TCP is the only stream transport that uses getstring(); UCX has its own
-    // active-message dispatch loop (see the ucx_am branch in Start) and never
-    // reaches here.
-    if (c->to_string() == "tcpcommunicator") {
-        s = "";
-        char ch = 0;
-        while (c->Read(&ch, 1) == 1) {
-            // If reading is ended, return true
-            if (ch == 0) {
-                return true;
-            }
-            s += ch;
-        }
-        return false;
-    }
-
-    throw runtime_error("Communicator getstring read error... Unknown communicator type...");
 }
 
 extern std::string getEnvVar(std::string const &key);
@@ -356,128 +97,40 @@ void Process::Start() {
 
     // inserisci i sym dei plugin in h
     std::function<void(Communicator *)> execute = [this](Communicator *client_comm) {
-        LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "]"
-                                            << "Process::Start()'s \"execute\" lambda called");
-        // carica i puntatori ai simboli dei moduli in mHandlers
+        LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "] dispatch loop started");
 
-        string routine;
-        std::shared_ptr<Buffer> input_buffer = std::make_shared<Buffer>();
-        const bool ucx_am_mode = client_comm != nullptr && client_comm->to_string() == "ucxcommunicator";
-
-        if (ucx_am_mode) {
-            try {
-                for (;;) {
-                    gvirtus::communicators::ucxam::EnvelopeHeader request_header{};
-                    std::string am_routine;
-                    std::vector<unsigned char> am_payload_fallback;
-                    const unsigned char *am_payload_data = nullptr;
-                    size_t am_payload_size = 0;
-                    void *am_gpu_payload = nullptr;
-                    size_t am_gpu_payload_size = 0;
-                    bool owns_frame = false;
-                    std::string read_error;
-
-                    if (!read_ucx_am_request(client_comm, request_header, am_routine,
-                                             am_payload_fallback, am_payload_data,
-                                             am_payload_size,
-                                             am_gpu_payload, am_gpu_payload_size,
-                                             owns_frame, read_error)) {
-                        LOG4CPLUS_INFO(logger,
-                                       "Client disconnected (UCX AM): " << read_error);
-                        break;
-                    }
-
-                    std::shared_ptr<Buffer> am_input = std::make_shared<Buffer>();
-                    if (am_payload_size > 0 && am_payload_data != nullptr) {
-                        // Non-owning Buffer wrap — the bytes live either in
-                        // am_payload_fallback (stream mode) or in the
-                        // communicator's pinned RX-pool slot (frame mode).
-                        // Either way, lifetime extends past h->Execute().
-                        am_input = std::make_shared<Buffer>(
-                            reinterpret_cast<char *>(const_cast<unsigned char *>(am_payload_data)),
-                            am_payload_size);
-                        // GPUDirect Step B4: attach the GPU-resident tail
-                        // (if any) so GPU-aware handlers can route via D2D.
-                        if (am_gpu_payload != nullptr && am_gpu_payload_size > 0) {
-                            am_input->SetGpuPayload(am_gpu_payload, am_gpu_payload_size);
-                        }
-                    }
-
-                    std::shared_ptr<Handler> h = nullptr;
-                    for (auto &ptr_el : _handlers) {
-                        if (ptr_el->obj_ptr()->CanExecute(am_routine)) {
-                            h = ptr_el->obj_ptr();
-                            break;
-                        }
-                    }
-
-                    std::shared_ptr<communicators::Result> result;
-                    if (h == nullptr) {
-                        LOG4CPLUS_ERROR(logger, "[Process " << getpid() << "]: Requested unknown routine '" << am_routine << "'.");
-                        result = std::make_shared<communicators::Result>(-1, std::make_shared<Buffer>());
-                    } else {
-                        // Per-connection GPUDirect gate (Option 2): publish
-                        // this endpoint's transport capability into a
-                        // thread-local that GPU-aware handlers read in lieu
-                        // of the process-wide GVIRTUS_GPUDIRECT_ACTIVE env.
-                        // Reset to false after Execute() to avoid leaking
-                        // across dispatches (defensive — in the current
-                        // single-threaded per-connection model the worker
-                        // thread is reused for the next request on the
-                        // same connection, so the flag would be re-set
-                        // identically anyway).
-                        gvirtus::communicators::tls_connection_supports_cuda =
-                            client_comm->current_connection_supports_cuda();
-                        auto start = steady_clock::now();
-                        result = h->Execute(am_routine, am_input);
-                        result->TimeTaken(
-                            std::chrono::duration_cast<std::chrono::milliseconds>(
-                                steady_clock::now() - start)
-                                .count() /
-                            1000.0);
-                        gvirtus::communicators::tls_connection_supports_cuda = false;
-                    }
-
-                    std::string write_error;
-                    bool response_ok = write_ucx_am_response(client_comm, request_header,
-                                                             result->GetExitCode(), result->TimeTaken(),
-                                                             result->GetOutputBuffer(),
-                                                             result->GetGpuPayload(),
-                                                             result->GetGpuPayloadSize(),
-                                                             write_error);
-
-                    // Release the pinned RX-pool slot now that the handler is
-                    // done with it and the response has been sent. Must happen
-                    // AFTER h->Execute() returns (am_input points into the slot).
-                    if (owns_frame) client_comm->ReleaseFrame();
-
-                    if (!response_ok) {
-                        LOG4CPLUS_WARN(logger,
-                                       "UCX AM response write failed: " << write_error);
-                        break;
-                    }
-
-                    LOG4CPLUS_DEBUG(logger,
-                                    "[Process " << getpid() << "]: AM routine '" << am_routine
-                                                << "' returned " << result->GetExitCode()
-                                                << " [req_id=" << request_header.request_id
-                                                << "].");
-                }
-            } catch (const std::exception &e) {
-                LOG4CPLUS_WARN(logger, "UCX AM client loop exception: " << e.what());
-            }
-
-            LOG4CPLUS_INFO(logger, "Client disconnected");
-            Notify("process-ended");
-            return;
-        }
-
+        // Single transport-agnostic request/response loop. Framing (whole-
+        // message delivery) is the Communicator's job — length-prefixed for a
+        // byte stream (TCP), native active messages for UCX — and the envelope
+        // codec (communicators::am) turns frames into requests/responses. This
+        // loop only dispatches; it never touches the wire format.
         try {
-            while (getstring(client_comm, routine)) {
-                LOG4CPLUS_TRACE(logger, "Received routine " << routine);
+            for (;;) {
+                gvirtus::communicators::ucxam::EnvelopeHeader request_header{};
+                std::string routine;
+                const unsigned char *payload_data = nullptr;
+                size_t payload_size = 0;
+                void *gpu_payload = nullptr;
+                size_t gpu_payload_size = 0;
+                bool owns_frame = false;
+                std::string err;
 
-                // Read the request payload (size-prefixed) off the TCP stream.
-                input_buffer->Reset(client_comm);
+                if (!communicators::am::ReadRequest(client_comm, request_header, routine,
+                                                    payload_data, payload_size, gpu_payload,
+                                                    gpu_payload_size, owns_frame, err)) {
+                    LOG4CPLUS_INFO(logger, "Client disconnected: " << err);
+                    break;
+                }
+
+                // Non-owning wrap of the payload view (valid until ReleaseFrame).
+                std::shared_ptr<Buffer> input = std::make_shared<Buffer>();
+                if (payload_size > 0 && payload_data != nullptr) {
+                    input = std::make_shared<Buffer>(
+                        reinterpret_cast<char *>(const_cast<unsigned char *>(payload_data)),
+                        payload_size);
+                    if (gpu_payload != nullptr && gpu_payload_size > 0)
+                        input->SetGpuPayload(gpu_payload, gpu_payload_size);
+                }
 
                 std::shared_ptr<Handler> h = nullptr;
                 for (auto &ptr_el : _handlers) {
@@ -489,27 +142,43 @@ void Process::Start() {
 
                 std::shared_ptr<communicators::Result> result;
                 if (h == nullptr) {
-                    LOG4CPLUS_ERROR(logger, "[Process " << getpid() << "]: Requested unknown routine '"
-                                                        << routine << "'.");
-                    result = std::make_shared<communicators::Result>(-1, std::make_shared<Buffer>());
+                    LOG4CPLUS_ERROR(logger, "[Process " << getpid()
+                                    << "]: Requested unknown routine '" << routine << "'.");
+                    result = std::make_shared<communicators::Result>(
+                        -1, std::make_shared<Buffer>());
                 } else {
+                    // Per-connection GPUDirect gate: GPU-aware handlers read this
+                    // thread-local instead of coupling to a Communicator subclass.
+                    gvirtus::communicators::tls_connection_supports_cuda =
+                        client_comm->current_connection_supports_cuda();
                     auto start = steady_clock::now();
-                    result = h->Execute(routine, input_buffer);
+                    result = h->Execute(routine, input);
                     result->TimeTaken(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                          steady_clock::now() - start)
-                                          .count() /
-                                      1000.0);
+                                          steady_clock::now() - start).count() / 1000.0);
+                    gvirtus::communicators::tls_connection_supports_cuda = false;
                 }
 
-                // return info over TCP
-                result->Dump(client_comm);
+                std::string write_error;
+                bool response_ok = communicators::am::WriteResponse(
+                    client_comm, request_header, result->GetExitCode(), result->TimeTaken(),
+                    result->GetOutputBuffer(), result->GetGpuPayload(),
+                    result->GetGpuPayloadSize(), write_error);
 
-                LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "]: Routine '" << routine
-                                                     << "' returned " << result->GetExitCode()
-                                                     << ".");
+                // Release the frame only AFTER Execute + response, since `input`
+                // points into it.
+                if (owns_frame) client_comm->ReleaseFrame();
+
+                if (!response_ok) {
+                    LOG4CPLUS_WARN(logger, "Response write failed: " << write_error);
+                    break;
+                }
+
+                LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "]: routine '" << routine
+                                << "' returned " << result->GetExitCode()
+                                << " [req_id=" << request_header.request_id << "].");
             }
         } catch (const std::exception &e) {
-            LOG4CPLUS_WARN(logger, "Client stream closed with exception: " << e.what());
+            LOG4CPLUS_WARN(logger, "Client loop exception: " << e.what());
         }
 
         LOG4CPLUS_INFO(logger, "Client disconnected");

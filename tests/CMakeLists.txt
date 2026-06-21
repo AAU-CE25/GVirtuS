@@ -84,3 +84,20 @@ target_include_directories(test_buffer_iov PRIVATE
     ${PROJECT_SOURCE_DIR}/include
 )
 add_test(NAME test_buffer_iov COMMAND test_buffer_iov)
+
+# ===== Pure-C++ unit test: unified RPC protocol (framing + codec) =====
+# Loopback Communicator drives a full request/response round trip through the
+# base-class framing and the communicators::am envelope codec. No GPU needed.
+add_executable(test_protocol_loopback
+    test_protocol_loopback.cpp
+    ${PROJECT_SOURCE_DIR}/src/communicators/Buffer.cpp
+    ${PROJECT_SOURCE_DIR}/src/communicators/AmProtocol.cpp
+)
+set_target_properties(test_protocol_loopback PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+)
+target_include_directories(test_protocol_loopback PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+)
+add_test(NAME test_protocol_loopback COMMAND test_protocol_loopback)

@@ -67,6 +67,12 @@ class UcxCommunicator : public Communicator {
     // ucp_am_send_nbx gathers the fragments natively without staging.
     size_t WriteIov(const struct iovec *iov, size_t iov_count) override;
 
+    // UCX active messages are self-delimiting, so a framed send is just an
+    // IoV send — no [uint64 length] prefix (overrides Communicator::WriteFrame).
+    size_t WriteFrame(const struct iovec *iov, size_t iov_count) override {
+        return WriteIov(iov, iov_count);
+    }
+
     // Zero-copy frame handoff: backends that read a whole AM message at once
     // can call this to get a pointer into the pinned RX pool slot directly,
     // skipping the per-message std::vector allocation in the Read() byte

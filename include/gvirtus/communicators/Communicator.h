@@ -27,6 +27,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <memory>
 #include <vector>
@@ -102,17 +103,35 @@ class Communicator {
         return Write(buf.data(), total);
     }
 
-    // Zero-copy frame handoff for transports that buffer entire messages
-    // internally (e.g. UCX active messages). If the implementation can
-    // expose the next received message as a contiguous buffer it owns,
-    // it returns true and sets `data`/`size`. The caller must then call
-    // ReleaseFrame() when done to return the buffer to the underlying pool.
-    // Default no-op fallback: returns false, forces callers to use the
-    // byte-stream Read() path. Stream-oriented transports (TCP, etc.) keep
-    // working with the default.
+    // Send one complete, self-delimited message. Default framing for a
+    // byte-stream transport: a [uint64 length][body] prefix so the peer can
+    // read it back as a single frame via TryAcquireFrame(). Message-oriented
+    // transports (UCX active messages) override this to use their native
+    // delimiting (no length prefix) and the zero-copy send path.
+    virtual size_t WriteFrame(const struct iovec *iov, size_t iov_count) {
+        std::uint64_t total = 0;
+        for (size_t i = 0; i < iov_count; ++i) total += iov[i].iov_len;
+        Write(reinterpret_cast<const char *>(&total), sizeof(total));
+        return WriteIov(iov, iov_count);
+    }
+
+    // Receive one complete message and expose it as a contiguous buffer the
+    // communicator owns; the caller parses in place and calls ReleaseFrame()
+    // when done. Default framing for a byte-stream transport: read the
+    // [uint64 length][body] frame written by WriteFrame() into an internal
+    // buffer. Returns false on a clean connection close (Read() returns 0 at
+    // a message boundary). Message-oriented transports (UCX) override this to
+    // hand back a pointer into their pinned receive pool (true zero-copy).
     virtual bool TryAcquireFrame(const unsigned char *&data, size_t &size) {
-        (void)data; (void)size;
-        return false;
+        std::uint64_t total = 0;
+        if (!ReadFull(reinterpret_cast<char *>(&total), sizeof(total))) return false;
+        _frame_buf.resize(static_cast<size_t>(total));
+        if (total > 0 &&
+            !ReadFull(reinterpret_cast<char *>(_frame_buf.data()), static_cast<size_t>(total)))
+            return false;
+        data = _frame_buf.data();
+        size = static_cast<size_t>(total);
+        return true;
     }
     virtual void ReleaseFrame() {}
 
@@ -151,6 +170,19 @@ class Communicator {
     virtual void run() {};
 
    private:
+    // Loop Read() until `n` bytes are received; false on clean close (0 read).
+    bool ReadFull(char *buf, size_t n) {
+        size_t got = 0;
+        while (got < n) {
+            size_t r = Read(buf + got, n - got);
+            if (r == 0) return false;
+            got += r;
+        }
+        return true;
+    }
+
+    // Backing store for the base-class (stream) TryAcquireFrame().
+    std::vector<unsigned char> _frame_buf;
 };
 
 using create_t = std::shared_ptr<Communicator>(std::shared_ptr<Endpoint>);

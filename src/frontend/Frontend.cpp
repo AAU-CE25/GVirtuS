@@ -34,30 +34,25 @@
  */
 
 /*
- * UCX communicator changes to Frontend::Execute():
+ * Frontend::Execute() — single, transport-agnostic RPC path.
  *
- * The UCX AM path (ucx_am_mode branch) replaces the original sequential
- * Write(routine) + Dump(buffer) + Read(exit_code) + Read(output) flow with a
- * single-message envelope protocol:
+ * One envelope protocol for every transport (no ucx-vs-tcp branch). Framing is
+ * the Communicator's job: WriteFrame() length-prefixes a byte stream (TCP) or
+ * uses native active messages (UCX); TryAcquireFrame() hands the whole reply
+ * back (a pinned RX slot for UCX, an internal buffer for TCP).
  *
- *   Send: [EnvelopeHeader][routine_name][serialized_buffer] via WriteIov()
- *   Recv: TryAcquireFrame() → parse header + payload in-place from pinned slot
+ *   Send: [EnvelopeHeader][routine] + Buffer::GetIov()  via WriteFrame()
+ *   Recv: TryAcquireFrame() -> parse header + payload in place
  *
- * Fase 4: gather-send via WriteIov avoids staging the 64 MB payload into a
- *   contiguous buffer before sending. Frame-based receive skips the per-byte
- *   Add<char> loop (was ~1.3s for 64 MB).
- *
- * Fase 5: AddHostPointerForArgumentsDirect() records the user's buffer as a
- *   BORROWED segment via Buffer::AddRef; Execute() assembles the send iov as
- *   [header][routine] + Buffer::GetIov(), so the payload is referenced in
- *   place and never copied into mpInputBuffer. SetOutputDestination() lets the
- *   response path write directly into the caller's dst buffer.
+ * Gather-send: the send iov is [header][routine] followed by the input
+ *   Buffer's IoV fragments, so large payloads added via
+ *   AddHostPointerForArgumentsDirect (Buffer::AddRef) are referenced in place
+ *   and never staged. SetOutputDestination() lets the response land directly
+ *   in the caller's dst buffer.
  *
  * Reentrancy guard: UCX's libuct_cuda fires cu* calls during ucp_init. These
  *   reach Execute() before mpInitialized is set; we return CUDA_ERROR_NOT_-
  *   INITIALIZED so UCX's probe concludes "no local CUDA" gracefully.
- *
- * Optimization phases: 2 (protocol), 4 (gather-send + frame recv), 5 (zero-copy)
  */
 
 #include <gvirtus/communicators/CommunicatorFactory.h>
@@ -104,19 +99,6 @@ static std::atomic<std::uint64_t> gUcxAmRequestId{1};
 
 Logger logger;
 
-namespace {
-bool read_exact(gvirtus::communicators::Communicator *c, char *buffer, size_t size) {
-    size_t copied = 0;
-    while (copied < size) {
-        size_t n = c->Read(buffer + copied, size - copied);
-        if (n == 0) {
-            return false;
-        }
-        copied += n;
-    }
-    return true;
-}
-}
 
 std::string getEnvVar(std::string const &key) {
     char *env_var = getenv(key.c_str());
@@ -315,9 +297,7 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
 
     frontend->mRoutinesExecuted++;
 
-    const bool ucx_am_mode = frontend->_communicator->obj_ptr()->to_string() == "ucxcommunicator";
-
-    if (ucx_am_mode) {
+    {
         auto start_send = steady_clock::now();
 
         const std::uint64_t request_id = gUcxAmRequestId.fetch_add(1);
@@ -365,7 +345,7 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
         auto tB = steady_clock::now();
 
         frontend->mDataSent += payload_size;
-        frontend->_communicator->obj_ptr()->WriteIov(iov.data(), iov.size());
+        frontend->_communicator->obj_ptr()->WriteFrame(iov.data(), iov.size());
         auto tC = steady_clock::now();
 
         frontend->_communicator->obj_ptr()->Sync();
@@ -394,7 +374,9 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
         const bool owns_frame =
             frontend->_communicator->obj_ptr()->TryAcquireFrame(frame_data, frame_size);
 
-        if (owns_frame) {
+        if (!owns_frame)
+            throw std::runtime_error("Frontend: failed to acquire response frame");
+        {
             if (frame_size < sizeof(resp_header)) {
                 frontend->_communicator->obj_ptr()->ReleaseFrame();
                 throw std::runtime_error("Frontend UCX AM: response frame smaller than header");
@@ -464,73 +446,9 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
             }
 
             frontend->_communicator->obj_ptr()->ReleaseFrame();
-        } else {
-            // Stream fallback (non-UCX transports).
-            if (!read_exact(frontend->_communicator->obj_ptr().get(),
-                            reinterpret_cast<char *>(&resp_header), sizeof(resp_header))) {
-                throw std::runtime_error("Frontend UCX AM: failed to read response header");
-            }
-            tF = steady_clock::now();
-
-            if (resp_header.magic != gvirtus::communicators::ucxam::kEnvelopeMagic ||
-                resp_header.version != gvirtus::communicators::ucxam::kEnvelopeVersion ||
-                resp_header.header_size != sizeof(gvirtus::communicators::ucxam::EnvelopeHeader)) {
-                throw std::runtime_error("Frontend UCX AM: invalid response header");
-            }
-            if (resp_header.request_id != request_id) {
-                throw std::runtime_error("Frontend UCX AM: response request_id mismatch");
-            }
-
-            std::vector<unsigned char> resp_payload(static_cast<std::size_t>(resp_header.payload_size));
-            if (!resp_payload.empty() &&
-                !read_exact(frontend->_communicator->obj_ptr().get(),
-                            reinterpret_cast<char *>(resp_payload.data()), resp_payload.size())) {
-                throw std::runtime_error("Frontend UCX AM: failed to read response payload");
-            }
-
-            frontend->mExitCode = static_cast<int>(resp_header.status_code);
-            exit_code = frontend->mExitCode;
-
-            const std::size_t fixed_prefix = sizeof(double) + sizeof(size_t);
-            if (resp_payload.size() < fixed_prefix) {
-                throw std::runtime_error("Frontend UCX AM: response payload too small");
-            }
-            std::size_t parse_off = 0;
-            std::memcpy(&server_exec_sec, resp_payload.data() + parse_off, sizeof(double));
-            parse_off += sizeof(double);
-            std::memcpy(&out_buffer_size, resp_payload.data() + parse_off, sizeof(size_t));
-            parse_off += sizeof(size_t);
-            if (resp_payload.size() < parse_off + out_buffer_size) {
-                throw std::runtime_error("Frontend UCX AM: output payload size mismatch");
-            }
-            tG = steady_clock::now();
-            frontend->mDataReceived += out_buffer_size;
-            // Fase 4 zero-copy (stream fallback): same direct-dst shortcut as
-            // the frame path above. See comment there for the contract.
-            bool direct_ok = false;
-            if (frontend->mDirectOutputDst != nullptr &&
-                out_buffer_size == sizeof(size_t) + frontend->mDirectOutputCount) {
-                const unsigned char *sp = resp_payload.data() + parse_off;
-                size_t payload_prefix = 0;
-                std::memcpy(&payload_prefix, sp, sizeof(size_t));
-                if (payload_prefix == frontend->mDirectOutputCount) {
-                    std::memcpy(frontend->mDirectOutputDst,
-                                sp + sizeof(size_t),
-                                frontend->mDirectOutputCount);
-                    frontend->mDirectOutputConsumed = true;
-                    direct_ok = true;
-                }
-            }
-            if (!direct_ok) {
-                // Single bulk memcpy here too — same fix as the frame path.
-                frontend->mpOutputBuffer->AppendBytes(
-                    reinterpret_cast<const char *>(resp_payload.data() + parse_off),
-                    out_buffer_size);
-            }
-            tH = steady_clock::now();
         }
 
-        recv_sec = duration_cast<milliseconds>(steady_clock::now() - start_recv).count() / 1000.0;
+                recv_sec = duration_cast<milliseconds>(steady_clock::now() - start_recv).count() / 1000.0;
 
         if (profile) {
             auto us = [](auto a, auto b) {
@@ -561,66 +479,5 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
                                                       << " | req_id=" << request_id);
         LOG4CPLUS_DEBUG(logger, "DEBUG - Called: " << routine);
         return;
-    }
-
-    // ===== send routine info first（under TCP）=====
-    auto start_send = steady_clock::now();
-    frontend->_communicator->obj_ptr()->Write(routine, strlen(routine) + 1);
-
-    // ===== send paramemter data =====
-    frontend->mDataSent += in_size;
-    LOG4CPLUS_DEBUG(logger, "Write " << in_size << " bytes to the buffer");
-    input_buffer->Dump(frontend->_communicator->obj_ptr().get());
-
-    // ===== sync by chosen channel =====
-    frontend->_communicator->obj_ptr()->Sync();
-
-    send_sec = duration_cast<milliseconds>(steady_clock::now() - start_send).count() / 1000.0;
-
-    frontend->mpOutputBuffer->Reset();
-
-    // ===== receive exit_code =====
-    auto start_recv = steady_clock::now();
-    frontend->_communicator->obj_ptr()->Read((char *)&exit_code, sizeof(int));
-    frontend->mExitCode = exit_code;
-
-    // ===== receive backend time cost =====
-    frontend->_communicator->obj_ptr()->Read(reinterpret_cast<char *>(&server_exec_sec),
-                                             sizeof(server_exec_sec));
-
-    // ===== receive output buffer =====
-    size_t out_buffer_size = 0;
-    frontend->_communicator->obj_ptr()->Read((char *)&out_buffer_size, sizeof(size_t));
-    frontend->mDataReceived += out_buffer_size;
-    LOG4CPLUS_DEBUG(logger, "Read " << out_buffer_size << " bytes from the buffer");
-    if (out_buffer_size > 0) {
-        LOG4CPLUS_DEBUG(logger, "Output buffer size is greater than 0, reading...");
-        frontend->mpOutputBuffer->Read<char>(frontend->_communicator->obj_ptr().get(),
-                                             out_buffer_size);
-    }
-    recv_sec = duration_cast<milliseconds>(steady_clock::now() - start_recv).count() / 1000.0;
-
-    // ===== update info =====
-    frontend->mRoutineExecutionTime += server_exec_sec;
-    frontend->mSendingTime += send_sec;
-    frontend->mReceivingTime += recv_sec;
-
-    // ===== print log =====
-    LOG4CPLUS_DEBUG(logger, "Routine '" << routine << "' returned " << exit_code
-                                        << " | server_exec=" << server_exec_sec << "s"
-                                        << " | send=" << send_sec << "s"
-                                        << " | recv=" << recv_sec << "s"
-                                        << " | in=" << in_size << "B"
-                                        << " | out=" << out_buffer_size << "B"
-                                        << " | pid=" << pid << " tid=" << tid);
-
-    LOG4CPLUS_DEBUG(logger, "DEBUG - Called: " << routine);
-}
-
-void Frontend::Prepare() {
-    pid_t tid = syscall(SYS_gettid);
-    {
-        if (this->mpFrontends->find(tid) != mpFrontends->end())
-            mpFrontends->find(tid)->second->mpInputBuffer->Reset();
     }
 }
