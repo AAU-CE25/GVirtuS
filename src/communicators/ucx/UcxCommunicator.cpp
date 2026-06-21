@@ -45,7 +45,7 @@
 #include <thread>
 
 #include "gvirtus/communicators/Endpoint_Ucx.h"
-#include "gvirtus/communicators/UcxAmProtocol.h"
+#include "gvirtus/communicators/Protocol.h"
 
 using gvirtus::communicators::UcxCommunicator;
 
@@ -350,12 +350,12 @@ ucs_status_t UcxCommunicator::am_recv_handler(void *arg, const void *header,
     //   * RmaPosted → data already RDMA-put into an RX slot, queue a
     //                 PooledMsg pointing at that slot instead of acquiring
     //                 a fresh one + memcpy'ing
-    if (length >= sizeof(gvirtus::communicators::ucxam::EnvelopeHeader) &&
+    if (length >= sizeof(gvirtus::communicators::am::EnvelopeHeader) &&
         (param == nullptr || !(param->recv_attr & UCP_AM_RECV_ATTR_FLAG_RNDV))) {
-        gvirtus::communicators::ucxam::EnvelopeHeader peek;
+        gvirtus::communicators::am::EnvelopeHeader peek;
         std::memcpy(&peek, data, sizeof(peek));
-        if (peek.magic == gvirtus::communicators::ucxam::kEnvelopeMagic) {
-            using gvirtus::communicators::ucxam::MessageType;
+        if (peek.magic == gvirtus::communicators::am::kEnvelopeMagic) {
+            using gvirtus::communicators::am::MessageType;
             if (peek.message_type == static_cast<std::uint16_t>(MessageType::RmaSetup)) {
                 self->handle_rma_setup_am(data, length);
                 return UCS_OK;
@@ -1403,11 +1403,11 @@ void UcxCommunicator::send_rma_setup() {
     }
 
     // Assemble AM body: [EnvelopeHeader] [N * RmaSlotDescriptor] [N * rkey blobs]
-    using gvirtus::communicators::ucxam::EnvelopeHeader;
-    using gvirtus::communicators::ucxam::MessageType;
-    using gvirtus::communicators::ucxam::RmaSlotDescriptor;
-    using gvirtus::communicators::ucxam::kEnvelopeMagic;
-    using gvirtus::communicators::ucxam::kEnvelopeVersion;
+    using gvirtus::communicators::am::EnvelopeHeader;
+    using gvirtus::communicators::am::MessageType;
+    using gvirtus::communicators::am::RmaSlotDescriptor;
+    using gvirtus::communicators::am::kEnvelopeMagic;
+    using gvirtus::communicators::am::kEnvelopeVersion;
 
     // Wire format (Step B2 extension):
     //   [EnvelopeHeader]
@@ -1504,8 +1504,8 @@ void UcxCommunicator::send_rma_setup() {
 // Client-side: parse an incoming RmaSetup AM body, unpack each rkey, and
 // populate remote_slots_. After this returns the data path can use ucp_put.
 void UcxCommunicator::handle_rma_setup_am(const void *data, size_t length) {
-    using gvirtus::communicators::ucxam::EnvelopeHeader;
-    using gvirtus::communicators::ucxam::RmaSlotDescriptor;
+    using gvirtus::communicators::am::EnvelopeHeader;
+    using gvirtus::communicators::am::RmaSlotDescriptor;
 
     if (length < sizeof(EnvelopeHeader)) {
         std::fprintf(stderr, "RmaSetup: body too short (%zu)\n", length);
@@ -1904,11 +1904,11 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
     // Tiny RmaPosted notification — same protocol bytes regardless of which
     // data path filled the remote slot.
     {
-        gvirtus::communicators::ucxam::EnvelopeHeader notif{};
-        notif.magic = gvirtus::communicators::ucxam::kEnvelopeMagic;
-        notif.version = gvirtus::communicators::ucxam::kEnvelopeVersion;
+        gvirtus::communicators::am::EnvelopeHeader notif{};
+        notif.magic = gvirtus::communicators::am::kEnvelopeMagic;
+        notif.version = gvirtus::communicators::am::kEnvelopeVersion;
         notif.message_type = static_cast<std::uint16_t>(
-            gvirtus::communicators::ucxam::MessageType::RmaPosted);
+            gvirtus::communicators::am::MessageType::RmaPosted);
         notif.header_size = sizeof(notif);
         notif.reserved0 = static_cast<std::uint16_t>(slot_idx);
         // GPUDirect Step B3: status_code carries the gpu_split_offset (=

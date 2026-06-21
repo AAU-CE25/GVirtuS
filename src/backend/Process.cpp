@@ -44,7 +44,7 @@
 #include <vector>
 
 #include "gvirtus/communicators/AmProtocol.h"
-#include "gvirtus/communicators/UcxAmProtocol.h"
+#include "gvirtus/communicators/Protocol.h"
 
 // DEBUG replaced with log4cplus, so that all diagnostics respect GVIRTUS_LOGLEVEL and share the unified format.
 
@@ -100,13 +100,14 @@ void Process::Start() {
         LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "] dispatch loop started");
 
         // Single transport-agnostic request/response loop. Framing (whole-
-        // message delivery) is the Communicator's job — length-prefixed for a
-        // byte stream (TCP), native active messages for UCX — and the envelope
-        // codec (communicators::am) turns frames into requests/responses. This
+        // message delivery) is the Communicator's job — the base class
+        // length-prefixes a byte stream and message-oriented transports
+        // override it with native frame delimiting — and the envelope codec
+        // (communicators::am) turns frames into requests/responses. This
         // loop only dispatches; it never touches the wire format.
         try {
             for (;;) {
-                gvirtus::communicators::ucxam::EnvelopeHeader request_header{};
+                gvirtus::communicators::am::EnvelopeHeader request_header{};
                 std::string routine;
                 const unsigned char *payload_data = nullptr;
                 size_t payload_size = 0;

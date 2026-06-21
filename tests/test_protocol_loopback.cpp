@@ -3,7 +3,8 @@
  * framing (the path TCP uses). Drives a full request -> dispatch -> response
  * round trip through:
  *   - Communicator::WriteFrame / TryAcquireFrame  (length-prefixed framing)
- *   - communicators::am::ReadRequest / WriteResponse  (envelope codec)
+ *   - communicators::am::WriteRequest / ReadRequest / WriteResponse /
+ *     ReadResponse  (envelope codec, both directions)
  *   - Buffer::AddRef / GetIov  (zero-copy payload segment)
  *
  * No CUDA/UCX/log4cplus needed:
@@ -21,10 +22,9 @@
 #include "gvirtus/communicators/AmProtocol.h"
 #include "gvirtus/communicators/Buffer.h"
 #include "gvirtus/communicators/Communicator.h"
-#include "gvirtus/communicators/UcxAmProtocol.h"
+#include "gvirtus/communicators/Protocol.h"
 
 using namespace gvirtus::communicators;
-namespace ux = gvirtus::communicators::ucxam;
 
 // FIFO loopback transport: Write appends, Read consumes. It does NOT override
 // TryAcquireFrame/WriteFrame, so it exercises the Communicator base-class
@@ -53,8 +53,8 @@ struct LoopComm : Communicator {
 int main() {
     LoopComm c;
 
-    // ---- FRONTEND: assemble a request like Frontend::Execute does ----
-    const char *routine = "cudaMemcpy";
+    // ---- FRONTEND: assemble + send a request via the codec ----
+    const std::string routine = "cudaMemcpy";
     int head_arg = 1234;
     double big[8] = {1, 2, 3, 4, 5, 6, 7, 8};  // zero-copy payload via AddRef
     int tail_arg = 99;
@@ -64,32 +64,21 @@ int main() {
     in.AddRef(big, 8);  // borrowed segment — never copied
     in.Add(tail_arg);
 
-    ux::EnvelopeHeader rh{};
-    rh.magic = ux::kEnvelopeMagic;
-    rh.version = ux::kEnvelopeVersion;
-    rh.message_type = static_cast<uint16_t>(ux::MessageType::Request);
-    rh.header_size = sizeof(ux::EnvelopeHeader);
-    rh.request_id = 0xABCDu;
-    rh.routine_size = std::strlen(routine);
-    rh.payload_size = in.GetLogicalSize();
-
-    std::vector<struct iovec> iov;
-    iov.push_back(iovec{static_cast<void *>(&rh), sizeof(rh)});
-    iov.push_back(iovec{const_cast<char *>(routine), std::strlen(routine)});
     std::vector<struct iovec> piov;
     in.GetIov(piov);
-    iov.insert(iov.end(), piov.begin(), piov.end());
-    c.WriteFrame(iov.data(), iov.size());  // base-class length-prefixed frame
+    std::string err;
+    bool wreq_ok = am::WriteRequest(&c, /*request_id*/ 0xABCDu, routine, piov.data(),
+                                    piov.size(), in.GetLogicalSize(), err);
+    assert(wreq_ok);
 
     // ---- BACKEND: decode the request via the codec ----
-    ux::EnvelopeHeader got{};
+    am::EnvelopeHeader got{};
     std::string got_routine;
     const unsigned char *pd = nullptr;
     size_t ps = 0;
     void *gp = nullptr;
     size_t gps = 0;
     bool owns = false;
-    std::string err;
     bool ok = am::ReadRequest(&c, got, got_routine, pd, ps, gp, gps, owns, err);
     assert(ok);
     assert(owns);
@@ -113,29 +102,21 @@ int main() {
     bool wok = am::WriteResponse(&c, got, /*exit_code*/ 0, exec, out, nullptr, 0, err);
     assert(wok);
 
-    // ---- FRONTEND: read the response frame ----
-    const unsigned char *fr = nullptr;
-    size_t frs = 0;
-    assert(c.TryAcquireFrame(fr, frs));
-    ux::EnvelopeHeader resp{};
-    assert(frs >= sizeof(resp));
-    std::memcpy(&resp, fr, sizeof(resp));
-    assert(resp.magic == ux::kEnvelopeMagic);
-    assert(resp.message_type == static_cast<uint16_t>(ux::MessageType::Response));
-    assert(resp.request_id == 0xABCDu);
-    assert(resp.status_code == 0);
-
-    const unsigned char *p = fr + sizeof(resp);
+    // ---- FRONTEND: read the response via the codec ----
+    int got_exit = -1;
     double got_exec = 0;
-    std::memcpy(&got_exec, p, sizeof(double));
-    p += sizeof(double);
+    const unsigned char *got_out = nullptr;
+    size_t got_out_size = 0;
+    bool resp_owns = false;
+    bool rok = am::ReadResponse(&c, /*expected_request_id*/ 0xABCDu, got_exit, got_exec,
+                                got_out, got_out_size, resp_owns, err);
+    assert(rok);
+    assert(resp_owns);
+    assert(got_exit == 0);
     assert(got_exec == exec);
-    size_t out_size = 0;
-    std::memcpy(&out_size, p, sizeof(size_t));
-    p += sizeof(size_t);
-    assert(out_size == out->GetBufferSize());
+    assert(got_out_size == out->GetBufferSize());
 
-    Buffer rout(reinterpret_cast<char *>(const_cast<unsigned char *>(p)), out_size);
+    Buffer rout(reinterpret_cast<char *>(const_cast<unsigned char *>(got_out)), got_out_size);
     assert(rout.Get<int>() == result_val);
     c.ReleaseFrame();
 
