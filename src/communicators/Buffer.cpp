@@ -61,6 +61,9 @@ Buffer::Buffer(const Buffer &orig) {
     if ((mpBuffer = (char *)malloc(mSize)) == NULL) throw runtime_error("Can't allocate memory.");
     memmove(mpBuffer, orig.mpBuffer, mLength);
     mBackOffset = mLength;
+    mSegments = orig.mSegments;
+    mInlineConsumed = orig.mInlineConsumed;
+    mExternalBytes = orig.mExternalBytes;
 }
 
 Buffer::Buffer(istream &in) {
@@ -92,6 +95,9 @@ void Buffer::Reset() {
     mLength = 0;
     mOffset = 0;
     mBackOffset = 0;
+    mSegments.clear();
+    mInlineConsumed = 0;
+    mExternalBytes = 0;
 }
 
 void Buffer::Reset(Communicator *c) {
@@ -101,6 +107,10 @@ void Buffer::Reset(Communicator *c) {
 #endif
     mOffset = 0;
     mBackOffset = mLength;
+    // A buffer reconstructed from the wire is always contiguous.
+    mSegments.clear();
+    mInlineConsumed = 0;
+    mExternalBytes = 0;
     if (mLength >= mSize) {
         mSize = (mLength / mBlockSize + 1) * mBlockSize;
         if ((mpBuffer = (char *)realloc(mpBuffer, mSize)) == NULL)
@@ -114,6 +124,28 @@ const char *const Buffer::GetBuffer() const { return mpBuffer; }
 
 size_t Buffer::GetBufferSize() const { return mLength; }
 
+void Buffer::GetIov(std::vector<struct iovec> &out) const {
+    out.clear();
+    if (mSegments.empty()) {
+        // Fast path: one contiguous fragment (original behaviour).
+        if (mLength > 0) out.push_back(iovec{static_cast<void *>(mpBuffer), mLength});
+        return;
+    }
+    out.reserve(mSegments.size() + 1);
+    for (const auto &s : mSegments) {
+        if (s.kind == SegKind::Inline) {
+            if (s.len > 0)
+                out.push_back(iovec{static_cast<void *>(mpBuffer + s.offset), s.len});
+        } else {  // HostRef: borrowed external bytes, never copied
+            out.push_back(iovec{const_cast<void *>(s.ptr), s.len});
+        }
+    }
+    // Trailing inline run written after the last AddRef.
+    if (mInlineConsumed < mLength)
+        out.push_back(
+            iovec{static_cast<void *>(mpBuffer + mInlineConsumed), mLength - mInlineConsumed});
+}
+
 void Buffer::SetGpuPayload(void *gpu_addr, std::size_t size) {
     mGpuPayload = gpu_addr;
     mGpuPayloadSize = size;
@@ -124,19 +156,20 @@ void *Buffer::GetGpuPayload() const { return mGpuPayload; }
 std::size_t Buffer::GetGpuPayloadSize() const { return mGpuPayloadSize; }
 
 void Buffer::Dump(Communicator *c) const {
-    /**
-     *  TO-DO scrivi al message dispatcher che stai per scrivere
-     *  acquisisci il lock
-     *  scrivi
-     *  md->write(communicator out, tid, mpBuffer, mLenght);
-     */
-    c->Write((char *)&mLength, sizeof(size_t));
-    c->Write(mpBuffer, mLength);
+    // Frame the message with its LOGICAL size (inline arena + any borrowed
+    // external segments), then write the body. With no AddRef segments this
+    // is the original single contiguous Write(). With segments we hand the
+    // ordered fragments to WriteIov(): scatter-capable transports (UCX) send
+    // them in place, others fall back to one concatenation — identical wire
+    // bytes either way.
+    size_t total = GetLogicalSize();
+    c->Write((char *)&total, sizeof(size_t));
+    if (mSegments.empty()) {
+        c->Write(mpBuffer, mLength);
+    } else {
+        std::vector<struct iovec> iov;
+        GetIov(iov);
+        c->WriteIov(iov.data(), iov.size());
+    }
     c->Sync();
-
-    /**
-     * TO-DO rilascia il lock
-     * notifica
-     *
-     */
 }
