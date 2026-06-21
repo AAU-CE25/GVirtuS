@@ -72,8 +72,8 @@ install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/etc DESTINATION ${GVIRTUS_HOME})
 add_library(gvirtus-communicators SHARED
     src/communicators/Buffer.cpp
     src/communicators/CommunicatorFactory.cpp
-    src/communicators/Endpoint_Tcp.cpp
-    src/communicators/Endpoint_Ucx.cpp
+    src/communicators/tcp/Endpoint_Tcp.cpp
+    src/communicators/ucx/Endpoint_Ucx.cpp
     src/communicators/EndpointFactory.cpp
     src/communicators/Result.cpp
 )
