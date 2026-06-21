@@ -47,10 +47,11 @@
  *   contiguous buffer before sending. Frame-based receive skips the per-byte
  *   Add<char> loop (was ~1.3s for 64 MB).
  *
- * Fase 5: AddHostPointerForArgumentsDirect() splices the user's buffer into
- *   the iov at the recorded offset — the payload never touches mpInputBuffer.
- *   SetOutputDestination() lets the response path write directly into the
- *   caller's dst buffer.
+ * Fase 5: AddHostPointerForArgumentsDirect() records the user's buffer as a
+ *   BORROWED segment via Buffer::AddRef; Execute() assembles the send iov as
+ *   [header][routine] + Buffer::GetIov(), so the payload is referenced in
+ *   place and never copied into mpInputBuffer. SetOutputDestination() lets the
+ *   response path write directly into the caller's dst buffer.
  *
  * Reentrancy guard: UCX's libuct_cuda fires cu* calls during ucp_init. These
  *   reach Execute() before mpInitialized is set; we return CUDA_ERROR_NOT_-
@@ -321,7 +322,9 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
 
         const std::uint64_t request_id = gUcxAmRequestId.fetch_add(1);
         const std::size_t routine_size = std::strlen(routine);
-        const std::size_t payload_size = input_buffer->GetBufferSize();
+        // Logical payload size = marshaled arena + any borrowed AddRef
+        // segments. Equals GetBufferSize() for a plain marshaled call.
+        const std::size_t payload_size = input_buffer->GetLogicalSize();
 
         gvirtus::communicators::ucxam::EnvelopeHeader req_header{};
         req_header.magic = gvirtus::communicators::ucxam::kEnvelopeMagic;
@@ -334,76 +337,41 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
         req_header.routine_size = static_cast<std::uint64_t>(routine_size);
         req_header.payload_size = static_cast<std::uint64_t>(payload_size);
 
-        // PROFILE: timing breakdown for transfers >= 1MB.
-        // Fase 5: when the caller uses AddHostPointerForArgumentsDirect, the
-        // user payload bypasses mpInputBuffer entirely — payload_size alone
-        // becomes tiny (just the marshaled headers / scalars). Include the
-        // direct chunk so big transfers still trip the gate.
-        // Fase 4 (D2H): the big payload is in the RESPONSE, not the request.
-        // mDirectOutputCount is the count the caller pre-registered via
-        // SetOutputDestination — include it so D2H also gets profiled.
+        // PROFILE: timing breakdown for transfers >= 1MB. payload_size already
+        // includes any zero-copy AddRef bytes (GetLogicalSize). The D2H output
+        // count pre-registered via SetOutputDestination is added so large
+        // device-to-host transfers (payload in the RESPONSE) also trip the gate.
         const std::size_t effective_payload =
-            payload_size + frontend->mDirectInputBytes
-                         + frontend->mDirectOutputCount;
+            payload_size + frontend->mDirectOutputCount;
         const bool profile = effective_payload >= (1u << 20);
         auto tA = steady_clock::now();
 
-        // Gather-send via Communicator::WriteIov - UCX backend maps this to
+        // Gather-send via Communicator::WriteIov — UCX maps this to
         // ucp_am_send_nbx with UCP_DATATYPE_IOV, avoiding the staging memcpy
-        // of the entire payload (was ~27ms per 64MB on Connect-7). Fase 5
-        // zero-copy: when the caller used AddHostPointerForArgumentsDirect,
-        // splice the user buffer at the recorded offset so the 64MB never
-        // touches mpInputBuffer. Wire payload bytes are identical either way.
-        const bool has_direct = frontend->HasDirectInput();
-        if (has_direct) {
-            req_header.payload_size =
-                static_cast<std::uint64_t>(payload_size + frontend->mDirectInputBytes);
-        }
-        struct iovec iov[5];
-        int n = 0;
-        iov[n].iov_base = &req_header;
-        iov[n].iov_len  = sizeof(req_header);
-        ++n;
-        if (routine_size > 0) {
-            iov[n].iov_base = const_cast<char *>(routine);
-            iov[n].iov_len  = routine_size;
-            ++n;
-        }
-        if (payload_size > 0) {
-            if (has_direct) {
-                const size_t split = frontend->mDirectInputBufferOffset;
-                char *base = const_cast<char *>(input_buffer->GetBuffer());
-                iov[n].iov_base = base;
-                iov[n].iov_len  = split;
-                ++n;
-                iov[n].iov_base = const_cast<void *>(frontend->mDirectInputSrc);
-                iov[n].iov_len  = frontend->mDirectInputBytes;
-                ++n;
-                if (payload_size > split) {
-                    iov[n].iov_base = base + split;
-                    iov[n].iov_len  = payload_size - split;
-                    ++n;
-                }
-            } else {
-                iov[n].iov_base = const_cast<char *>(input_buffer->GetBuffer());
-                iov[n].iov_len  = payload_size;
-                ++n;
-            }
-        }
+        // of the whole payload. The message is [header][routine] followed by
+        // the input Buffer's ordered IoV fragments: Buffer::GetIov() returns
+        // one arena fragment for a plain marshaled call, or interleaved inline
+        // + borrowed fragments when the caller used
+        // AddHostPointerForArgumentsDirect (Buffer::AddRef) — the big user
+        // payload is then referenced in place and never copied. Wire bytes are
+        // identical to the all-copy path.
+        std::vector<struct iovec> iov;
+        iov.push_back(iovec{static_cast<void *>(&req_header), sizeof(req_header)});
+        if (routine_size > 0)
+            iov.push_back(iovec{const_cast<char *>(routine), routine_size});
+        std::vector<struct iovec> payload_iov;
+        input_buffer->GetIov(payload_iov);
+        iov.insert(iov.end(), payload_iov.begin(), payload_iov.end());
         auto tB = steady_clock::now();
 
         frontend->mDataSent += payload_size;
-        frontend->_communicator->obj_ptr()->WriteIov(iov, static_cast<size_t>(n));
+        frontend->_communicator->obj_ptr()->WriteIov(iov.data(), iov.size());
         auto tC = steady_clock::now();
 
         frontend->_communicator->obj_ptr()->Sync();
         auto tD = steady_clock::now();
 
         send_sec = duration_cast<milliseconds>(steady_clock::now() - start_send).count() / 1000.0;
-
-        // Fase 5: direct input chunk has been consumed by WriteIov+Sync above;
-        // drop the pointer so the next Execute() doesn't accidentally inherit it.
-        frontend->ClearDirectInput();
 
         frontend->mpOutputBuffer->Reset();
         auto start_recv = steady_clock::now();
