@@ -91,7 +91,7 @@ add_test(NAME test_buffer_iov COMMAND test_buffer_iov)
 add_executable(test_protocol_loopback
     test_protocol_loopback.cpp
     ${PROJECT_SOURCE_DIR}/src/communicators/Buffer.cpp
-    ${PROJECT_SOURCE_DIR}/src/communicators/AmProtocol.cpp
+    ${PROJECT_SOURCE_DIR}/src/communicators/RpcCodec.cpp
 )
 set_target_properties(test_protocol_loopback PROPERTIES
     CXX_STANDARD 23

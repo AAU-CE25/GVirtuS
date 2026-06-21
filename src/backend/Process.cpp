@@ -43,7 +43,7 @@
 #include <thread>
 #include <vector>
 
-#include "gvirtus/communicators/AmProtocol.h"
+#include "gvirtus/communicators/RpcCodec.h"
 #include "gvirtus/communicators/Protocol.h"
 
 // DEBUG replaced with log4cplus, so that all diagnostics respect GVIRTUS_LOGLEVEL and share the unified format.

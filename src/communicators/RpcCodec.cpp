@@ -1,5 +1,5 @@
 /*
- * GVirtuS RPC envelope codec — see AmProtocol.h.
+ * GVirtuS RPC envelope codec — see RpcCodec.h.
  *
  * Both wire-format directions live here so neither the backend nor the
  * frontend touches the envelope: the backend dispatch loop calls
@@ -10,7 +10,7 @@
  * WriteFrame/TryAcquireFrame — so this codec has zero per-transport
  * branching.
  */
-#include "gvirtus/communicators/AmProtocol.h"
+#include "gvirtus/communicators/RpcCodec.h"
 
 #include <cstring>
 #include <stdexcept>
@@ -20,12 +20,11 @@
 namespace gvirtus::communicators::am {
 
 namespace {
-constexpr std::uint16_t kRequest = static_cast<std::uint16_t>(am::MessageType::Request);
-constexpr std::uint16_t kResponse = static_cast<std::uint16_t>(am::MessageType::Response);
+constexpr std::uint8_t kRequest = static_cast<std::uint8_t>(am::MessageType::Request);
+constexpr std::uint8_t kResponse = static_cast<std::uint8_t>(am::MessageType::Response);
 
 bool valid_header(const am::EnvelopeHeader &h) {
-    return h.magic == am::kEnvelopeMagic && h.version == am::kEnvelopeVersion &&
-           h.header_size == sizeof(am::EnvelopeHeader);
+    return h.magic == am::kEnvelopeMagic && h.version == am::kEnvelopeVersion;
 }
 }  // namespace
 
@@ -63,18 +62,19 @@ bool ReadRequest(Communicator *c, am::EnvelopeHeader &header, std::string &routi
         error = "unexpected message type";
         return false;
     }
-    const std::size_t want = sizeof(header) + static_cast<std::size_t>(header.routine_size) +
-                             static_cast<std::size_t>(header.payload_size);
-    if (frame_size < want) {
+    const std::size_t routine_len = static_cast<std::size_t>(header.routine_size);
+    if (frame_size < sizeof(header) + routine_len) {
         c->ReleaseFrame();
-        error = "frame truncated";
+        error = "frame truncated (routine)";
         return false;
     }
 
-    routine.assign(reinterpret_cast<const char *>(frame + sizeof(header)),
-                   static_cast<std::size_t>(header.routine_size));
-    payload_data = frame + sizeof(header) + header.routine_size;
-    payload_size = static_cast<std::size_t>(header.payload_size);
+    routine.assign(reinterpret_cast<const char *>(frame + sizeof(header)), routine_len);
+    // Payload is "whatever is left after header + routine"; the framing
+    // layer already delimits the frame, so the envelope doesn't carry a
+    // redundant payload_size field.
+    payload_data = frame + sizeof(header) + routine_len;
+    payload_size = frame_size - sizeof(header) - routine_len;
     // GPUDirect tail (if the transport landed part of the payload on the GPU).
     c->current_frame_gpu(gpu_payload, gpu_payload_size);
     error.clear();
@@ -90,34 +90,27 @@ bool WriteResponse(Communicator *c, const am::EnvelopeHeader &request_header, in
         host_out_size = output_buffer->GetBufferSize();
         out_data = output_buffer->GetBuffer();
     }
-    // Frontend reads `wire_out_size` bytes contiguously, regardless of whether
-    // a trailing slice is GPU-resident.
-    const std::size_t wire_out_size = host_out_size + gpu_payload_size;
-    const std::size_t payload_size = sizeof(double) + sizeof(std::size_t) + wire_out_size;
 
     am::EnvelopeHeader rh{};
     rh.magic = am::kEnvelopeMagic;
     rh.version = am::kEnvelopeVersion;
     rh.message_type = kResponse;
-    rh.header_size = static_cast<std::uint16_t>(sizeof(am::EnvelopeHeader));
-    rh.reserved0 = 0;
-    rh.status_code = static_cast<std::uint32_t>(exit_code);
-    rh.request_id = request_header.request_id;
     rh.routine_size = 0;
-    rh.payload_size = static_cast<std::uint64_t>(payload_size);
+    rh.reserved0 = 0;
+    rh.pad_ = 0;
+    rh.request_id = request_header.request_id;
+    rh.status_code = static_cast<std::uint32_t>(exit_code);
 
-    // [header][exec_sec][wire_out_size][host out bytes][optional GPU tail]
-    std::size_t wire_out_size_field = wire_out_size;
-    struct iovec iov[5];
+    // [header][exec_sec][host out bytes][optional GPU tail]
+    // wire_out_size is no longer encoded — the receiver derives it from
+    // (frame_size - sizeof(header) - sizeof(double)).
+    struct iovec iov[4];
     int n = 0;
     iov[n].iov_base = &rh;
     iov[n].iov_len = sizeof(rh);
     ++n;
     iov[n].iov_base = &server_exec_sec;
     iov[n].iov_len = sizeof(double);
-    ++n;
-    iov[n].iov_base = &wire_out_size_field;
-    iov[n].iov_len = sizeof(std::size_t);
     ++n;
     if (host_out_size > 0 && out_data != nullptr) {
         iov[n].iov_base = const_cast<char *>(out_data);
@@ -141,24 +134,32 @@ bool WriteResponse(Communicator *c, const am::EnvelopeHeader &request_header, in
     return true;
 }
 
-bool WriteRequest(Communicator *c, std::uint64_t request_id, const std::string &routine,
+bool WriteRequest(Communicator *c, std::uint32_t request_id, const std::string &routine,
                   const struct iovec *payload_iov, std::size_t payload_iov_count,
-                  std::size_t payload_logical_size, std::string &error) {
+                  std::string &error) {
+    // Sanity check, not a real limit. routine_size is u32 (4 GB headroom);
+    // any real CUDA routine name is ~50 chars. We bound at u32 max to guard
+    // against silently truncating a corrupt/malformed std::string size on
+    // 64-bit platforms where size() can in principle exceed 4 GB.
+    if (routine.size() > 0xFFFFFFFFu) {
+        error = "routine name too long for envelope";
+        return false;
+    }
     am::EnvelopeHeader rh{};
     rh.magic = am::kEnvelopeMagic;
     rh.version = am::kEnvelopeVersion;
     rh.message_type = kRequest;
-    rh.header_size = static_cast<std::uint16_t>(sizeof(am::EnvelopeHeader));
+    rh.routine_size = static_cast<std::uint32_t>(routine.size());
     rh.reserved0 = 0;
-    rh.status_code = 0;
+    rh.pad_ = 0;
     rh.request_id = request_id;
-    rh.routine_size = static_cast<std::uint64_t>(routine.size());
-    rh.payload_size = static_cast<std::uint64_t>(payload_logical_size);
+    rh.status_code = 0;
 
     // [header][routine] followed by the caller's payload IoV fragments. The
     // payload iov may contain a single marshaled-arena segment OR an
     // interleaved sequence of inline + borrowed (AddRef) segments — either
-    // way the codec gather-sends them in place, never copying.
+    // way the codec gather-sends them in place, never copying. The framing
+    // layer carries the total size, so the envelope omits payload_size.
     std::vector<struct iovec> iov;
     iov.reserve(2 + payload_iov_count);
     iov.push_back(iovec{static_cast<void *>(&rh), sizeof(rh)});
@@ -178,7 +179,7 @@ bool WriteRequest(Communicator *c, std::uint64_t request_id, const std::string &
     return true;
 }
 
-bool ReadResponse(Communicator *c, std::uint64_t expected_request_id, int &exit_code,
+bool ReadResponse(Communicator *c, std::uint32_t expected_request_id, int &exit_code,
                   double &server_exec_sec, const unsigned char *&out_data, std::size_t &out_size,
                   bool &owns_frame, std::string &error) {
     owns_frame = false;
@@ -195,10 +196,10 @@ bool ReadResponse(Communicator *c, std::uint64_t expected_request_id, int &exit_
     }
     owns_frame = true;
 
-    if (frame_size < sizeof(am::EnvelopeHeader)) {
+    if (frame_size < sizeof(am::EnvelopeHeader) + sizeof(double)) {
         c->ReleaseFrame();
         owns_frame = false;
-        error = "response frame smaller than header";
+        error = "response frame smaller than minimum";
         return false;
     }
 
@@ -219,36 +220,12 @@ bool ReadResponse(Communicator *c, std::uint64_t expected_request_id, int &exit_
 
     exit_code = static_cast<int>(rh.status_code);
 
-    const std::size_t payload_len = static_cast<std::size_t>(rh.payload_size);
-    if (payload_len == 0) {
-        error.clear();
-        return true;
-    }
-
-    constexpr std::size_t kFixedPrefix = sizeof(double) + sizeof(std::size_t);
-    if (frame_size < sizeof(rh) + kFixedPrefix) {
-        c->ReleaseFrame();
-        owns_frame = false;
-        error = "response payload too small";
-        return false;
-    }
-
     const unsigned char *p = frame + sizeof(rh);
     std::memcpy(&server_exec_sec, p, sizeof(double));
     p += sizeof(double);
-    std::size_t wire_out_size = 0;
-    std::memcpy(&wire_out_size, p, sizeof(std::size_t));
-    p += sizeof(std::size_t);
-
-    if (sizeof(rh) + kFixedPrefix + wire_out_size > frame_size) {
-        c->ReleaseFrame();
-        owns_frame = false;
-        error = "output payload size mismatch";
-        return false;
-    }
-
+    // Output is the tail of the frame; framing already delimits it.
     out_data = p;
-    out_size = wire_out_size;
+    out_size = frame_size - sizeof(rh) - sizeof(double);
     error.clear();
     return true;
 }

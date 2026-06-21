@@ -42,7 +42,8 @@ bool ReadRequest(Communicator *c, am::EnvelopeHeader &header, std::string &routi
                  std::string &error);
 
 // Build and send the response frame for a completed request. The response
-// body is [exec_sec][wire_out_size][output bytes (+ optional GPU tail)].
+// body is [exec_sec][output bytes (+ optional GPU tail)] — the output size
+// is recovered from the frame size, no length prefix on the wire.
 // Returns false on a transport error (`error` set).
 bool WriteResponse(Communicator *c, const am::EnvelopeHeader &request_header, int exit_code,
                    double server_exec_sec, const std::shared_ptr<Buffer> &output_buffer,
@@ -52,13 +53,12 @@ bool WriteResponse(Communicator *c, const am::EnvelopeHeader &request_header, in
 
 // Build the request envelope (header + routine) and gather-send it together
 // with the caller-provided payload IoV via Communicator::WriteFrame(). The
-// codec owns the header; `payload_logical_size` is the byte count to record
-// in the header (may differ from the sum of iov lens when the buffer carries
-// borrowed/zero-copy segments — Buffer::GetLogicalSize() supplies it).
+// codec owns the header; the framing layer carries the total size, so the
+// envelope no longer encodes payload_size.
 // Returns false on a transport error (`error` set).
-bool WriteRequest(Communicator *c, std::uint64_t request_id, const std::string &routine,
+bool WriteRequest(Communicator *c, std::uint32_t request_id, const std::string &routine,
                   const struct iovec *payload_iov, std::size_t payload_iov_count,
-                  std::size_t payload_logical_size, std::string &error);
+                  std::string &error);
 
 // Acquire the next frame, validate that it is a Response for
 // `expected_request_id`, and decode the body prefix. On success `exit_code`
@@ -66,7 +66,7 @@ bool WriteRequest(Communicator *c, std::uint64_t request_id, const std::string &
 // the communicator's frame. `owns_frame` is true and the caller MUST call
 // ReleaseFrame() once it has consumed `out_data`. Returns false on a
 // transport or protocol error (`error` set).
-bool ReadResponse(Communicator *c, std::uint64_t expected_request_id, int &exit_code,
+bool ReadResponse(Communicator *c, std::uint32_t expected_request_id, int &exit_code,
                   double &server_exec_sec, const unsigned char *&out_data, std::size_t &out_size,
                   bool &owns_frame, std::string &error);
 

@@ -9,7 +9,7 @@
  *
  * No CUDA/UCX/log4cplus needed:
  *   g++ -std=c++23 -I include tests/test_protocol_loopback.cpp \
- *       src/communicators/Buffer.cpp src/communicators/AmProtocol.cpp -o /tmp/tp
+ *       src/communicators/Buffer.cpp src/communicators/RpcCodec.cpp -o /tmp/tp
  */
 #include <cassert>
 #include <cstdio>
@@ -19,7 +19,7 @@
 #include <string>
 #include <vector>
 
-#include "gvirtus/communicators/AmProtocol.h"
+#include "gvirtus/communicators/RpcCodec.h"
 #include "gvirtus/communicators/Buffer.h"
 #include "gvirtus/communicators/Communicator.h"
 #include "gvirtus/communicators/Protocol.h"
@@ -68,7 +68,7 @@ int main() {
     in.GetIov(piov);
     std::string err;
     bool wreq_ok = am::WriteRequest(&c, /*request_id*/ 0xABCDu, routine, piov.data(),
-                                    piov.size(), in.GetLogicalSize(), err);
+                                    piov.size(), err);
     assert(wreq_ok);
 
     // ---- BACKEND: decode the request via the codec ----

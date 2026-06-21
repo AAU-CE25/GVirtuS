@@ -76,6 +76,7 @@
 #include <vector>
 
 #include "gvirtus/communicators/Protocol.h"
+#include "gvirtus/communicators/RpcCodec.h"
 #include "log4cplus/configurator.h"
 #include "log4cplus/logger.h"
 #include "log4cplus/loggingmacros.h"
@@ -97,7 +98,7 @@ static Frontend msFrontend;
 std::mutex gFrontendMutex;
 map<pthread_t, Frontend *> *Frontend::mpFrontends = NULL;
 static bool initialized = false;
-static std::atomic<std::uint64_t> gRequestId{1};
+static std::atomic<std::uint32_t> gRequestId{1};
 
 Logger logger;
 
@@ -300,7 +301,7 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
     {
         auto start_send = steady_clock::now();
 
-        const std::uint64_t request_id = gRequestId.fetch_add(1);
+        const std::uint32_t request_id = gRequestId.fetch_add(1);
         // Logical payload size = marshaled arena + any borrowed AddRef
         // segments. Equals GetBufferSize() for a plain marshaled call.
         const std::size_t payload_size = input_buffer->GetLogicalSize();
@@ -329,7 +330,7 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
         std::string err;
         if (!gvirtus::communicators::am::WriteRequest(
                 frontend->_communicator->obj_ptr(), request_id, routine,
-                payload_iov.data(), payload_iov.size(), payload_size, err)) {
+                payload_iov.data(), payload_iov.size(), err)) {
             throw std::runtime_error("Frontend: WriteRequest failed: " + err);
         }
         auto tD = steady_clock::now();
