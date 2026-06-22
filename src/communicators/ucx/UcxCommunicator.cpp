@@ -48,11 +48,16 @@
 #include "gvirtus/communicators/Protocol.h"
 #include "UcxInternal.h"
 
+#include "log4cplus/logger.h"
+#include "log4cplus/loggingmacros.h"
+
 using gvirtus::communicators::UcxCommunicator;
 using namespace gvirtus::communicators::ucx_internal;
+using namespace log4cplus;
 
 namespace {
 constexpr unsigned kUcxAmId = 1;
+static Logger ucx_logger = Logger::getInstance(LOG4CPLUS_TEXT("UcxCommunicator"));
 }  // namespace
 
 // Debug helpers (declared in UcxInternal.h). The other UCX TUs call into
@@ -74,12 +79,13 @@ bool ucx_debug_enabled() {
 void ucx_debug_log(const char *fmt, ...) {
     if (!ucx_debug_enabled()) return;
 
-    std::fprintf(stderr, "[UCX DEBUG] ");
     va_list args;
     va_start(args, fmt);
-    std::vfprintf(stderr, fmt, args);
+    std::string formatted;
+    char buffer[4096];
+    vsnprintf(buffer, sizeof(buffer), fmt, args);
     va_end(args);
-    std::fprintf(stderr, "\n");
+    LOG4CPLUS_DEBUG(::ucx_logger, buffer);
 }
 
 }  // namespace gvirtus::communicators::ucx_internal
