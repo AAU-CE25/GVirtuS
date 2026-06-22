@@ -188,46 +188,75 @@ bool ReadResponse(Communicator *c, std::uint32_t expected_request_id, int &exit_
     exit_code = 0;
     server_exec_sec = 0.0;
 
-    const unsigned char *frame = nullptr;
-    std::size_t frame_size = 0;
-    if (!c->TryAcquireFrame(frame, frame_size)) {
-        error = "failed to acquire response frame";
-        return false;
-    }
-    owns_frame = true;
+    // UCX can interleave control-plane envelopes (RmaSetup/RmaPosted) in the
+    // same frame queue used for request/response traffic. Skip any valid
+    // non-response envelope until we see the matching response frame.
+    std::size_t skipped_frames = 0;
+    constexpr std::size_t kMaxSkippedFrames = 64;
 
-    if (frame_size < sizeof(am::EnvelopeHeader) + sizeof(double)) {
-        c->ReleaseFrame();
-        owns_frame = false;
-        error = "response frame smaller than minimum";
-        return false;
-    }
+    for (;;) {
+        const unsigned char *frame = nullptr;
+        std::size_t frame_size = 0;
+        if (!c->TryAcquireFrame(frame, frame_size)) {
+            error = "failed to acquire response frame";
+            return false;
+        }
+        owns_frame = true;
 
-    am::EnvelopeHeader rh{};
-    std::memcpy(&rh, frame, sizeof(rh));
-    if (!valid_header(rh) || rh.message_type != kResponse) {
-        c->ReleaseFrame();
-        owns_frame = false;
-        error = "invalid response header";
-        return false;
-    }
-    if (rh.request_id != expected_request_id) {
-        c->ReleaseFrame();
-        owns_frame = false;
-        error = "response request_id mismatch";
-        return false;
-    }
+        if (frame_size < sizeof(am::EnvelopeHeader)) {
+            c->ReleaseFrame();
+            owns_frame = false;
+            error = "response frame smaller than header";
+            return false;
+        }
 
-    exit_code = static_cast<int>(rh.status_code);
+        am::EnvelopeHeader rh{};
+        std::memcpy(&rh, frame, sizeof(rh));
+        if (!valid_header(rh)) {
+            c->ReleaseFrame();
+            owns_frame = false;
+            error = "invalid response header";
+            return false;
+        }
 
-    const unsigned char *p = frame + sizeof(rh);
-    std::memcpy(&server_exec_sec, p, sizeof(double));
-    p += sizeof(double);
-    // Output is the tail of the frame; framing already delimits it.
-    out_data = p;
-    out_size = frame_size - sizeof(rh) - sizeof(double);
-    error.clear();
-    return true;
+        if (rh.message_type != kResponse) {
+            c->ReleaseFrame();
+            owns_frame = false;
+            if (++skipped_frames > kMaxSkippedFrames) {
+                error = "too many non-response frames while waiting for response";
+                return false;
+            }
+            continue;
+        }
+
+        if (rh.request_id != expected_request_id) {
+            c->ReleaseFrame();
+            owns_frame = false;
+            if (++skipped_frames > kMaxSkippedFrames) {
+                error = "too many mismatched response frames";
+                return false;
+            }
+            continue;
+        }
+
+        if (frame_size < sizeof(am::EnvelopeHeader) + sizeof(double)) {
+            c->ReleaseFrame();
+            owns_frame = false;
+            error = "response frame smaller than minimum";
+            return false;
+        }
+
+        exit_code = static_cast<int>(rh.status_code);
+
+        const unsigned char *p = frame + sizeof(rh);
+        std::memcpy(&server_exec_sec, p, sizeof(double));
+        p += sizeof(double);
+        // Output is the tail of the frame; framing already delimits it.
+        out_data = p;
+        out_size = frame_size - sizeof(rh) - sizeof(double);
+        error.clear();
+        return true;
+    }
 }
 
 }  // namespace gvirtus::communicators::am

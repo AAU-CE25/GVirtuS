@@ -258,6 +258,17 @@ Frontend *Frontend::GetFrontend(Communicator *c) {
     return f;
 }
 
+void Frontend::Prepare() {
+    if (mpInputBuffer) mpInputBuffer->Reset();
+    if (mpOutputBuffer) mpOutputBuffer->Reset();
+    if (mpLaunchBuffer) mpLaunchBuffer->Reset();
+
+    mExitCode = -1;
+    mDirectOutputDst = nullptr;
+    mDirectOutputCount = 0;
+    mDirectOutputConsumed = false;
+}
+
 void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
     // Reentrancy guard for the case where a transport's init path fires
     // cu* probe calls during Frontend::Init -> Connect. At that point
@@ -329,7 +340,7 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
         frontend->mDataSent += payload_size;
         std::string err;
         if (!gvirtus::communicators::am::WriteRequest(
-                frontend->_communicator->obj_ptr(), request_id, routine,
+                frontend->_communicator->obj_ptr().get(), request_id, routine,
                 payload_iov.data(), payload_iov.size(), err)) {
             throw std::runtime_error("Frontend: WriteRequest failed: " + err);
         }
@@ -346,7 +357,7 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
         const unsigned char *out_data = nullptr;
         bool owns_frame = false;
         if (!gvirtus::communicators::am::ReadResponse(
-                frontend->_communicator->obj_ptr(), request_id, exit_code, server_exec_sec,
+                frontend->_communicator->obj_ptr().get(), request_id, exit_code, server_exec_sec,
                 out_data, out_buffer_size, owns_frame, err)) {
             if (owns_frame) frontend->_communicator->obj_ptr()->ReleaseFrame();
             throw std::runtime_error("Frontend: ReadResponse failed: " + err);

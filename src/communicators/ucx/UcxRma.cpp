@@ -33,6 +33,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include "gvirtus/communicators/Protocol.h"
