@@ -693,8 +693,14 @@ const gvirtus::communicators::Communicator *const UcxCommunicator::Accept() cons
     //               serialise at the CUDA/UCX driver level, so ~1.5-2x
     //               speedup rather than perfect N×, but still big).
     std::thread([accepted]() {
-        accepted->init_rx_pool();
-        accepted->send_rma_setup();
+        try {
+            accepted->init_rx_pool();
+            // Client may disconnect quickly during bring-up; avoid crashing
+            // the backend process on a best-effort RmaSetup send.
+            accepted->send_rma_setup();
+        } catch (const std::exception &e) {
+            ucx_debug_log("Accept setup thread: RmaSetup skipped (%s)", e.what());
+        }
     }).detach();
 
     return accepted;

@@ -7,6 +7,9 @@ DOCKER_HUB_USERNAME ?= aauce25
 -include etc/ucx.env
 
 SIMPLE_MATRIX_GPU_FLAGS ?=
+SIMPLE_MATRIX_CONFIG_FILE ?= ./etc/properties_ucx.json
+SIMPLE_MATRIX_CONFIG_PATH ?= /opt/GVirtuS/etc/properties_ucx.json
+SIMPLE_MATRIX_IMAGE ?= $(DOCKER_HUB_USERNAME)/simple_matrix_gvirtus:cuda12.6
 
 
 DOCKER_REPO_DEV := $(DOCKER_HUB_USERNAME)/gvirtus-dev
@@ -180,7 +183,7 @@ run-simple-matrix-test:
 		--device /dev/infiniband \
 		--cap-add IPC_LOCK \
 		--ulimit memlock=-1 \
-		-e GVIRTUS_CONFIG=/opt/GVirtuS/etc/properties_ucx.json \
+		-e GVIRTUS_CONFIG=$(SIMPLE_MATRIX_CONFIG_PATH) \
 		-e GVIRTUS_UCX_DATAPATH=$(GVIRTUS_UCX_DATAPATH) \
 		$(if $(UCX_TLS),-e UCX_TLS=$(UCX_TLS)) \
 		$(if $(UCX_NET_DEVICES),-e UCX_NET_DEVICES=$(UCX_NET_DEVICES)) \
@@ -189,8 +192,8 @@ run-simple-matrix-test:
 		$(if $(UCX_IB_GID_INDEX),-e UCX_IB_GID_INDEX=$(UCX_IB_GID_INDEX)) \
 		$(if $(UCX_RNDV_THRESH),-e UCX_RNDV_THRESH=$(UCX_RNDV_THRESH)) \
 		-v ./examples/simple_matrix:/opt/GVirtuS/examples \
-		-v ./etc/properties_ucx.json:/opt/GVirtuS/etc/properties_ucx.json \
-		$(DOCKER_REPO_DEV)/simple_matrix_gvirtus:cuda12.6 \
+		-v $(SIMPLE_MATRIX_CONFIG_FILE):$(SIMPLE_MATRIX_CONFIG_PATH) \
+		$(SIMPLE_MATRIX_IMAGE) \
 		bash /opt/GVirtuS/examples/frontend.sh
 
 run-simple-matrix-test-dev:
@@ -203,7 +206,7 @@ run-simple-matrix-test-dev:
 		--cap-add IPC_LOCK \
 		--ulimit memlock=-1 \
 		-e GVIRTUS_HOME=/opt/GVirtuS \
-		-e GVIRTUS_CONFIG=/opt/GVirtuS/etc/properties_ucx.json \
+		-e GVIRTUS_CONFIG=$(SIMPLE_MATRIX_CONFIG_PATH) \
 		-e GVIRTUS_UCX_DATAPATH=$(GVIRTUS_UCX_DATAPATH) \
 		$(if $(UCX_TLS),-e UCX_TLS=$(UCX_TLS)) \
 		$(if $(UCX_NET_DEVICES),-e UCX_NET_DEVICES=$(UCX_NET_DEVICES)) \
@@ -222,7 +225,7 @@ run-simple-matrix-test-dev:
 		-v ./examples/simple_matrix:/opt/GVirtuS/examples \
 		-v ./CMakeLists.txt:/opt/GVirtuS/CMakeLists.txt \
 		-v ./build/simple_matrix_dev:/opt/GVirtuS/build \
-		$(DOCKER_REPO_DEV)/simple_matrix_gvirtus:cuda12.6 \
+		$(SIMPLE_MATRIX_IMAGE) \
 		bash -lc 'set -e; cd /opt/GVirtuS/build && cmake -DCMAKE_INSTALL_PREFIX=/opt/GVirtuS .. && make -j$$(nproc) && make install && bash /opt/GVirtuS/examples/frontend.sh'
 
 stop-simple-matrix-test:
@@ -230,6 +233,18 @@ stop-simple-matrix-test:
 
 stop-simple-matrix-test-dev:
 	docker stop simple_matrix_test_dev_container-$(USER) || true
+
+run-gvirtus-backend-single-dpu:
+	$(MAKE) run-gvirtus-backend-dev \
+		BACKEND_CONFIG=/usr/local/gvirtus/etc/properties_ucx_local.json \
+		UCX_TLS=tcp,self \
+		UCX_NET_DEVICES=
+
+run-simple-matrix-test-dev-single-dpu:
+	$(MAKE) run-simple-matrix-test-dev \
+		SIMPLE_MATRIX_CONFIG_PATH=/opt/GVirtuS/etc/properties_ucx_local.json \
+		UCX_TLS=tcp,self \
+		UCX_NET_DEVICES=
 
 ucx-discover:
 	@bash scripts/ucx-discover.sh
