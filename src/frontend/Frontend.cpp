@@ -77,10 +77,12 @@
 
 #include "gvirtus/communicators/Protocol.h"
 #include "gvirtus/communicators/RpcCodec.h"
+
 #include "log4cplus/configurator.h"
 #include "log4cplus/logger.h"
 #include "log4cplus/loggingmacros.h"
-
+#include "log4cplus/consoleappender.h"
+#include "log4cplus/layout.h"
 using std::chrono::duration_cast;
 using std::chrono::milliseconds;
 using std::chrono::steady_clock;
@@ -109,9 +111,13 @@ std::string getEnvVar(std::string const &key) {
 }
 
 void Frontend::Init(Communicator *c) {
-    // Logger configuration
-    BasicConfigurator basicConfigurator;
-    basicConfigurator.configure();
+
+
+    // Logger configuration with custom time-only pattern
+    SharedAppenderPtr consoleAppender(new ConsoleAppender());
+    consoleAppender->setName(LOG4CPLUS_TEXT("console"));
+    std::string pattern = "%D{%H:%M:%S.%q} [%-5p] [%c] (%F:%L) - %m%n";
+    consoleAppender->setLayout(std::unique_ptr<Layout>(new PatternLayout(LOG4CPLUS_TEXT(pattern))));
 
     // Set the logging level
     std::string logLevelString = getEnvVar("GVIRTUS_LOGLEVEL");
@@ -127,8 +133,9 @@ void Frontend::Init(Communicator *c) {
     }
 
     Logger root = Logger::getRoot();
+    root.removeAllAppenders();
+    root.addAppender(consoleAppender);
     root.setLogLevel(logLevel);
-
     logger = Logger::getInstance(LOG4CPLUS_TEXT("Frontend"));
 
     pid_t tid = syscall(SYS_gettid);

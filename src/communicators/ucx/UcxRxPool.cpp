@@ -22,7 +22,11 @@
 #include <string>
 #include <vector>
 
+#include "log4cplus/logger.h"
+#include "log4cplus/loggingmacros.h"
 #include "UcxInternal.h"
+
+using namespace log4cplus;
 
 using gvirtus::communicators::UcxCommunicator;
 using namespace gvirtus::communicators::ucx_internal;
@@ -122,10 +126,11 @@ void UcxCommunicator::init_rx_pool() {
         map_slot_to_ucp(context_, rx_pool_->slots[i]);
     }
     if (gpudirect_active) {
-        std::fprintf(stderr,
-            "[GVS] rx_pool: initialized %zu slots x %zu bytes (host) + %zu/%zu GPU shadows x %zu bytes\n",
-            kInitialSlotCount, kInitialSlotCap,
-            gpu_allocated_count, kInitialSlotCount, kInitialSlotCap);
+        Logger pool_logger = Logger::getInstance(LOG4CPLUS_TEXT("UcxCommunicator"));
+        LOG4CPLUS_INFO(pool_logger,
+            "rx_pool: initialized " << kInitialSlotCount << " slots x " << kInitialSlotCap
+            << " bytes (host) + " << gpu_allocated_count << "/" << kInitialSlotCount
+            << " GPU shadows x " << kInitialSlotCap << " bytes");
     }
     ucx_debug_log("rx_pool: initialized %zu slots x %zu bytes (gpu_shadows=%zu)",
                   kInitialSlotCount, kInitialSlotCap, gpu_allocated_count);

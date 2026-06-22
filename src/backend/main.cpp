@@ -51,7 +51,7 @@ void rootLoggerConfig() {
     consoleAppender->setName(LOG4CPLUS_TEXT("console"));
 
     // Define the pattern layout string
-    std::string pattern = "%D{%Y-%m-%d %H:%M:%S.%q} [%-5p] [%c] (%F:%L) - %m%n";
+    std::string pattern = "%D{%H:%M:%S.%q} [%-5p] [%c] (%F:%L) - %m%n";
     // %D = date/time (with milliseconds via %q)
     // %p = log level (%-5p pads to 5 chars)
     // %c = logger name

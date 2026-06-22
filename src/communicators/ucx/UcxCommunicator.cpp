@@ -327,31 +327,29 @@ void UcxCommunicator::init_ucx() {
     // cudart backend plugin can detect the post-probe state via getenv without
     // needing to link against this UCX library (avoids RTLD_GLOBAL surprises
     // since plugins are dlopen'd separately from libgvirtus-communicators-ucx).
-    if (!gpudirect_requested) {
-        set_gpudirect_enabled(false);
-        setenv("GVIRTUS_GPUDIRECT_ACTIVE", "0", /*overwrite=*/1);
-        if (gpudirect_env_set && !tls_supports_cuda) {
-            std::fprintf(stderr,
-                "[GVS] GPUDirect=disabled (UCX_TLS=%s has no CUDA-capable transport)\n",
-                std::getenv("UCX_TLS") ? std::getenv("UCX_TLS") : "(unset)");
-        } else {
-            std::fprintf(stderr,
-                "[GVS] GPUDirect=disabled (env GVIRTUS_GPUDIRECT not set)\n");
-        }
-    } else {
+    if (gpudirect_requested) {
         std::string reason;
         const bool ok = probe_gpudirect(context_, reason);
         set_gpudirect_enabled(ok);
         setenv("GVIRTUS_GPUDIRECT_ACTIVE", ok ? "1" : "0", /*overwrite=*/1);
         if (ok) {
-            std::fprintf(stderr,
-                "[GVS] GPUDirect=enabled (cudaMalloc + ucp_mem_map(CUDA) probe OK, "
-                "auto-set UCX_RCACHE_ENABLE=n UCX_MEMTYPE_CACHE=n)\n");
+            LOG4CPLUS_INFO(::ucx_logger,
+                "GPUDirect=enabled (cudaMalloc + ucp_mem_map(CUDA) probe OK, "
+                "auto-set UCX_RCACHE_ENABLE=n UCX_MEMTYPE_CACHE=n)");
         } else {
-            std::fprintf(stderr,
-                "[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: %s) "
-                "- falling back to host slots, behavior unchanged\n",
-                reason.c_str());
+            LOG4CPLUS_INFO(::ucx_logger,
+                "GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: " << reason << ") "
+                "- falling back to host slots, behavior unchanged");
+        }
+    } else {
+        set_gpudirect_enabled(false);
+        setenv("GVIRTUS_GPUDIRECT_ACTIVE", "0", /*overwrite=*/1);
+        if (gpudirect_env_set && !tls_supports_cuda) {
+            LOG4CPLUS_INFO(::ucx_logger,
+                "GPUDirect=disabled (UCX_TLS=" << (std::getenv("UCX_TLS") ? std::getenv("UCX_TLS") : "(unset)") << " has no CUDA-capable transport)");
+        } else {
+            LOG4CPLUS_INFO(::ucx_logger,
+                "GPUDirect=disabled (env GVIRTUS_GPUDIRECT not set)");
         }
     }
 
@@ -592,7 +590,8 @@ void UcxCommunicator::Serve() {
     }
 
     running_ = true;
-    std::printf("UCX control-plane ready: Serve (%s:%u)\n", hostname_.c_str(), port_);
+    LOG4CPLUS_INFO(::ucx_logger,
+        "UCX control-plane ready: Serve (" << hostname_ << ":" << port_ << ")");
     ucx_debug_log("listener created listener=%p", (void *)listener_);
 }
 
