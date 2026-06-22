@@ -26,9 +26,15 @@
 
 #include <ucp/api/ucp.h>
 
+#include "log4cplus/logger.h"
+#include "log4cplus/loggingmacros.h"
+
 namespace gvirtus::communicators::ucx_internal {
 
 namespace {
+
+static log4cplus::Logger ucx_logger =
+    log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("UcxCommunicator"));
 
 // ---- Pinned-host resolver (cudaHostAlloc / cudaFreeHost) ----------------
 
@@ -51,12 +57,12 @@ void load_cuda_pinned_funcs() {
         if (a && f) {
             g_cuda_host_alloc.store(a);
             g_cuda_free_host.store(f);
-            ucx_debug_log("rx_pool: loaded cudaHostAlloc from %s", candidates[i]);
+            LOG4CPLUS_DEBUG(ucx_logger, "rx_pool: loaded cudaHostAlloc from " << candidates[i]);
             return;
         }
         dlclose(h);
     }
-    ucx_debug_log("rx_pool: cudaHostAlloc unavailable, falling back to posix_memalign");
+    LOG4CPLUS_DEBUG(ucx_logger, "rx_pool: cudaHostAlloc unavailable, falling back to posix_memalign");
 }
 
 // ---- Device resolver (cudaMalloc / cudaFree / cudaPointerGetAttributes) -
@@ -95,14 +101,13 @@ void load_cuda_device_funcs() {
             g_cuda_malloc.store(m);
             g_cuda_free.store(f);
             g_cuda_pointer_attrs.store(a);  // may be nullptr; is_gpu_pointer handles that
-            ucx_debug_log("gpudirect: loaded cuda runtime symbols from %s "
-                          "(pointer_attrs=%s)",
-                          candidates[i], a ? "yes" : "no");
+            LOG4CPLUS_DEBUG(ucx_logger, "gpudirect: loaded cuda runtime symbols from " << candidates[i]
+                            << " (pointer_attrs=" << (a ? "yes" : "no") << ")");
             return;
         }
         dlclose(h);
     }
-    ucx_debug_log("gpudirect: cudaMalloc/cudaFree unavailable (libcudart not found)");
+    LOG4CPLUS_DEBUG(ucx_logger, "gpudirect: cudaMalloc/cudaFree unavailable (libcudart not found)");
 }
 
 // Global flag: true iff GVIRTUS_GPUDIRECT=1 and probe succeeded.

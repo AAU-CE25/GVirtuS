@@ -39,8 +39,16 @@
 #include "gvirtus/communicators/Protocol.h"
 #include "UcxInternal.h"
 
+#include "log4cplus/logger.h"
+#include "log4cplus/loggingmacros.h"
+
 using gvirtus::communicators::UcxCommunicator;
 using namespace gvirtus::communicators::ucx_internal;
+using namespace log4cplus;
+
+namespace {
+static Logger ucx_logger = Logger::getInstance(LOG4CPLUS_TEXT("UcxCommunicator"));
+}  // namespace
 
 // Server-side: pack rkeys of every rx_slot, build an RmaSetup AM body, and
 // send it to the connected client. Called once per accepted connection,
@@ -88,8 +96,7 @@ void UcxCommunicator::send_rma_setup() {
                     ps.gpu_addr = reinterpret_cast<std::uint64_t>(slot.gpu_addr);
                     ps.gpu_capacity = slot.gpu_capacity;
                 } else {
-                    ucx_debug_log("rma_setup: gpu rkey_pack FAILED (%s) — advertising host only",
-                                  ucs_status_string(gst));
+                    LOG4CPLUS_DEBUG(ucx_logger, "rma_setup: gpu rkey_pack FAILED (" << ucs_status_string(gst) << ") — advertising host only");
                     ps.gpu_rkey_buf = nullptr;
                 }
             }
@@ -98,7 +105,7 @@ void UcxCommunicator::send_rma_setup() {
     }
 
     if (packed.empty()) {
-        ucx_debug_log("rma_setup: no slots to advertise; skipping");
+        LOG4CPLUS_DEBUG(ucx_logger, "rma_setup: no slots to advertise; skipping");
         return;
     }
 
@@ -198,8 +205,8 @@ void UcxCommunicator::send_rma_setup() {
             ++gpu_advertised;
         }
     }
-    ucx_debug_log("rma_setup: advertised %zu slots (%zu rkey bytes, %zu with gpu shadow)",
-                  packed.size(), rkeys_bytes, gpu_advertised);
+    LOG4CPLUS_DEBUG(ucx_logger, "rma_setup: advertised " << packed.size() << " slots ("
+                    << rkeys_bytes << " rkey bytes, " << gpu_advertised << " with gpu shadow)");
 }
 
 // Client-side: parse an incoming RmaSetup AM body, unpack each rkey, and
@@ -297,8 +304,8 @@ void UcxCommunicator::handle_rma_setup_am(const void *data, size_t length) {
         rma_setup_received_.store(true);
     }
     rma_setup_cv_.notify_all();
-    ucx_debug_log("rma_setup: received %zu remote slots (%zu with gpu shadow)",
-                  remote_slots_.size(), gpu_received);
+    LOG4CPLUS_DEBUG(ucx_logger, "rma_setup: received " << remote_slots_.size() << " remote slots ("
+                    << gpu_received << " with gpu shadow)");
 }
 
 void UcxCommunicator::destroy_rma_state() {
@@ -426,8 +433,9 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
             }
         }
 
-        ucx_debug_log("WriteIovRma(zerocopy) slot=%zu pre=%zu big=%zu post=%zu biggest_idx=%zu",
-                      slot_idx, pre_size, big_size, post_size, biggest_idx);
+        LOG4CPLUS_DEBUG(ucx_logger, "WriteIovRma(zerocopy) slot=" << slot_idx
+                        << " pre=" << pre_size << " big=" << big_size
+                        << " post=" << post_size << " biggest_idx=" << biggest_idx);
 
         // Issue up to three puts non-blocking. UCX progresses them in
         // parallel; their completions are awaited together at the end.
@@ -562,8 +570,10 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
         if (route_big_to_gpu) {
             gpu_split_bytes  = big_size;
             gpu_split_offset = static_cast<std::uint32_t>(pre_size);
-            ucx_debug_log("WriteIovRma(B3 gpu-split) slot=%zu pre=%zu big=%zu post=%zu (to gpu_addr=0x%lx)",
-                          slot_idx, pre_size, big_size, post_size, big_target_addr);
+            LOG4CPLUS_DEBUG(ucx_logger, "WriteIovRma(B3 gpu-split) slot=" << slot_idx
+                            << " pre=" << pre_size << " big=" << big_size
+                            << " post=" << post_size
+                            << " (to gpu_addr=" << std::hex << big_target_addr << std::dec << ")");
         }
 
         void *req_big = ucp_put_nbx(endpoint_,
@@ -592,7 +602,7 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
             }
         }
 
-        ucx_debug_log("WriteIovRma(staged) slot=%zu total=%zu", slot_idx, total);
+        LOG4CPLUS_DEBUG(ucx_logger, "WriteIovRma(staged) slot=" << slot_idx << " total=" << total);
 
         ucp_request_param_t put_param{};
         put_param.op_attr_mask = UCP_OP_ATTR_FIELD_MEMH;
@@ -635,6 +645,6 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
         wait_request_completion(send_req, "rma_posted_notify");
     }
 
-    ucx_debug_log("WriteIovRma done slot=%zu total=%zu", slot_idx, total);
+    LOG4CPLUS_DEBUG(ucx_logger, "WriteIovRma done slot=" << slot_idx << " total=" << total);
     return total;
 }

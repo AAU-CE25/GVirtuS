@@ -32,7 +32,6 @@
 #include <atomic>
 #include <chrono>
 #include <unordered_map>
-#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -59,36 +58,6 @@ namespace {
 constexpr unsigned kUcxAmId = 1;
 static Logger ucx_logger = Logger::getInstance(LOG4CPLUS_TEXT("UcxCommunicator"));
 }  // namespace
-
-// Debug helpers (declared in UcxInternal.h). The other UCX TUs call into
-// these without re-declaring or duplicating any state. The CUDA dlopen
-// helpers and GPUDirect flag live in UcxGpu.cpp; the RX pool / TX scratch
-// methods live in UcxRxPool.cpp.
-namespace gvirtus::communicators::ucx_internal {
-
-bool ucx_debug_enabled() {
-    const char *lvl = std::getenv("GVIRTUS_LOGLEVEL");
-    if (lvl == nullptr) return false;
-
-    char *end = nullptr;
-    long val = std::strtol(lvl, &end, 10);
-    if (end == lvl) return false;
-    return val <= 10000;  // DEBUG or TRACE
-}
-
-void ucx_debug_log(const char *fmt, ...) {
-    if (!ucx_debug_enabled()) return;
-
-    va_list args;
-    va_start(args, fmt);
-    std::string formatted;
-    char buffer[4096];
-    vsnprintf(buffer, sizeof(buffer), fmt, args);
-    va_end(args);
-    LOG4CPLUS_DEBUG(::ucx_logger, buffer);
-}
-
-}  // namespace gvirtus::communicators::ucx_internal
 
 UcxCommunicator::UcxCommunicator(const std::string &hostname, std::uint16_t port)
     : hostname_(hostname), port_(port) {}
@@ -123,9 +92,9 @@ ucs_status_t UcxCommunicator::am_recv_handler(void *arg, const void *header,
         return UCS_OK;
     }
 
-    ucx_debug_log("am_recv_handler: self=%p length=%zu rndv=%d",
-                  (void *)self, length,
-                  (param != nullptr && (param->recv_attr & UCP_AM_RECV_ATTR_FLAG_RNDV)) ? 1 : 0);
+    LOG4CPLUS_DEBUG(::ucx_logger, "am_recv_handler: self=" << (void *)self
+                    << " length=" << length
+                    << " rndv=" << ((param != nullptr && (param->recv_attr & UCP_AM_RECV_ATTR_FLAG_RNDV)) ? 1 : 0));
 
     if (length == 0) {
         self->enqueue_am_message(PooledMsg{});
@@ -199,8 +168,10 @@ ucs_status_t UcxCommunicator::am_recv_handler(void *arg, const void *header,
                     // instead of bouncing through host.
                     msg.gpu_data = slot.gpu_addr;
                     msg.gpu_size = gpu_size;
-                    ucx_debug_log("RmaPosted B4: slot=%zu host_bytes=%zu gpu_bytes=%zu offset=%zu (no consolidation)",
-                                  slot_idx, total - gpu_size, gpu_size, gpu_offset);
+                    LOG4CPLUS_DEBUG(::ucx_logger, "RmaPosted B4: slot=" << slot_idx
+                                    << " host_bytes=" << (total - gpu_size)
+                                    << " gpu_bytes=" << gpu_size
+                                    << " offset=" << gpu_offset << " (no consolidation)");
                 }
 
                 self->enqueue_am_message(msg);
@@ -388,15 +359,17 @@ void UcxCommunicator::init_ucx() {
     init_rx_pool();
 
     initialized_ = true;
-    ucx_debug_log("init_ucx completed host=%s port=%u mode=am", hostname_.c_str(), port_);
+    LOG4CPLUS_DEBUG(::ucx_logger, "init_ucx completed host=" << hostname_ << " port=" << port_ << " mode=am");
 }
 
 void UcxCommunicator::destroy_ucx() {
     if (!initialized_) return;
 
     // Tear down UCX resources in reverse order of creation.
-    ucx_debug_log("destroy_ucx begin endpoint=%p listener=%p worker=%p context=%p",
-                  (void *)endpoint_, (void *)listener_, (void *)worker_, (void *)context_);
+    LOG4CPLUS_DEBUG(::ucx_logger, "destroy_ucx begin endpoint=" << (void *)endpoint_
+                    << " listener=" << (void *)listener_
+                    << " worker=" << (void *)worker_
+                    << " context=" << (void *)context_);
 
     if (endpoint_ != nullptr) {
         std::lock_guard<std::mutex> worker_lock(*worker_mutex_);
@@ -445,15 +418,15 @@ void UcxCommunicator::destroy_ucx() {
 
     initialized_ = false;
     endpoint_failed_.store(false);
-    ucx_debug_log("destroy_ucx completed");
+    LOG4CPLUS_DEBUG(::ucx_logger, "destroy_ucx completed");
 }
 
 void UcxCommunicator::enqueue_connection(ucp_conn_request_h conn_request) {
     // Queue incoming connection requests from the listener callback.
     std::lock_guard<std::mutex> lock(conn_mutex_);
     pending_conn_requests_.push(conn_request);
-    ucx_debug_log("enqueue_connection request=%p queue_size=%zu", (void *)conn_request,
-                  pending_conn_requests_.size());
+    LOG4CPLUS_DEBUG(::ucx_logger, "enqueue_connection request=" << (void *)conn_request
+                    << " queue_size=" << pending_conn_requests_.size());
     conn_cv_.notify_one();
 }
 
@@ -481,10 +454,10 @@ ucp_conn_request_h UcxCommunicator::wait_for_connection_request() {
 
 void UcxCommunicator::wait_request_completion(void *request, const char *op_name) {
     // Progress the worker until the request completes (no sleep for low latency).
-    ucx_debug_log("%s: wait_request_completion request=%p", op_name, request);
+    LOG4CPLUS_DEBUG(::ucx_logger, op_name << ": wait_request_completion request=" << request);
 
     if (request == nullptr) {
-        ucx_debug_log("%s: immediate completion (null request)", op_name);
+        LOG4CPLUS_DEBUG(::ucx_logger, op_name << ": immediate completion (null request)");
         return;
     }
 
@@ -519,7 +492,7 @@ void UcxCommunicator::wait_request_completion(void *request, const char *op_name
                                  ucs_status_string(final_status));
     }
 
-    ucx_debug_log("%s: completed status=%s", op_name, ucs_status_string(final_status));
+    LOG4CPLUS_DEBUG(::ucx_logger, op_name << ": completed status=" << ucs_status_string(final_status));
 }
 
 void UcxCommunicator::enqueue_am_message(PooledMsg message) {
@@ -592,7 +565,7 @@ void UcxCommunicator::Serve() {
     running_ = true;
     LOG4CPLUS_INFO(::ucx_logger,
         "UCX control-plane ready: Serve (" << hostname_ << ":" << port_ << ")");
-    ucx_debug_log("listener created listener=%p", (void *)listener_);
+    LOG4CPLUS_DEBUG(::ucx_logger, "listener created listener=" << (void *)listener_);
 }
 
 const gvirtus::communicators::Communicator *const UcxCommunicator::Accept() const {
@@ -604,7 +577,7 @@ const gvirtus::communicators::Communicator *const UcxCommunicator::Accept() cons
 
     ucp_conn_request_h req = self->wait_for_connection_request();
     if (req == nullptr) {
-        ucx_debug_log("Accept returned null request (shutdown or no request)");
+        LOG4CPLUS_DEBUG(::ucx_logger, "Accept returned null request (shutdown or no request)");
         return nullptr;
     }
 
@@ -677,8 +650,9 @@ const gvirtus::communicators::Communicator *const UcxCommunicator::Accept() cons
     }
 
     std::printf("UCX control-plane accepted connection\n");
-    ucx_debug_log("server endpoint created endpoint=%p worker=%p from request=%p",
-                  (void *)accepted->endpoint_, (void *)accepted->worker_, (void *)req);
+    LOG4CPLUS_DEBUG(::ucx_logger, "server endpoint created endpoint=" << (void *)accepted->endpoint_
+                    << " worker=" << (void *)accepted->worker_
+                    << " from request=" << (void *)req);
 
     // Parallel setup: init_rx_pool (~150ms: cudaHostAlloc + ucp_mem_map for
     // each slot) and send_rma_setup (~50ms: pack rkeys + ucp_am_send_nbx)
@@ -704,7 +678,7 @@ const gvirtus::communicators::Communicator *const UcxCommunicator::Accept() cons
             // the backend process on a best-effort RmaSetup send.
             accepted->send_rma_setup();
         } catch (const std::exception &e) {
-            ucx_debug_log("Accept setup thread: RmaSetup skipped (%s)", e.what());
+            LOG4CPLUS_DEBUG(::ucx_logger, "Accept setup thread: RmaSetup skipped (" << e.what() << ")");
         }
     }).detach();
 
@@ -736,7 +710,7 @@ void UcxCommunicator::Connect() {
     running_ = true;
     endpoint_failed_.store(false);
     std::printf("UCX control-plane connected: Connect (%s:%u)\n", hostname_.c_str(), port_);
-    ucx_debug_log("client endpoint created endpoint=%p", (void *)endpoint_);
+    LOG4CPLUS_DEBUG(::ucx_logger, "client endpoint created endpoint=" << (void *)endpoint_);
 
     // Drive worker progress until the server's RmaSetup AM lands. If it
     // doesn't show up within the budget we silently fall back to the AM
@@ -753,10 +727,9 @@ void UcxCommunicator::Connect() {
         std::this_thread::sleep_for(std::chrono::microseconds(100));
     }
     if (!rma_setup_received_.load()) {
-        ucx_debug_log("Connect: RmaSetup not received within timeout, RMA path disabled");
+        LOG4CPLUS_DEBUG(::ucx_logger, "Connect: RmaSetup not received within timeout, RMA path disabled");
     } else {
-        ucx_debug_log("Connect: RMA path enabled with %zu remote slots (server -> client)",
-                      remote_slots_.size());
+        LOG4CPLUS_DEBUG(::ucx_logger, "Connect: RMA path enabled with " << remote_slots_.size() << " remote slots (server -> client)");
 
         // Bidirectional RMA: now that we know the server is RMA-capable
         // (it sent us its rkeys), advertise our own rx_pool's rkeys so it
@@ -766,7 +739,7 @@ void UcxCommunicator::Connect() {
         // rcache. With this it becomes a single RDMA write + tiny AM ≈
         // ~10-15ms.
         send_rma_setup();
-        ucx_debug_log("Connect: client rkeys advertised (client -> server done)");
+        LOG4CPLUS_DEBUG(::ucx_logger, "Connect: client rkeys advertised (client -> server done)");
     }
 }
 
@@ -947,9 +920,8 @@ bool UcxCommunicator::current_connection_supports_cuda() const {
     std::free(buf);
 
     supports_cuda_cached_.store(supports ? 1 : 0, std::memory_order_release);
-    ucx_debug_log("current_connection_supports_cuda: endpoint=%p -> %s",
-                  (void *)endpoint_,
-                  supports ? "RDMA (CUDA-capable)" : "non-RDMA (TCP-class)");
+    LOG4CPLUS_DEBUG(::ucx_logger, "current_connection_supports_cuda: endpoint=" << (void *)endpoint_
+                    << " -> " << (supports ? "RDMA (CUDA-capable)" : "non-RDMA (TCP-class)"));
     return supports;
 }
 
@@ -962,7 +934,7 @@ size_t UcxCommunicator::Write(const char *buffer, size_t size) {
 
     // Send payload as a single UCX Active Message.
     std::lock_guard<std::mutex> worker_lock(*worker_mutex_);
-    ucx_debug_log("Write(AM) begin bytes=%zu", size);
+    LOG4CPLUS_DEBUG(::ucx_logger, "Write(AM) begin bytes=" << size);
 
     ucp_request_param_t request_param{};
     request_param.op_attr_mask = UCP_OP_ATTR_FIELD_DATATYPE;
@@ -971,7 +943,7 @@ size_t UcxCommunicator::Write(const char *buffer, size_t size) {
     void *request = ucp_am_send_nbx(endpoint_, am_id_, nullptr, 0, buffer, size,
                                     &request_param);
     wait_request_completion(request, "am_send");
-    ucx_debug_log("Write(AM) done bytes=%zu", size);
+    LOG4CPLUS_DEBUG(::ucx_logger, "Write(AM) done bytes=" << size);
     return size;
 }
 
@@ -1016,7 +988,7 @@ size_t UcxCommunicator::WriteIov(const struct iovec *iov, size_t iov_count) {
             ucx_iov[i].buffer = iov[i].iov_base;
             ucx_iov[i].length = iov[i].iov_len;
         }
-        ucx_debug_log("WriteIov(AM,iov) begin frags=%zu total=%zu", iov_count, total);
+        LOG4CPLUS_DEBUG(::ucx_logger, "WriteIov(AM,iov) begin frags=" << iov_count << " total=" << total);
 
         ucp_request_param_t request_param{};
         request_param.op_attr_mask = UCP_OP_ATTR_FIELD_DATATYPE;
@@ -1027,7 +999,7 @@ size_t UcxCommunicator::WriteIov(const struct iovec *iov, size_t iov_count) {
                                         ucx_iov.data(), iov_count,
                                         &request_param);
         wait_request_completion(request, "am_send_iov");
-        ucx_debug_log("WriteIov(AM,iov) done total=%zu", total);
+        LOG4CPLUS_DEBUG(::ucx_logger, "WriteIov(AM,iov) done total=" << total);
         return total;
     }
 
@@ -1044,8 +1016,7 @@ size_t UcxCommunicator::WriteIov(const struct iovec *iov, size_t iov_count) {
         }
     }
 
-    ucx_debug_log("WriteIov(AM,pool) begin frags=%zu total=%zu cap=%zu",
-                  iov_count, total, tx_scratch_.capacity);
+    LOG4CPLUS_DEBUG(::ucx_logger, "WriteIov(AM,pool) begin frags=" << iov_count << " total=" << total << " cap=" << tx_scratch_.capacity);
 
     // No memh hint: that flag pushes UCX into the slow true-rendezvous
     // path (RTS/RTR + fragmented RDMA) which doesn't amortize over a
@@ -1061,7 +1032,7 @@ size_t UcxCommunicator::WriteIov(const struct iovec *iov, size_t iov_count) {
                                     tx_scratch_.addr, total,
                                     &request_param);
     wait_request_completion(request, "am_send_pool");
-    ucx_debug_log("WriteIov(AM,pool) done total=%zu", total);
+    LOG4CPLUS_DEBUG(::ucx_logger, "WriteIov(AM,pool) done total=" << total);
     return total;
 }
 
@@ -1073,17 +1044,17 @@ void UcxCommunicator::Sync() {
     // Flush worker to complete any in-flight sends/receives.
     ucp_request_param_t request_param{};
     std::lock_guard<std::mutex> worker_lock(*worker_mutex_);
-    ucx_debug_log("Sync begin (worker flush)");
+    LOG4CPLUS_DEBUG(::ucx_logger, "Sync begin (worker flush)");
     void *request = ucp_worker_flush_nbx(worker_, &request_param);
     wait_request_completion(request, "worker_flush");
-    ucx_debug_log("Sync done");
+    LOG4CPLUS_DEBUG(::ucx_logger, "Sync done");
 
     progress_am_rndv();
 }
 
 void UcxCommunicator::Close() {
     // Signal shutdown and release UCX resources.
-    ucx_debug_log("Close called");
+    LOG4CPLUS_DEBUG(::ucx_logger, "Close called");
     running_ = false;
     conn_cv_.notify_all();
     destroy_ucx();

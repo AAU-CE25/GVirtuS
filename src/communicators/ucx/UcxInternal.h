@@ -24,14 +24,6 @@ typedef struct ucp_context *ucp_context_h;
 
 namespace gvirtus::communicators::ucx_internal {
 
-// ---- Debug logging (defined in UcxCommunicator.cpp) ---------------------
-
-// True iff GVIRTUS_LOGLEVEL is set to DEBUG or TRACE (numeric <= 10000).
-bool ucx_debug_enabled();
-
-// printf-style debug logger. No-ops when ucx_debug_enabled() is false.
-void ucx_debug_log(const char *fmt, ...);
-
 // ---- CUDA / GPUDirect helpers (defined in UcxGpu.cpp) -------------------
 
 // Allocate `n` bytes of pinned host memory. `is_cuda` is set to true if the

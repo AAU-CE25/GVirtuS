@@ -31,6 +31,10 @@ using namespace log4cplus;
 using gvirtus::communicators::UcxCommunicator;
 using namespace gvirtus::communicators::ucx_internal;
 
+namespace {
+static Logger ucx_logger = Logger::getInstance(LOG4CPLUS_TEXT("UcxCommunicator"));
+}  // namespace
+
 // present) with the UCX context so subsequent ucp_am_recv_data_nbx and
 // ucp_put_nbx can use the memh hints and skip on-the-fly IB registration.
 // Called with rx_pool_->mu held.
@@ -60,8 +64,7 @@ void UcxCommunicator::map_slot_to_ucp(ucp_context_h ctx, PinnedSlot &slot) {
         ucs_status_t st = ucp_mem_map(ctx, &gpu_params, &slot.gpu_memh);
         if (st != UCS_OK) {
             slot.gpu_memh = nullptr;
-            ucx_debug_log("map_slot_to_ucp: gpu_addr map FAILED (%s) — slot will keep host-only path",
-                          ucs_status_string(st));
+            LOG4CPLUS_DEBUG(ucx_logger, "map_slot_to_ucp: gpu_addr map FAILED (" << ucs_status_string(st) << ") — slot will keep host-only path");
         }
     }
 }
@@ -119,7 +122,7 @@ void UcxCommunicator::init_rx_pool() {
                 rx_pool_->slots[i].gpu_capacity = kInitialSlotCap;
                 ++gpu_allocated_count;
             } else {
-                ucx_debug_log("rx_pool: slot %zu gpu shadow alloc FAILED — host-only", i);
+                LOG4CPLUS_DEBUG(ucx_logger, "rx_pool: slot " << i << " gpu shadow alloc FAILED — host-only");
             }
         }
 
@@ -132,8 +135,8 @@ void UcxCommunicator::init_rx_pool() {
             << " bytes (host) + " << gpu_allocated_count << "/" << kInitialSlotCount
             << " GPU shadows x " << kInitialSlotCap << " bytes");
     }
-    ucx_debug_log("rx_pool: initialized %zu slots x %zu bytes (gpu_shadows=%zu)",
-                  kInitialSlotCount, kInitialSlotCap, gpu_allocated_count);
+    LOG4CPLUS_DEBUG(ucx_logger, "rx_pool: initialized " << kInitialSlotCount << " slots x " << kInitialSlotCap
+                    << " bytes (gpu_shadows=" << gpu_allocated_count << ")");
 }
 
 void UcxCommunicator::destroy_rx_pool() {
@@ -184,9 +187,8 @@ size_t UcxCommunicator::acquire_rx_slot(size_t needed) {
                 }
             }
             map_slot_to_ucp(context_, rx_pool_->slots[i]);
-            ucx_debug_log("rx_pool: grew slot %zu to %zu bytes (gpu=%s)",
-                          i, needed,
-                          rx_pool_->slots[i].gpu_addr ? "yes" : "no");
+            LOG4CPLUS_DEBUG(ucx_logger, "rx_pool: grew slot " << i << " to " << needed
+                            << " bytes (gpu=" << (rx_pool_->slots[i].gpu_addr ? "yes" : "no") << ")");
             return i;
         }
     }
@@ -206,10 +208,8 @@ size_t UcxCommunicator::acquire_rx_slot(size_t needed) {
         }
     }
     map_slot_to_ucp(context_, rx_pool_->slots[idx]);
-    ucx_debug_log("rx_pool: appended slot %zu (%zu bytes, gpu=%s), total=%zu",
-                  idx, needed,
-                  rx_pool_->slots[idx].gpu_addr ? "yes" : "no",
-                  rx_pool_->slots.size());
+    LOG4CPLUS_DEBUG(ucx_logger, "rx_pool: appended slot " << idx << " (" << needed << " bytes, gpu="
+                    << (rx_pool_->slots[idx].gpu_addr ? "yes" : "no") << "), total=" << rx_pool_->slots.size());
     return idx;
 }
 
@@ -263,7 +263,7 @@ void UcxCommunicator::ensure_tx_scratch_locked(size_t needed) {
     tx_scratch_.addr = addr;
     tx_scratch_.capacity = cap;
     tx_scratch_.memh = memh;
-    ucx_debug_log("tx_scratch grown capacity=%zu", cap);
+    LOG4CPLUS_DEBUG(ucx_logger, "tx_scratch grown capacity=" << cap);
 }
 
 void UcxCommunicator::release_tx_scratch_locked() {
