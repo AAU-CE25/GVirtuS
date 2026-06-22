@@ -119,7 +119,7 @@ void Process::Start() {
                 if (!communicators::am::ReadRequest(client_comm, request_header, routine,
                                                     payload_data, payload_size, gpu_payload,
                                                     gpu_payload_size, owns_frame, err)) {
-                    LOG4CPLUS_INFO(logger, "Client disconnected: " << err);
+                    LOG4CPLUS_DEBUG(logger, "Client disconnected: " << err);
                     break;
                 }
 
@@ -182,7 +182,7 @@ void Process::Start() {
             LOG4CPLUS_WARN(logger, "Client loop exception: " << e.what());
         }
 
-        LOG4CPLUS_INFO(logger, "Client disconnected");
+        LOG4CPLUS_DEBUG(logger, "Client disconnected");
         Notify("process-ended");
     };
 

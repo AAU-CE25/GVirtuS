@@ -128,15 +128,9 @@ void UcxCommunicator::init_rx_pool() {
 
         map_slot_to_ucp(context_, rx_pool_->slots[i]);
     }
-    if (gpudirect_active) {
-        Logger pool_logger = Logger::getInstance(LOG4CPLUS_TEXT("UcxCommunicator"));
-        LOG4CPLUS_INFO(pool_logger,
-            "rx_pool: initialized " << kInitialSlotCount << " slots x " << kInitialSlotCap
-            << " bytes (host) + " << gpu_allocated_count << "/" << kInitialSlotCount
-            << " GPU shadows x " << kInitialSlotCap << " bytes");
-    }
-    LOG4CPLUS_DEBUG(ucx_logger, "rx_pool: initialized " << kInitialSlotCount << " slots x " << kInitialSlotCap
-                    << " bytes (gpu_shadows=" << gpu_allocated_count << ")");
+    LOG4CPLUS_INFO(ucx_logger,
+        "rx_pool: initialized " << kInitialSlotCount << " slots x " << kInitialSlotCap
+        << " bytes (gpu_shadows=" << gpu_allocated_count << "/" << kInitialSlotCount << ")");
 }
 
 void UcxCommunicator::destroy_rx_pool() {

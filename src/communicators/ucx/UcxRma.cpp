@@ -205,8 +205,8 @@ void UcxCommunicator::send_rma_setup() {
             ++gpu_advertised;
         }
     }
-    LOG4CPLUS_DEBUG(ucx_logger, "rma_setup: advertised " << packed.size() << " slots ("
-                    << rkeys_bytes << " rkey bytes, " << gpu_advertised << " with gpu shadow)");
+    LOG4CPLUS_INFO(ucx_logger, "rma_setup: advertised " << packed.size() << " slots ("
+                   << rkeys_bytes << " rkey bytes, " << gpu_advertised << " with gpu shadow)");
 }
 
 // Client-side: parse an incoming RmaSetup AM body, unpack each rkey, and
@@ -304,8 +304,8 @@ void UcxCommunicator::handle_rma_setup_am(const void *data, size_t length) {
         rma_setup_received_.store(true);
     }
     rma_setup_cv_.notify_all();
-    LOG4CPLUS_DEBUG(ucx_logger, "rma_setup: received " << remote_slots_.size() << " remote slots ("
-                    << gpu_received << " with gpu shadow)");
+    LOG4CPLUS_INFO(ucx_logger, "rma_setup: received " << remote_slots_.size() << " remote slots ("
+                   << gpu_received << " with gpu shadow)");
 }
 
 void UcxCommunicator::destroy_rma_state() {

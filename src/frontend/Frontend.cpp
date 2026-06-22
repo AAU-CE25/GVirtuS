@@ -68,11 +68,14 @@
 #include <unistd.h>
 
 #include <chrono>
+#include <cctype>
 #include <cstring>
 #include <filesystem>
 #include <iostream>
 #include <mutex>
+#include <sstream>
 #include <atomic>
+#include <algorithm>
 #include <vector>
 
 #include "gvirtus/communicators/Protocol.h"
@@ -110,6 +113,73 @@ std::string getEnvVar(std::string const &key) {
     return (env_var == nullptr) ? std::string("") : std::string(env_var);
 }
 
+static std::string trim_copy(const std::string &s) {
+    std::size_t begin = 0;
+    while (begin < s.size() && std::isspace(static_cast<unsigned char>(s[begin]))) {
+        ++begin;
+    }
+    std::size_t end = s.size();
+    while (end > begin && std::isspace(static_cast<unsigned char>(s[end - 1]))) {
+        --end;
+    }
+    return s.substr(begin, end - begin);
+}
+
+static std::string to_lower_copy(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return s;
+}
+
+static bool has_component_token(const std::string &scope, const char *token) {
+    std::stringstream ss(scope);
+    std::string item;
+    const std::string wanted = to_lower_copy(token);
+    while (std::getline(ss, item, ',')) {
+        if (to_lower_copy(trim_copy(item)) == wanted) return true;
+    }
+    return false;
+}
+
+static void apply_debug_component_scope(LogLevel root_level) {
+    if (root_level > DEBUG_LOG_LEVEL) return;
+
+    const std::string scope = getEnvVar("GVIRTUS_DEBUG_SCOPE");
+    if (scope.empty()) return;
+    if (has_component_token(scope, "all")) return;
+
+    const bool backend = has_component_token(scope, "backend");
+    const bool frontend = has_component_token(scope, "frontend");
+    const bool communicator = has_component_token(scope, "communicator") ||
+                              has_component_token(scope, "comm") ||
+                              has_component_token(scope, "ucx") ||
+                              has_component_token(scope, "tcp");
+
+    if (!backend && !frontend && !communicator) {
+        std::cerr << "[GVIRTUS WARNING] GVIRTUS_DEBUG_SCOPE='" << scope
+                  << "' has no valid component (backend, frontend, communicator, all). Ignoring.\n";
+        return;
+    }
+
+    const LogLevel selected_level = root_level;
+    const LogLevel non_selected_level = INFO_LOG_LEVEL;
+
+    Logger::getInstance(LOG4CPLUS_TEXT("GVirtuS")).setLogLevel(
+        backend ? selected_level : non_selected_level);
+    Logger::getInstance(LOG4CPLUS_TEXT("Backend")).setLogLevel(
+        backend ? selected_level : non_selected_level);
+    Logger::getInstance(LOG4CPLUS_TEXT("Process")).setLogLevel(
+        backend ? selected_level : non_selected_level);
+
+    Logger::getInstance(LOG4CPLUS_TEXT("Frontend")).setLogLevel(
+        frontend ? selected_level : non_selected_level);
+
+    Logger::getInstance(LOG4CPLUS_TEXT("UcxCommunicator")).setLogLevel(
+        communicator ? selected_level : non_selected_level);
+    Logger::getInstance(LOG4CPLUS_TEXT("TcpCommunicator")).setLogLevel(
+        communicator ? selected_level : non_selected_level);
+}
+
 void Frontend::Init(Communicator *c) {
 
 
@@ -136,6 +206,7 @@ void Frontend::Init(Communicator *c) {
     root.removeAllAppenders();
     root.addAppender(consoleAppender);
     root.setLogLevel(logLevel);
+    apply_debug_component_scope(logLevel);
     logger = Logger::getInstance(LOG4CPLUS_TEXT("Frontend"));
 
     pid_t tid = syscall(SYS_gettid);

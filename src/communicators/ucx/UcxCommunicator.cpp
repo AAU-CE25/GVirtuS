@@ -76,7 +76,7 @@ void UcxCommunicator::endpoint_error_handler(void *arg, ucp_ep_h ep, ucs_status_
     if (self != nullptr) {
         self->endpoint_failed_.store(true);
     }
-    std::fprintf(stderr, "UCX endpoint error: %s\n", ucs_status_string(status));
+    LOG4CPLUS_ERROR(::ucx_logger, "UCX endpoint error: " << ucs_status_string(status));
 }
 
 // UCX AM receive callback: copy (or rendezvous-receive) the payload into the AM queue.
@@ -371,6 +371,7 @@ void UcxCommunicator::destroy_ucx() {
                     << " worker=" << (void *)worker_
                     << " context=" << (void *)context_);
 
+    const bool had_endpoint = (endpoint_ != nullptr);
     if (endpoint_ != nullptr) {
         std::lock_guard<std::mutex> worker_lock(*worker_mutex_);
 
@@ -380,8 +381,8 @@ void UcxCommunicator::destroy_ucx() {
 
         void *close_req = ucp_ep_close_nbx(endpoint_, &close_params);
         if (UCS_PTR_IS_ERR(close_req)) {
-            std::fprintf(stderr, "UCX endpoint close failed: %s\n",
-                         ucs_status_string(UCS_PTR_STATUS(close_req)));
+            LOG4CPLUS_ERROR(::ucx_logger, "UCX endpoint close failed: "
+                            << ucs_status_string(UCS_PTR_STATUS(close_req)));
         } else {
             wait_request_completion(close_req, "ep_close");
         }
@@ -418,6 +419,9 @@ void UcxCommunicator::destroy_ucx() {
 
     initialized_ = false;
     endpoint_failed_.store(false);
+    if (had_endpoint) {
+        LOG4CPLUS_INFO(::ucx_logger, "Client disconnected: UCX endpoint destroyed");
+    }
     LOG4CPLUS_DEBUG(::ucx_logger, "destroy_ucx completed");
 }
 
@@ -649,10 +653,9 @@ const gvirtus::communicators::Communicator *const UcxCommunicator::Accept() cons
                                  std::string(ucs_status_string(status)));
     }
 
-    std::printf("UCX control-plane accepted connection\n");
-    LOG4CPLUS_DEBUG(::ucx_logger, "server endpoint created endpoint=" << (void *)accepted->endpoint_
-                    << " worker=" << (void *)accepted->worker_
-                    << " from request=" << (void *)req);
+    LOG4CPLUS_INFO(::ucx_logger,
+        "UCX control-plane accepted connection endpoint=" << (void *)accepted->endpoint_
+        << " worker=" << (void *)accepted->worker_);
 
     // Parallel setup: init_rx_pool (~150ms: cudaHostAlloc + ucp_mem_map for
     // each slot) and send_rma_setup (~50ms: pack rkeys + ucp_am_send_nbx)
@@ -709,8 +712,8 @@ void UcxCommunicator::Connect() {
 
     running_ = true;
     endpoint_failed_.store(false);
-    std::printf("UCX control-plane connected: Connect (%s:%u)\n", hostname_.c_str(), port_);
-    LOG4CPLUS_DEBUG(::ucx_logger, "client endpoint created endpoint=" << (void *)endpoint_);
+    LOG4CPLUS_INFO(::ucx_logger,
+        "UCX control-plane connected: Connect (" << hostname_ << ":" << port_ << ")");
 
     // Drive worker progress until the server's RmaSetup AM lands. If it
     // doesn't show up within the budget we silently fall back to the AM
@@ -727,7 +730,7 @@ void UcxCommunicator::Connect() {
         std::this_thread::sleep_for(std::chrono::microseconds(100));
     }
     if (!rma_setup_received_.load()) {
-        LOG4CPLUS_DEBUG(::ucx_logger, "Connect: RmaSetup not received within timeout, RMA path disabled");
+        LOG4CPLUS_INFO(::ucx_logger, "Connect: RmaSetup not received within timeout, RMA path disabled");
     } else {
         LOG4CPLUS_DEBUG(::ucx_logger, "Connect: RMA path enabled with " << remote_slots_.size() << " remote slots (server -> client)");
 
