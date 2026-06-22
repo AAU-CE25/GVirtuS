@@ -1,4 +1,4 @@
-.PHONY: docker-build-push-dev local-docker-build-backend docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test local-docker-build-simple-matrix
+.PHONY: docker-build-push-dev local-docker-build-backend docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test run-simple-matrix-test-dev stop-simple-matrix-test stop-simple-matrix-test-dev local-docker-build-simple-matrix
 USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
 DOCKER_HUB_USERNAME ?= aauce25
 
@@ -193,8 +193,43 @@ run-simple-matrix-test:
 		$(DOCKER_REPO_DEV)/simple_matrix_gvirtus:cuda12.6 \
 		bash /opt/GVirtuS/examples/frontend.sh
 
+run-simple-matrix-test-dev:
+	mkdir -p ./build/simple_matrix_dev
+	docker run --rm \
+		--name simple_matrix_test_dev_container-$(USER) \
+		$(SIMPLE_MATRIX_GPU_FLAGS) \
+		--network host \
+		--device /dev/infiniband \
+		--cap-add IPC_LOCK \
+		--ulimit memlock=-1 \
+		-e GVIRTUS_HOME=/opt/GVirtuS \
+		-e GVIRTUS_CONFIG=/opt/GVirtuS/etc/properties_ucx.json \
+		-e GVIRTUS_UCX_DATAPATH=$(GVIRTUS_UCX_DATAPATH) \
+		$(if $(UCX_TLS),-e UCX_TLS=$(UCX_TLS)) \
+		$(if $(UCX_NET_DEVICES),-e UCX_NET_DEVICES=$(UCX_NET_DEVICES)) \
+		-e UCX_LOG_LEVEL=$(UCX_LOG_LEVEL) \
+		$(if $(UCX_SOCKADDR_TLS_PRIORITY),-e UCX_SOCKADDR_TLS_PRIORITY=$(UCX_SOCKADDR_TLS_PRIORITY)) \
+		$(if $(UCX_IB_GID_INDEX),-e UCX_IB_GID_INDEX=$(UCX_IB_GID_INDEX)) \
+		$(if $(UCX_RNDV_THRESH),-e UCX_RNDV_THRESH=$(UCX_RNDV_THRESH)) \
+		-v ./cmake:/opt/GVirtuS/cmake \
+		-v ./etc:/opt/GVirtuS/etc \
+		-v ./include:/opt/GVirtuS/include \
+		-v ./plugins:/opt/GVirtuS/plugins \
+		-v ./src:/opt/GVirtuS/src \
+		-v ./tools:/opt/GVirtuS/tools \
+		-v ./tests:/opt/GVirtuS/tests \
+		-v ./scripts:/opt/GVirtuS/scripts \
+		-v ./examples/simple_matrix:/opt/GVirtuS/examples \
+		-v ./CMakeLists.txt:/opt/GVirtuS/CMakeLists.txt \
+		-v ./build/simple_matrix_dev:/opt/GVirtuS/build \
+		$(DOCKER_REPO_DEV)/simple_matrix_gvirtus:cuda12.6 \
+		bash -lc 'set -e; cd /opt/GVirtuS/build && cmake -DCMAKE_INSTALL_PREFIX=/opt/GVirtuS .. && make -j$$(nproc) && make install && bash /opt/GVirtuS/examples/frontend.sh'
+
 stop-simple-matrix-test:
 	docker stop simple_matrix_test_container-$(USER) || true
+
+stop-simple-matrix-test-dev:
+	docker stop simple_matrix_test_dev_container-$(USER) || true
 
 ucx-discover:
 	@bash scripts/ucx-discover.sh
