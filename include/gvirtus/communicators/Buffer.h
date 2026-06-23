@@ -46,6 +46,8 @@
 #include <iostream>
 #include <type_traits>
 #include <typeinfo>
+#include <vector>
+#include <sys/uio.h>
 
 #include "Communicator.h"
 
@@ -127,6 +129,59 @@ class Buffer {
         mLength += size;
         mBackOffset = mLength;
     }
+
+    // Bulk-append raw bytes with NO size prefix (unlike Add<T*>(item, n)
+    // which prepends an 8-byte size header). Used by Frontend.cpp to flush
+    // a large response payload (e.g. 64MB cudaMemcpy D2H) into the output
+    // buffer in a single memcpy. Replacing this with the per-byte Add<char>
+    // loop costs ~67M function calls + repeated reallocs = ~1.3s for 64MB;
+    // this is ~3ms instead.
+    void AppendBytes(const char *src, size_t n) {
+        if (n == 0 || src == NULL) return;
+        if ((mLength + n) >= mSize) {
+            mSize = ((mLength + n) / mBlockSize + 1) * mBlockSize;
+            if ((mpBuffer = (char *)realloc(mpBuffer, mSize)) == NULL)
+                throw std::runtime_error("Buffer::AppendBytes: Can't reallocate memory.");
+        }
+        std::memcpy(mpBuffer + mLength, src, n);
+        mLength += n;
+        mBackOffset = mLength;
+    }
+
+    // ===== IoV (scatter / gather) extensions =====
+    // Append a BORROWED host pointer as a zero-copy segment. Writes the same
+    // [size_t length][bytes] wire layout that Add<T>(ptr, n) does, but the
+    // data bytes are NOT copied into the internal arena — they are recorded
+    // as an external segment and emitted, in order, by GetIov(). The caller
+    // MUST keep `ptr` valid until the buffer has been sent (WriteIov + Sync).
+    // Transports without scatter concatenate lazily in Dump(), producing
+    // byte-identical wire output at the cost of one copy.
+    template <class T>
+    void AddRef(const T *ptr, size_t n = 1) {
+        if (ptr == NULL) {
+            Add((size_t)0);
+            return;
+        }
+        size_t bytes = safe_sizeof<T>() * n;
+        Add(bytes);  // length prefix -> inline arena (mpBuffer)
+        mSegments.push_back(Segment{SegKind::Inline, mInlineConsumed, nullptr,
+                                    mLength - mInlineConsumed});
+        mInlineConsumed = mLength;
+        mSegments.push_back(
+            Segment{SegKind::HostRef, 0, static_cast<const void *>(ptr), bytes});
+        mExternalBytes += bytes;
+    }
+
+    // True iff any borrowed external segment has been recorded.
+    bool HasSegments() const { return !mSegments.empty(); }
+
+    // Total bytes that will go on the wire: inline arena + external segments.
+    // Equals GetBufferSize() when no AddRef segments are present.
+    size_t GetLogicalSize() const { return mLength + mExternalBytes; }
+
+    // Emit the ordered fragment list for Communicator::WriteIov(). With no
+    // external segments this is a single iovec spanning the arena.
+    void GetIov(std::vector<struct iovec> &out) const;
 
     template <class T>
     void AddConst(const T item) {
@@ -297,7 +352,30 @@ class Buffer {
     size_t GetBufferSize() const;
     void Dump(Communicator *c) const;
 
+    // GPUDirect (Variant B Step B4): optional GPU-backed payload. When set,
+    // the trailing portion of the LOGICAL message lives on the GPU at
+    // `gpu_addr` rather than in mpBuffer. GPU-aware handlers (e.g. cudaMemcpy
+    // HostToDevice in CudaRtHandler_memory) detect this and route the
+    // payload via cudaMemcpyDeviceToDevice instead of HostToDevice — saving
+    // the backend D2H consolidation + H2D copy pair. Set by Process.cpp
+    // when constructing the input Buffer from a frame whose PooledMsg has
+    // gpu_data != null (post-Step B3 wire format).
+    void SetGpuPayload(void *gpu_addr, std::size_t size);
+    void *GetGpuPayload() const;
+    std::size_t GetGpuPayloadSize() const;
+
    private:
+    // ---- IoV segment model (write side only) ----
+    // Kind is intentionally extensible: a future GpuRef can fold the
+    // GPUDirect payload (mGpuPayload) into this same ordered model.
+    enum class SegKind { Inline, HostRef };
+    struct Segment {
+        SegKind kind;
+        size_t offset;    // Inline: byte offset into mpBuffer
+        const void *ptr;  // HostRef: borrowed source pointer
+        size_t len;
+    };
+
     size_t mBlockSize;
     size_t mSize;
     size_t mLength;
@@ -305,5 +383,13 @@ class Buffer {
     size_t mBackOffset;
     char *mpBuffer;
     bool mOwnBuffer;
+    void *mGpuPayload = nullptr;
+    std::size_t mGpuPayloadSize = 0;
+
+    // Ordered fragments. Empty => purely contiguous (fast path, original
+    // behaviour). Populated only by AddRef().
+    std::vector<Segment> mSegments;
+    size_t mInlineConsumed = 0;  // arena bytes already captured into an Inline seg
+    size_t mExternalBytes = 0;   // total borrowed bytes recorded
 };
 }  // namespace gvirtus::communicators

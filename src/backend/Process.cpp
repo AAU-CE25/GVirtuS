@@ -34,13 +34,17 @@
 #include <gvirtus/common/SignalState.h>
 #include <pthread.h>
 #include <signal.h>
+#include <sys/uio.h>
 #include <unistd.h>
 
 #include <functional>
+#include <cstring>
 #include <iostream>
 #include <thread>
+#include <vector>
 
-#include "communicators/hybrid/HybridCommunicator.h"
+#include "gvirtus/communicators/RpcCodec.h"
+#include "gvirtus/communicators/Protocol.h"
 
 // DEBUG replaced with log4cplus, so that all diagnostics respect GVIRTUS_LOGLEVEL and share the unified format.
 
@@ -62,77 +66,6 @@ Process::Process(std::shared_ptr<LD_Lib<Communicator, std::shared_ptr<Endpoint>>
     signal(SIGCHLD, SIG_IGN);
     _communicator = communicator;
     mPlugins = plugins;
-}
-
-// File-scope logger for the free function getstring(), which has no access to
-// the Process class member.  Using log4cplus instead of raw printf so every
-// diagnostic message respects GVIRTUS_LOGLEVEL and shares the unified format.
-static log4cplus::Logger gs_logger =
-    log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("Process.getstring"));
-
-bool getstring(Communicator *c, string &s) {
-    // TRACE: fires on every routine call, too noisy for DEBUG
-    // RTTI diagnostics merged into one TRACE log.
-    // Only fires when GVIRTUS_LOGLEVEL=0 (TRACE).
-    if (gs_logger.isEnabledFor(log4cplus::TRACE_LOG_LEVEL)) {
-        const char *rtti = "<no-rtti>";
-        try {
-            rtti = typeid(*c).name();
-        } catch (...) {
-        }
-        std::string name;
-        try {
-            name = c->to_string();
-        } catch (...) {
-            name = "<no to_string()>";
-        }
-        LOG4CPLUS_TRACE(gs_logger,
-                        "[getstring] c=" << (void *)c
-                        << " rtti=" << rtti << " to_string()=" << name);
-    }
-
-    // TODO: FIX LISKOV SUBSTITUTION AND DIPENDENCE INVERSION!!!!!
-    if (c->to_string() == "tcpcommunicator") {
-        s = "";
-        char ch = 0;
-        while (c->Read(&ch, 1) == 1) {
-            // If reading is ended, return true
-            if (ch == 0) {
-                return true;
-            }
-            s += ch;
-        }
-        return false;
-    } else if (c->to_string() == "rdmacommunicator") {
-        try {
-            s = "";
-            size_t size = 30;
-            char *buf = (char *)malloc(size);
-            size = c->Read(buf, size);
-
-            // if read, return true
-            if (size > 0) {
-                s += std::string(buf);
-                return true;
-            }
-        } catch (const std::exception &e) {
-            cerr << e.what() << endl;
-        }
-        return false;
-    } else if (c->to_string() == "hybridcommunicator") {
-        s.clear();
-        char ch = 0;
-        // same as tcp/ip, and stop until read /0
-        while (c->Read(&ch, 1) == 1) {
-            if (ch == 0) {
-                return true;  // take the complete routine name
-            }
-            s += ch;
-        }
-        return false;
-    }
-
-    throw runtime_error("Communicator getstring read error... Unknown communicator type...");
 }
 
 extern std::string getEnvVar(std::string const &key);
@@ -164,76 +97,92 @@ void Process::Start() {
 
     // inserisci i sym dei plugin in h
     std::function<void(Communicator *)> execute = [this](Communicator *client_comm) {
-        LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "]"
-                                            << "Process::Start()'s \"execute\" lambda called");
-        // carica i puntatori ai simboli dei moduli in mHandlers
+        LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "] dispatch loop started");
 
-        string routine;
-        std::shared_ptr<Buffer> input_buffer = std::make_shared<Buffer>();
+        // Single transport-agnostic request/response loop. Framing (whole-
+        // message delivery) is the Communicator's job — the base class
+        // length-prefixes a byte stream and message-oriented transports
+        // override it with native frame delimiting — and the envelope codec
+        // (communicators::am) turns frames into requests/responses. This
+        // loop only dispatches; it never touches the wire format.
+        try {
+            for (;;) {
+                gvirtus::communicators::am::EnvelopeHeader request_header{};
+                std::string routine;
+                const unsigned char *payload_data = nullptr;
+                size_t payload_size = 0;
+                void *gpu_payload = nullptr;
+                size_t gpu_payload_size = 0;
+                bool owns_frame = false;
+                std::string err;
 
-        while (getstring(client_comm, routine)) {
-            LOG4CPLUS_TRACE(logger, "Received routine " << routine);
-
-            // === before reading buffer, chose the protocol of this round by rountine ===
-            gvirtus::communicators::HybridCommunicator *hybrid = nullptr;
-            if (client_comm && client_comm->to_string() == "hybridcommunicator") {
-                hybrid = dynamic_cast<gvirtus::communicators::HybridCommunicator *>(client_comm);
-            }
-            if (hybrid) {
-                // all those function payload will transfer by RDMA
-                const bool use_rdma = routine.rfind("cudaRegisterFatBinary", 0) == 0 ||
-                                      routine.rfind("cudaRegisterFatBinaryEnd", 0) == 0 ||
-                                      routine.rfind("cudaMemcpyAsync", 0) == 0 ||
-                                      routine.rfind("cudaMemcpy", 0) == 0;
-
-                if (use_rdma) {
-                    // bytes_hint if >0 ,then trigger the first 8B under TCP moniter.
-                    // real payload size after 8B head.
-                    hybrid->begin_call(routine, gvirtus::communicators::Transport::RDMA,
-                                       /*bytes_hint*/ 1);
-                } else {
-                    hybrid->begin_call(routine, gvirtus::communicators::Transport::TCP, 0);
-                }
-            }
-
-            // now reading buffer：8B from TCP, payload will transfer by the selected protocol
-            input_buffer->Reset(client_comm);
-
-            std::shared_ptr<Handler> h = nullptr;
-            for (auto &ptr_el : _handlers) {
-                if (ptr_el->obj_ptr()->CanExecute(routine)) {
-                    h = ptr_el->obj_ptr();
+                if (!communicators::am::ReadRequest(client_comm, request_header, routine,
+                                                    payload_data, payload_size, gpu_payload,
+                                                    gpu_payload_size, owns_frame, err)) {
+                    LOG4CPLUS_DEBUG(logger, "Client disconnected: " << err);
                     break;
                 }
+
+                // Non-owning wrap of the payload view (valid until ReleaseFrame).
+                std::shared_ptr<Buffer> input = std::make_shared<Buffer>();
+                if (payload_size > 0 && payload_data != nullptr) {
+                    input = std::make_shared<Buffer>(
+                        reinterpret_cast<char *>(const_cast<unsigned char *>(payload_data)),
+                        payload_size);
+                    if (gpu_payload != nullptr && gpu_payload_size > 0)
+                        input->SetGpuPayload(gpu_payload, gpu_payload_size);
+                }
+
+                std::shared_ptr<Handler> h = nullptr;
+                for (auto &ptr_el : _handlers) {
+                    if (ptr_el->obj_ptr()->CanExecute(routine)) {
+                        h = ptr_el->obj_ptr();
+                        break;
+                    }
+                }
+
+                std::shared_ptr<communicators::Result> result;
+                if (h == nullptr) {
+                    LOG4CPLUS_ERROR(logger, "[Process " << getpid()
+                                    << "]: Requested unknown routine '" << routine << "'.");
+                    result = std::make_shared<communicators::Result>(
+                        -1, std::make_shared<Buffer>());
+                } else {
+                    // Per-connection GPUDirect gate: GPU-aware handlers read this
+                    // thread-local instead of coupling to a Communicator subclass.
+                    gvirtus::communicators::tls_connection_supports_cuda =
+                        client_comm->current_connection_supports_cuda();
+                    auto start = steady_clock::now();
+                    result = h->Execute(routine, input);
+                    result->TimeTaken(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                          steady_clock::now() - start).count() / 1000.0);
+                    gvirtus::communicators::tls_connection_supports_cuda = false;
+                }
+
+                std::string write_error;
+                bool response_ok = communicators::am::WriteResponse(
+                    client_comm, request_header, result->GetExitCode(), result->TimeTaken(),
+                    result->GetOutputBuffer(), result->GetGpuPayload(),
+                    result->GetGpuPayloadSize(), write_error);
+
+                // Release the frame only AFTER Execute + response, since `input`
+                // points into it.
+                if (owns_frame) client_comm->ReleaseFrame();
+
+                if (!response_ok) {
+                    LOG4CPLUS_WARN(logger, "Response write failed: " << write_error);
+                    break;
+                }
+
+                LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "]: routine '" << routine
+                                << "' returned " << result->GetExitCode()
+                                << " [req_id=" << request_header.request_id << "].");
             }
-
-            std::shared_ptr<communicators::Result> result;
-            if (h == nullptr) {
-                LOG4CPLUS_ERROR(logger, "[Process " << getpid() << "]: Requested unknown routine '"
-                                                    << routine << "'.");
-                result = std::make_shared<communicators::Result>(-1, std::make_shared<Buffer>());
-            } else {
-                auto start = steady_clock::now();
-                result = h->Execute(routine, input_buffer);
-                result->TimeTaken(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                      steady_clock::now() - start)
-                                      .count() /
-                                  1000.0);
-            }
-
-            // return info：control the head transfer by TCP，then payload RDMA
-            result->Dump(client_comm);
-
-            // stop this round, and clean all context
-            if (hybrid) {
-                hybrid->end_call();
-            }
-
-            LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "]: Routine '" << routine
-                                                << "' returned " << result->GetExitCode() << ".");
+        } catch (const std::exception &e) {
+            LOG4CPLUS_WARN(logger, "Client loop exception: " << e.what());
         }
 
-        LOG4CPLUS_INFO(logger, "Client disconnected");
+        LOG4CPLUS_DEBUG(logger, "Client disconnected");
         Notify("process-ended");
     };
 

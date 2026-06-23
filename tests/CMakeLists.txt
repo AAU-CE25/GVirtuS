@@ -68,3 +68,36 @@ foreach(TEST_SRC ${TEST_SOURCES})
     # Register the test with ctest
     add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
 endforeach()
+
+# ===== Pure-C++ unit test: Buffer IoV (scatter/gather) extensions =====
+# No CUDA, GPU, GTest, or running backend required — compiles Buffer.cpp
+# directly and asserts the AddRef-vs-Add wire-format-identical invariant.
+add_executable(test_buffer_iov
+    test_buffer_iov.cpp
+    ${PROJECT_SOURCE_DIR}/src/communicators/Buffer.cpp
+)
+set_target_properties(test_buffer_iov PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+)
+target_include_directories(test_buffer_iov PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+)
+add_test(NAME test_buffer_iov COMMAND test_buffer_iov)
+
+# ===== Pure-C++ unit test: unified RPC protocol (framing + codec) =====
+# Loopback Communicator drives a full request/response round trip through the
+# base-class framing and the communicators::am envelope codec. No GPU needed.
+add_executable(test_protocol_loopback
+    test_protocol_loopback.cpp
+    ${PROJECT_SOURCE_DIR}/src/communicators/Buffer.cpp
+    ${PROJECT_SOURCE_DIR}/src/communicators/RpcCodec.cpp
+)
+set_target_properties(test_protocol_loopback PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+)
+target_include_directories(test_protocol_loopback PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+)
+add_test(NAME test_protocol_loopback COMMAND test_protocol_loopback)

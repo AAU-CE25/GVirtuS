@@ -10,7 +10,6 @@
 
 #include "Communicator.h"
 #include "Endpoint.h"
-#include "Endpoint_Rdma.h"
 #include "Endpoint_Tcp.h"
 
 // #define DEBUG
@@ -34,10 +33,9 @@ class CommunicatorFactory {
                   << std::endl;
 #endif
         std::cout << "DEBUG: protocol string is [" << end->protocol() << "]" << std::endl;
-        // Supported unsecure communicators
+        // Supported unsecure communicators (TCP + UCX only)
         std::vector<std::string> unsecureMatches = {
-            "tcp", "http", "oldtcp", "ws", "ib", "hybrid",
-
+            "tcp", "ucx",
         };
 
         // Supported secure communicators

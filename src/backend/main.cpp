@@ -30,6 +30,11 @@
 
 #include <log4cplus/consoleappender.h>
 
+#include <algorithm>
+#include <cctype>
+#include <sstream>
+#include <vector>
+
 #include "gvirtus/backend/Backend.h"
 #include "gvirtus/backend/Property.h"
 #include "log4cplus/configurator.h"
@@ -45,13 +50,82 @@ std::string getEnvVar(const std::string& name) {
     return val ? val : "";
 }
 
+std::string trim_copy(const std::string& s) {
+    std::size_t begin = 0;
+    while (begin < s.size() && std::isspace(static_cast<unsigned char>(s[begin]))) {
+        ++begin;
+    }
+    std::size_t end = s.size();
+    while (end > begin && std::isspace(static_cast<unsigned char>(s[end - 1]))) {
+        --end;
+    }
+    return s.substr(begin, end - begin);
+}
+
+std::string to_lower_copy(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return s;
+}
+
+bool has_component_token(const std::string& scope, const char* token) {
+    std::stringstream ss(scope);
+    std::string item;
+    const std::string wanted = to_lower_copy(token);
+    while (std::getline(ss, item, ',')) {
+        if (to_lower_copy(trim_copy(item)) == wanted) return true;
+    }
+    return false;
+}
+
+void apply_debug_component_scope(LogLevel root_level) {
+    // Scope filtering only applies when DEBUG/TRACE is enabled globally.
+    if (root_level > DEBUG_LOG_LEVEL) return;
+
+    const std::string scope = getEnvVar("GVIRTUS_DEBUG_SCOPE");
+    if (scope.empty()) return;
+    if (has_component_token(scope, "all")) return;
+
+    const bool backend = has_component_token(scope, "backend");
+    const bool frontend = has_component_token(scope, "frontend");
+    const bool communicator = has_component_token(scope, "communicator") ||
+                              has_component_token(scope, "comm") ||
+                              has_component_token(scope, "ucx") ||
+                              has_component_token(scope, "tcp");
+
+    if (!backend && !frontend && !communicator) {
+        std::cerr << "[GVIRTUS WARNING] GVIRTUS_DEBUG_SCOPE='" << scope
+                  << "' has no valid component (backend, frontend, communicator, all). Ignoring.\n";
+        return;
+    }
+
+    const LogLevel selected_level = root_level;
+    const LogLevel non_selected_level = INFO_LOG_LEVEL;
+
+    Logger::getInstance(LOG4CPLUS_TEXT("GVirtuS")).setLogLevel(
+        backend ? selected_level : non_selected_level);
+    Logger::getInstance(LOG4CPLUS_TEXT("Backend")).setLogLevel(
+        backend ? selected_level : non_selected_level);
+    Logger::getInstance(LOG4CPLUS_TEXT("Process")).setLogLevel(
+        backend ? selected_level : non_selected_level);
+
+    Logger::getInstance(LOG4CPLUS_TEXT("Frontend")).setLogLevel(
+        frontend ? selected_level : non_selected_level);
+
+    Logger::getInstance(LOG4CPLUS_TEXT("UcxCommunicator")).setLogLevel(
+        communicator ? selected_level : non_selected_level);
+    Logger::getInstance(LOG4CPLUS_TEXT("TcpCommunicator")).setLogLevel(
+        communicator ? selected_level : non_selected_level);
+}
+
 void rootLoggerConfig() {
     // Create console appender with a pattern layout
     SharedAppenderPtr consoleAppender(new ConsoleAppender());
     consoleAppender->setName(LOG4CPLUS_TEXT("console"));
 
     // Define the pattern layout string
-    std::string pattern = "%D{%Y-%m-%d %H:%M:%S.%q} [%-5p] [%c] (%F:%L) - %m%n";
+    std::string pattern = "%D{%H:%M:%S.%q} [%-5p] [%c:%L] [%M]:%n"
+                          "                       %m%n";
     // %D = date/time (with milliseconds via %q)
     // %p = log level (%-5p pads to 5 chars)
     // %c = logger name
@@ -82,6 +156,7 @@ void rootLoggerConfig() {
     }
 
     root.setLogLevel(logLevel);
+    apply_debug_component_scope(logLevel);
 }
 
 int main(int argc, char** argv) {

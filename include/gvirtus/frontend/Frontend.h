@@ -33,6 +33,27 @@
  *
  */
 
+/*
+ * Frontend — per-thread RPC stub extended for UCX zero-copy transfers.
+ *
+ * UCX communicator additions (Phases 4-5):
+ *
+ *   SetOutputDestination() / DirectOutputConsumed()  — Fase 4 (D2H zero-copy):
+ *     caller pre-registers a destination buffer. Execute()'s response handler
+ *     writes the big output payload directly there from the pinned RX-pool
+ *     frame, skipping the intermediate mpOutputBuffer staging.
+ *
+ *   AddHostPointerForArgumentsDirect()  — Fase 5 (H2D zero-copy): records the
+ *     caller's buffer pointer for splice into WriteIov's iov array. The 64 MB
+ *     payload travels straight from user memory into RMA without memcpy into
+ *     mpInputBuffer. Falls back to standard marshal for non-UCX transports.
+ *
+ *   Reentrancy guard (mpInitialized)  — prevents recursive RPC during UCX's
+ *     libuct_cuda module init (dlopen fires cu* calls through the frontend
+ *     shim before Connect() completes).
+ *
+ * Optimization phases: 4 (gather-send, frame receive), 5 (zero-copy H2D/D2H)
+ */
 #pragma once
 
 #include <gvirtus/common/LD_Lib.h>
@@ -96,6 +117,38 @@ class Frontend {
     inline communicators::Buffer *GetInputBuffer() { return mpInputBuffer.get(); }
 
     inline communicators::Buffer *GetOutputBuffer() { return mpOutputBuffer.get(); }
+
+    // Fase 4 - zero-copy D2H: caller pre-registers a destination so the
+    // response handler in Execute() writes the big output payload directly
+    // there, skipping the AppendBytes(64MB) -> mpOutputBuffer staging and
+    // the subsequent memmove on the user side. Honoured only when the
+    // response Buffer is exactly [size_t prefix == count][count bytes];
+    // otherwise Execute() falls back to the standard AppendBytes path and
+    // DirectOutputConsumed() stays false so the caller can still memmove.
+    inline void SetOutputDestination(void *dst, size_t count) {
+        mDirectOutputDst      = dst;
+        mDirectOutputCount    = count;
+        mDirectOutputConsumed = false;
+    }
+    inline void ClearOutputDestination() {
+        mDirectOutputDst      = nullptr;
+        mDirectOutputCount    = 0;
+        mDirectOutputConsumed = false;
+    }
+    inline bool DirectOutputConsumed() const { return mDirectOutputConsumed; }
+
+    // Zero-copy variant of AddHostPointerForArguments. Records `ptr` as a
+    // BORROWED segment in the Buffer (Buffer::AddRef) instead of copying it:
+    // the same [size_t len][bytes] wire layout is produced, but the data is
+    // referenced in place and emitted by Buffer::GetIov() at send time.
+    // Caller must NOT mutate `ptr` until Execute() returns. Works on every
+    // transport — the UCX path sends the fragments via WriteIov (true
+    // zero-copy); other transports concatenate once in Buffer::Dump(), giving
+    // identical wire bytes. No transport gate, no Frontend-side splice state.
+    template <class T>
+    void AddHostPointerForArgumentsDirect(const T *ptr, size_t n = 1) {
+        mpInputBuffer->AddRef<T>(ptr, n);
+    }
 
     inline communicators::Buffer *GetLaunchBuffer() { return mpLaunchBuffer.get(); }
 
@@ -225,6 +278,15 @@ class Frontend {
         _communicator;
     std::shared_ptr<communicators::Buffer> mpInputBuffer;
     std::shared_ptr<communicators::Buffer> mpOutputBuffer;
+
+    // See SetOutputDestination(). Per-frontend (i.e. per-thread) state.
+    void  *mDirectOutputDst       = nullptr;
+    size_t mDirectOutputCount     = 0;
+    bool   mDirectOutputConsumed  = false;
+
+    // Zero-copy H2D send is now handled entirely inside the input Buffer via
+    // Buffer::AddRef / Buffer::GetIov (see AddHostPointerForArgumentsDirect) —
+    // no Frontend-side splice state required.
     std::shared_ptr<communicators::Buffer> mpLaunchBuffer;
 
     int mExitCode;

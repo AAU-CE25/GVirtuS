@@ -33,6 +33,30 @@
  *            Department of Computer Science, University College Dublin
  */
 
+/*
+ * Frontend::Execute() — single, transport-agnostic RPC path.
+ *
+ * One envelope protocol for every transport. Framing is the Communicator's
+ * job: WriteFrame() length-prefixes a byte stream or hands off a native
+ * message frame; TryAcquireFrame() yields the whole reply for in-place
+ * parsing (an internal buffer for stream transports, a pinned RX slot for
+ * message-oriented transports).
+ *
+ * The codec (communicators::am::WriteRequest / ReadResponse) owns the
+ * envelope; this function only marshals the input Buffer's IoV, calls the
+ * codec, and unmarshals the response. There is no per-transport branching.
+ *
+ * Zero-copy: the request IoV is the Buffer's GetIov() output, so large
+ *   payloads added via AddHostPointerForArgumentsDirect (Buffer::AddRef) are
+ *   referenced in place and never staged. SetOutputDestination() lets the
+ *   response payload land directly in the caller's dst buffer.
+ *
+ * Reentrancy guard: some transports' init paths can trigger CUDA probe calls
+ *   that reach Execute() before mpInitialized is set; we return
+ *   CUDA_ERROR_NOT_INITIALIZED so the probe concludes "no local CUDA"
+ *   gracefully and lets the transport finish bringing itself up.
+ */
+
 #include <gvirtus/communicators/CommunicatorFactory.h>
 #include <gvirtus/communicators/EndpointFactory.h>
 #include <gvirtus/frontend/Frontend.h>
@@ -40,18 +64,28 @@
 #include <stdlib.h> /* getenv */
 #include <sys/syscall.h>
 #include <sys/types.h>
+#include <sys/uio.h>
 #include <unistd.h>
 
 #include <chrono>
+#include <cctype>
+#include <cstring>
 #include <filesystem>
 #include <iostream>
 #include <mutex>
+#include <sstream>
+#include <atomic>
+#include <algorithm>
+#include <vector>
 
-#include "communicators/hybrid/HybridCommunicator.h"
+#include "gvirtus/communicators/Protocol.h"
+#include "gvirtus/communicators/RpcCodec.h"
+
 #include "log4cplus/configurator.h"
 #include "log4cplus/logger.h"
 #include "log4cplus/loggingmacros.h"
-
+#include "log4cplus/consoleappender.h"
+#include "log4cplus/layout.h"
 using std::chrono::duration_cast;
 using std::chrono::milliseconds;
 using std::chrono::steady_clock;
@@ -69,18 +103,91 @@ static Frontend msFrontend;
 std::mutex gFrontendMutex;
 map<pthread_t, Frontend *> *Frontend::mpFrontends = NULL;
 static bool initialized = false;
+static std::atomic<std::uint32_t> gRequestId{1};
 
 Logger logger;
+
 
 std::string getEnvVar(std::string const &key) {
     char *env_var = getenv(key.c_str());
     return (env_var == nullptr) ? std::string("") : std::string(env_var);
 }
 
+static std::string trim_copy(const std::string &s) {
+    std::size_t begin = 0;
+    while (begin < s.size() && std::isspace(static_cast<unsigned char>(s[begin]))) {
+        ++begin;
+    }
+    std::size_t end = s.size();
+    while (end > begin && std::isspace(static_cast<unsigned char>(s[end - 1]))) {
+        --end;
+    }
+    return s.substr(begin, end - begin);
+}
+
+static std::string to_lower_copy(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return s;
+}
+
+static bool has_component_token(const std::string &scope, const char *token) {
+    std::stringstream ss(scope);
+    std::string item;
+    const std::string wanted = to_lower_copy(token);
+    while (std::getline(ss, item, ',')) {
+        if (to_lower_copy(trim_copy(item)) == wanted) return true;
+    }
+    return false;
+}
+
+static void apply_debug_component_scope(LogLevel root_level) {
+    if (root_level > DEBUG_LOG_LEVEL) return;
+
+    const std::string scope = getEnvVar("GVIRTUS_DEBUG_SCOPE");
+    if (scope.empty()) return;
+    if (has_component_token(scope, "all")) return;
+
+    const bool backend = has_component_token(scope, "backend");
+    const bool frontend = has_component_token(scope, "frontend");
+    const bool communicator = has_component_token(scope, "communicator") ||
+                              has_component_token(scope, "comm") ||
+                              has_component_token(scope, "ucx") ||
+                              has_component_token(scope, "tcp");
+
+    if (!backend && !frontend && !communicator) {
+        std::cerr << "[GVIRTUS WARNING] GVIRTUS_DEBUG_SCOPE='" << scope
+                  << "' has no valid component (backend, frontend, communicator, all). Ignoring.\n";
+        return;
+    }
+
+    const LogLevel selected_level = root_level;
+    const LogLevel non_selected_level = INFO_LOG_LEVEL;
+
+    Logger::getInstance(LOG4CPLUS_TEXT("GVirtuS")).setLogLevel(
+        backend ? selected_level : non_selected_level);
+    Logger::getInstance(LOG4CPLUS_TEXT("Backend")).setLogLevel(
+        backend ? selected_level : non_selected_level);
+    Logger::getInstance(LOG4CPLUS_TEXT("Process")).setLogLevel(
+        backend ? selected_level : non_selected_level);
+
+    Logger::getInstance(LOG4CPLUS_TEXT("Frontend")).setLogLevel(
+        frontend ? selected_level : non_selected_level);
+
+    Logger::getInstance(LOG4CPLUS_TEXT("UcxCommunicator")).setLogLevel(
+        communicator ? selected_level : non_selected_level);
+    Logger::getInstance(LOG4CPLUS_TEXT("TcpCommunicator")).setLogLevel(
+        communicator ? selected_level : non_selected_level);
+}
+
 void Frontend::Init(Communicator *c) {
-    // Logger configuration
-    BasicConfigurator basicConfigurator;
-    basicConfigurator.configure();
+
+
+    // Logger configuration with custom time-only pattern
+    SharedAppenderPtr consoleAppender(new ConsoleAppender());
+    consoleAppender->setName(LOG4CPLUS_TEXT("console"));
+    std::string pattern = "%D{%H:%M:%S.%q} [%-5p] [%c] (%F:%L) - %m%n";
+    consoleAppender->setLayout(std::unique_ptr<Layout>(new PatternLayout(LOG4CPLUS_TEXT(pattern))));
 
     // Set the logging level
     std::string logLevelString = getEnvVar("GVIRTUS_LOGLEVEL");
@@ -96,8 +203,10 @@ void Frontend::Init(Communicator *c) {
     }
 
     Logger root = Logger::getRoot();
+    root.removeAllAppenders();
+    root.addAppender(consoleAppender);
     root.setLogLevel(logLevel);
-
+    apply_debug_component_scope(logLevel);
     logger = Logger::getInstance(LOG4CPLUS_TEXT("Frontend"));
 
     pid_t tid = syscall(SYS_gettid);
@@ -128,6 +237,18 @@ void Frontend::Init(Communicator *c) {
 
     LOG4CPLUS_INFO(logger, "Using properties file: " + config_path);
 
+    // Allocate buffers BEFORE Connect(). Some communicators run CUDA
+    // probe code during their init path, which re-enters this frontend
+    // (LD_LIBRARY_PATH puts our stub first) and calls Frontend::Prepare()
+    // -> Buffer::Reset(). If the buffers haven't been allocated yet, that
+    // derefs nullptr and SIGSEGVs. mpInitialized stays false here and is
+    // set to true only at the end — Execute() reads it as a reentrancy
+    // guard to short-circuit RPC calls coming from a transport's own init.
+    mpFrontends->find(tid)->second->mpInputBuffer = std::make_shared<Buffer>();
+    mpFrontends->find(tid)->second->mpOutputBuffer = std::make_shared<Buffer>();
+    mpFrontends->find(tid)->second->mpLaunchBuffer = std::make_shared<Buffer>();
+    mpFrontends->find(tid)->second->mExitCode = -1;
+
     try {
         auto endpoint = EndpointFactory::get_endpoint(config_path);
 
@@ -141,10 +262,6 @@ void Frontend::Init(Communicator *c) {
         exit(EXIT_FAILURE);
     }
 
-    mpFrontends->find(tid)->second->mpInputBuffer = std::make_shared<Buffer>();
-    mpFrontends->find(tid)->second->mpOutputBuffer = std::make_shared<Buffer>();
-    mpFrontends->find(tid)->second->mpLaunchBuffer = std::make_shared<Buffer>();
-    mpFrontends->find(tid)->second->mExitCode = -1;
     mpFrontends->find(tid)->second->mpInitialized = true;
 }
 
@@ -219,7 +336,31 @@ Frontend *Frontend::GetFrontend(Communicator *c) {
     return f;
 }
 
+void Frontend::Prepare() {
+    if (mpInputBuffer) mpInputBuffer->Reset();
+    if (mpOutputBuffer) mpOutputBuffer->Reset();
+    if (mpLaunchBuffer) mpLaunchBuffer->Reset();
+
+    mExitCode = -1;
+    mDirectOutputDst = nullptr;
+    mDirectOutputCount = 0;
+    mDirectOutputConsumed = false;
+}
+
 void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
+    // Reentrancy guard for the case where a transport's init path fires
+    // cu* probe calls during Frontend::Init -> Connect. At that point
+    // _communicator->obj_ptr() is set but not yet Connected; if we tried
+    // to send we would throw on the null endpoint. Return a harmless error
+    // so the probe concludes "no local CUDA support" and the transport
+    // bring-up proceeds.
+    if (!mpInitialized) {
+        // 3 == CUDA_ERROR_NOT_INITIALIZED (driver API) == cudaErrorInitializationError
+        // (runtime API). Same numeric value on both APIs.
+        mExitCode = 3;
+        return;
+    }
+
     if (input_buffer == nullptr) input_buffer = mpInputBuffer.get();
 
     pid_t tid = syscall(SYS_gettid);
@@ -246,89 +387,125 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
 
     frontend->mRoutinesExecuted++;
 
-    // ===== send routine info first（under TCP）=====
-    auto start_send = steady_clock::now();
-    frontend->_communicator->obj_ptr()->Write(routine, strlen(routine) + 1);
-
-    // ===== chose protocol by different routine =====
-    if (frontend->_communicator->obj_ptr()->to_string() == "hybridcommunicator") {
-        auto *hybrid = dynamic_cast<gvirtus::communicators::HybridCommunicator *>(
-            frontend->_communicator->obj_ptr().get());
-        if (hybrid) {
-            if (std::string(routine).find("cudaMemcpy") != std::string::npos ||
-                std::string(routine).find("cudaRegisterFatBinary") != std::string::npos ||
-                std::string(routine).find("cudaRegisterFatBinaryEnd") != std::string::npos ||
-                std::string(routine).find("cudaMemcpyAsync") != std::string::npos) {
-                hybrid->begin_call(routine, gvirtus::communicators::Transport::RDMA, in_size);
-            } else {
-                hybrid->begin_call(routine, gvirtus::communicators::Transport::TCP, in_size);
-            }
-        }
-    }
-
-    // ===== send paramemter data =====
-    frontend->mDataSent += in_size;
-    LOG4CPLUS_DEBUG(logger, "Write " << in_size << " bytes to the buffer");
-    input_buffer->Dump(frontend->_communicator->obj_ptr().get());
-
-    // ===== sync by chosen channel =====
-    frontend->_communicator->obj_ptr()->Sync();
-
-    send_sec = duration_cast<milliseconds>(steady_clock::now() - start_send).count() / 1000.0;
-
-    frontend->mpOutputBuffer->Reset();
-
-    // ===== receive exit_code =====
-    auto start_recv = steady_clock::now();
-    frontend->_communicator->obj_ptr()->Read((char *)&exit_code, sizeof(int));
-    frontend->mExitCode = exit_code;
-
-    // ===== receive backend time cost =====
-    frontend->_communicator->obj_ptr()->Read(reinterpret_cast<char *>(&server_exec_sec),
-                                             sizeof(server_exec_sec));
-
-    // ===== receive output buffer =====
-    size_t out_buffer_size = 0;
-    frontend->_communicator->obj_ptr()->Read((char *)&out_buffer_size, sizeof(size_t));
-    frontend->mDataReceived += out_buffer_size;
-    LOG4CPLUS_DEBUG(logger, "Read " << out_buffer_size << " bytes from the buffer");
-    if (out_buffer_size > 0) {
-        LOG4CPLUS_DEBUG(logger, "Output buffer size is greater than 0, reading...");
-        frontend->mpOutputBuffer->Read<char>(frontend->_communicator->obj_ptr().get(),
-                                             out_buffer_size);
-    }
-    recv_sec = duration_cast<milliseconds>(steady_clock::now() - start_recv).count() / 1000.0;
-
-    // ===== update info =====
-    frontend->mRoutineExecutionTime += server_exec_sec;
-    frontend->mSendingTime += send_sec;
-    frontend->mReceivingTime += recv_sec;
-
-    // ===== print log =====
-    LOG4CPLUS_DEBUG(logger, "Routine '" << routine << "' returned " << exit_code
-                                        << " | server_exec=" << server_exec_sec << "s"
-                                        << " | send=" << send_sec << "s"
-                                        << " | recv=" << recv_sec << "s"
-                                        << " | in=" << in_size << "B"
-                                        << " | out=" << out_buffer_size << "B"
-                                        << " | pid=" << pid << " tid=" << tid);
-
-    LOG4CPLUS_DEBUG(logger, "DEBUG - Called: " << routine);
-
-    // ===== stop this call，clean HybridCommunicator status =====
-    if (frontend->_communicator->obj_ptr()->to_string() == "hybridcommunicator") {
-        auto hybrid = std::dynamic_pointer_cast<gvirtus::communicators::HybridCommunicator>(
-            frontend->_communicator->obj_ptr());
-        if (hybrid) {
-            hybrid->end_call();
-        }
-    }
-}
-
-void Frontend::Prepare() {
-    pid_t tid = syscall(SYS_gettid);
     {
-        if (this->mpFrontends->find(tid) != mpFrontends->end())
-            mpFrontends->find(tid)->second->mpInputBuffer->Reset();
+        auto start_send = steady_clock::now();
+
+        const std::uint32_t request_id = gRequestId.fetch_add(1);
+        // Logical payload size = marshaled arena + any borrowed AddRef
+        // segments. Equals GetBufferSize() for a plain marshaled call.
+        const std::size_t payload_size = input_buffer->GetLogicalSize();
+
+        // PROFILE: timing breakdown for transfers >= 1MB. payload_size already
+        // includes any zero-copy AddRef bytes (GetLogicalSize). The D2H output
+        // count pre-registered via SetOutputDestination is added so large
+        // device-to-host transfers (payload in the RESPONSE) also trip the gate.
+        const std::size_t effective_payload =
+            payload_size + frontend->mDirectOutputCount;
+        const bool profile = effective_payload >= (1u << 20);
+        auto tA = steady_clock::now();
+
+        // Gather-send: the codec wraps [header][routine] in front of the
+        // input Buffer's ordered IoV fragments. GetIov() returns one arena
+        // fragment for a plain marshaled call, or interleaved inline +
+        // borrowed fragments when the caller used
+        // AddHostPointerForArgumentsDirect (Buffer::AddRef) — the big user
+        // payload is then referenced in place and never copied. The
+        // transport's WriteFrame then delivers the whole message atomically.
+        std::vector<struct iovec> payload_iov;
+        input_buffer->GetIov(payload_iov);
+        auto tB = steady_clock::now();
+
+        frontend->mDataSent += payload_size;
+        std::string err;
+        if (!gvirtus::communicators::am::WriteRequest(
+                frontend->_communicator->obj_ptr().get(), request_id, routine,
+                payload_iov.data(), payload_iov.size(), err)) {
+            throw std::runtime_error("Frontend: WriteRequest failed: " + err);
+        }
+        auto tD = steady_clock::now();
+        auto tC = tD;  // WriteRequest does WriteFrame+Sync internally
+
+        send_sec = duration_cast<milliseconds>(steady_clock::now() - start_send).count() / 1000.0;
+
+        frontend->mpOutputBuffer->Reset();
+        auto start_recv = steady_clock::now();
+        auto tE = steady_clock::now();
+
+        size_t out_buffer_size = 0;
+        const unsigned char *out_data = nullptr;
+        bool owns_frame = false;
+        if (!gvirtus::communicators::am::ReadResponse(
+                frontend->_communicator->obj_ptr().get(), request_id, exit_code, server_exec_sec,
+                out_data, out_buffer_size, owns_frame, err)) {
+            if (owns_frame) frontend->_communicator->obj_ptr()->ReleaseFrame();
+            throw std::runtime_error("Frontend: ReadResponse failed: " + err);
+        }
+        auto tF = steady_clock::now();
+        auto tG = tF;
+        auto tH = tF;
+
+        frontend->mExitCode = exit_code;
+
+        if (out_buffer_size > 0) {
+            tG = steady_clock::now();
+            frontend->mDataReceived += out_buffer_size;
+            // Zero-copy fast path: when the caller pre-registered a dst via
+            // SetOutputDestination() AND the response Buffer layout is
+            // exactly [size_t prefix == count][count bytes payload], memcpy
+            // the payload straight into the caller's buffer. Eliminates one
+            // of the two large memcpys in the D2H path.
+            bool direct_ok = false;
+            if (frontend->mDirectOutputDst != nullptr &&
+                out_buffer_size == sizeof(size_t) + frontend->mDirectOutputCount) {
+                size_t payload_prefix = 0;
+                std::memcpy(&payload_prefix, out_data, sizeof(size_t));
+                if (payload_prefix == frontend->mDirectOutputCount) {
+                    std::memcpy(frontend->mDirectOutputDst,
+                                out_data + sizeof(size_t),
+                                frontend->mDirectOutputCount);
+                    frontend->mDirectOutputConsumed = true;
+                    direct_ok = true;
+                }
+            }
+            if (!direct_ok) {
+                // Single bulk memcpy into mpOutputBuffer.
+                frontend->mpOutputBuffer->AppendBytes(
+                    reinterpret_cast<const char *>(out_data), out_buffer_size);
+            }
+            tH = steady_clock::now();
+        }
+
+        if (owns_frame) frontend->_communicator->obj_ptr()->ReleaseFrame();
+
+        recv_sec = duration_cast<milliseconds>(steady_clock::now() - start_recv).count() / 1000.0;
+
+        if (profile) {
+            auto us = [](auto a, auto b) {
+                return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count();
+            };
+            fprintf(stderr,
+                    "[GVS PROFILE] %s payload=%zuMB | marshal=%ldus write=%ldus sync=%ldus "
+                    "read_hdr=%ldus read_payload=%ldus append=%ldus | total_send=%ldus total_recv=%ldus\n",
+                    routine, effective_payload >> 20,
+                    us(tA, tB), us(tB, tC), us(tC, tD),
+                    us(tE, tF), us(tF, tG), us(tG, tH),
+                    us(tA, tD), us(tE, tH));
+            fflush(stderr);
+        }
+
+        frontend->mRoutineExecutionTime += server_exec_sec;
+        frontend->mSendingTime += send_sec;
+        frontend->mReceivingTime += recv_sec;
+
+        LOG4CPLUS_DEBUG(logger, "Routine '" << routine << "' returned " << exit_code
+                                            << " | server_exec=" << server_exec_sec << "s"
+                                            << " | send=" << send_sec << "s"
+                                            << " | recv=" << recv_sec << "s"
+                                            << " | in=" << in_size << "B"
+                                            << " | out=" << out_buffer_size << "B"
+                                            << " | pid=" << pid << " tid=" << tid
+                                            << " | req_id=" << request_id);
+        LOG4CPLUS_DEBUG(logger, "DEBUG - Called: " << routine);
+        return;
     }
 }

@@ -71,15 +71,14 @@ install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/etc DESTINATION ${GVIRTUS_HOME})
 # ===== gvirtus-communicators =====
 add_library(gvirtus-communicators SHARED
     src/communicators/Buffer.cpp
+    src/communicators/RpcCodec.cpp
     src/communicators/CommunicatorFactory.cpp
-    src/communicators/Endpoint_Tcp.cpp
-    src/communicators/Endpoint_Rdma.cpp
-    src/communicators/Endpoint_Hybrid.cpp
+    src/communicators/tcp/Endpoint_Tcp.cpp
+    src/communicators/ucx/Endpoint_Ucx.cpp
     src/communicators/EndpointFactory.cpp
-    src/communicators/rdma/ktmrdma.cpp
     src/communicators/Result.cpp
 )
-target_link_libraries(gvirtus-communicators gvirtus-common rdmacm ibverbs)
+target_link_libraries(gvirtus-communicators gvirtus-common)
 gvirtus_install_target(gvirtus-communicators)
 
 ## TCP COMMUNICATOR
@@ -88,28 +87,15 @@ add_library(gvirtus-communicators-tcp SHARED
 target_link_libraries(gvirtus-communicators-tcp gvirtus-communicators)
 gvirtus_install_target(gvirtus-communicators-tcp)
 
-## IB COMMUNICATOR
-add_library(gvirtus-communicators-ib SHARED
-    src/communicators/rdma/ktmrdma.cpp
-    src/communicators/rdma/RdmaCommunicator.cpp
+## UCX COMMUNICATOR
+add_library(gvirtus-communicators-ucx SHARED
+    src/communicators/ucx/UcxCommunicator.cpp
+    src/communicators/ucx/UcxGpu.cpp
+    src/communicators/ucx/UcxRma.cpp
+    src/communicators/ucx/UcxRxPool.cpp
 )
-target_link_libraries(gvirtus-communicators-ib gvirtus-communicators rdmacm ibverbs)
-gvirtus_install_target(gvirtus-communicators-ib)
-
-## HYBRID COMMUNICATOR
-add_library(gvirtus-communicators-hybrid SHARED
-    src/communicators/hybrid/HybridCommunicator.cpp
-)
-target_include_directories(gvirtus-communicators-hybrid
-    PUBLIC
-        ${PROJECT_SOURCE_DIR}/src
-)
-target_link_libraries(gvirtus-communicators-hybrid
-    gvirtus-communicators
-    gvirtus-communicators-tcp
-    gvirtus-communicators-ib
-)
-gvirtus_install_target(gvirtus-communicators-hybrid)
+target_link_libraries(gvirtus-communicators-ucx gvirtus-communicators ucp ucs)
+gvirtus_install_target(gvirtus-communicators-ucx)
 
 # ===== FRONTEND =====
 add_library(gvirtus-frontend SHARED
@@ -122,7 +108,6 @@ target_include_directories(gvirtus-frontend
 target_link_libraries(gvirtus-frontend
     PRIVATE
         gvirtus-communicators
-        gvirtus-communicators-hybrid
         Threads::Threads
         lz4
 )
@@ -142,10 +127,7 @@ target_include_directories(gvirtus-backend
 target_link_libraries(gvirtus-backend
     PRIVATE
         gvirtus-communicators
-        gvirtus-communicators-hybrid
         Threads::Threads
-        rdmacm
-        ibverbs
 )
 gvirtus_install_target(gvirtus-backend)
 
