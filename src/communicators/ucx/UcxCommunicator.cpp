@@ -1,27 +1,30 @@
 /*
- * UcxCommunicator implementation — all six optimization phases in one file.
+ * UcxCommunicator implementation — the UCX transport: active-message (AM)
+ * based control path, an RDMA data fast path, and GPUDirect support on top
+ * of both. Organized by subsystem:
  *
- * Phase 1 (Baseline AM): UCX context/worker init, listener/accept/connect,
+ * Baseline AM transport: UCX context/worker init, listener/accept/connect,
  *   AM receive callback, stream-style Read()/Write() over active messages.
  *
- * Phase 2 (Protocol): EnvelopeHeader framing parsed in am_recv_handler;
+ * Wire protocol / framing: EnvelopeHeader framing parsed in am_recv_handler;
  *   RmaSetup and RmaPosted message types dispatched inline.
  *
- * Phase 4 (Gather-send): WriteIov() with UCP_DATATYPE_IOV passes scatter
- *   fragments natively to ucp_am_send_nbx. TryAcquireFrame()/ReleaseFrame()
- *   expose pinned RX-pool slots zero-copy to the caller.
+ * Gather-send: WriteIov() with UCP_DATATYPE_IOV passes scatter fragments
+ *   natively to ucp_am_send_nbx. TryAcquireFrame()/ReleaseFrame() expose
+ *   pinned RX-pool slots zero-copy to the caller.
  *
- * Phase 5 (RMA): WriteIovRma() stages or zero-copies iov fragments into a
+ * RMA fast path: WriteIovRma() stages or zero-copies iov fragments into a
  *   pre-registered remote slot via ucp_put_nbx, followed by a tiny RmaPosted
  *   AM notification. send_rma_setup() / handle_rma_setup_am() exchange rkeys
  *   at connection time. Manual memh cache bypasses broken UCX rcache.
  *
- * Phase 6 (GPUDirect): probe_gpudirect() validates cudaMalloc + ucp_mem_map
- *   (CUDA) at startup. init_rx_pool() allocates GPU shadow regions alongside
- *   host slots. WriteIovRma routes the big iov fragment to the peer's GPU
- *   shadow when the connection has an RDMA lane (per-connection transport gate
- *   via current_connection_supports_cuda()). am_recv_handler publishes the GPU
- *   portion via PooledMsg.gpu_data for B4 handler-side zero-copy.
+ * GPUDirect (probe + shadow regions): probe_gpudirect() validates
+ *   cudaMalloc + ucp_mem_map (CUDA) at startup. init_rx_pool() allocates GPU
+ *   shadow regions alongside host slots. WriteIovRma routes the big iov
+ *   fragment to the peer's GPU shadow when the connection has an RDMA lane
+ *   (per-connection transport gate via current_connection_supports_cuda()).
+ *   am_recv_handler publishes the GPU portion via PooledMsg.gpu_data so
+ *   handlers can consume it directly without a host bounce.
  *
  * Runtime-resolved CUDA symbols (dlopen): cudaHostAlloc, cudaMalloc, cudaFree,
  * cudaMemcpy, cudaPointerGetAttributes — no static link to libcudart.
@@ -152,10 +155,10 @@ ucs_status_t UcxCommunicator::am_recv_handler(void *arg, const void *header,
                             sizeof(body));
                 const size_t slot_idx   = static_cast<size_t>(peek.reserved0);
                 const size_t total      = static_cast<size_t>(body.slot_total);
-                // GPUDirect Step B3: non-zero gpu_size means the peer routed
-                // `gpu_size` bytes into slot.gpu_addr via NIC peer-DMA.
-                // `gpu_offset` is the position in the logical message where
-                // the GPU data folds in.
+                // Non-zero gpu_size means the peer routed `gpu_size` bytes
+                // into slot.gpu_addr via NIC peer-DMA. `gpu_offset` is the
+                // position in the logical message where the GPU data folds
+                // in.
                 const size_t gpu_size   = static_cast<size_t>(body.gpu_size);
                 const size_t gpu_offset = static_cast<size_t>(body.gpu_offset);
                 std::lock_guard<std::mutex> lk(self->rx_pool_->mu);
@@ -170,30 +173,26 @@ ucs_status_t UcxCommunicator::am_recv_handler(void *arg, const void *header,
 
                 PooledMsg msg{slot.addr, total, slot_idx};
 
-                // Step B3 CONSOLIDATION: temporarily cudaMemcpy the GPU
-                // portion back into the host slot at offset (total - gpu_size).
-                // This preserves the legacy contiguous-host parser path so
-                // Buffer/handler dispatch needs no changes. Step B4 removes
-                // this copy and teaches Buffer to read GPU directly.
+                // The GPU portion is NOT copied back into the host slot: it
+                // stays in slot.gpu_addr and is published to the consumer via
+                // PooledMsg.gpu_data/gpu_size instead. Handlers that
+                // recognize the GPU payload (cudaMemcpy H2D) use
+                // cudaMemcpyDeviceToDevice directly from slot.gpu_addr
+                // instead of bouncing through host, so the parser path stays
+                // zero-copy end to end for the GPU-resident fragment.
                 if (gpu_size > 0) {
                     if (slot.gpu_addr == nullptr ||
                         gpu_offset + gpu_size > total) {
                         std::fprintf(stderr,
-                            "RmaPosted B4: gpu_size=%zu offset=%zu but slot %zu has no GPU shadow "
+                            "RmaPosted: gpu_size=%zu offset=%zu but slot %zu has no GPU shadow "
                             "(or offset+size > total=%zu) — protocol mismatch, dropping\n",
                             gpu_size, gpu_offset, slot_idx, total);
                         slot.in_use = false;
                         return UCS_OK;
                     }
-                    // Step B4: no consolidation cudaMemcpy. The GPU portion
-                    // stays in slot.gpu_addr and we publish it to the
-                    // consumer via PooledMsg.gpu_data/gpu_size. Handlers
-                    // that recognize the GPU payload (cudaMemcpy H2D) use
-                    // cudaMemcpyDeviceToDevice directly from slot.gpu_addr
-                    // instead of bouncing through host.
                     msg.gpu_data = slot.gpu_addr;
                     msg.gpu_size = gpu_size;
-                    ucx_debug_log("RmaPosted B4: slot=%zu host_bytes=%zu gpu_bytes=%zu offset=%zu (no consolidation)",
+                    ucx_debug_log("RmaPosted: slot=%zu host_bytes=%zu gpu_bytes=%zu offset=%zu (no consolidation copy)",
                                   slot_idx, total - gpu_size, gpu_size, gpu_offset);
                 }
 
@@ -876,7 +875,7 @@ void UcxCommunicator::ReleaseFrame() {
 // This is a property of the TRANSPORT, not of the local process. In
 // particular it does NOT depend on g_gpudirect_enabled (= local probe
 // of cudaMalloc + ucp_mem_map(CUDA), which requires nvidia-peermem
-// loaded on this host). Reason: frontend Variant B (host → remote GPU
+// loaded on this host). Reason: the frontend send path (host → remote GPU
 // shadow) puts data FROM host memory, so the local NIC doesn't need
 // peer-DMA-from-CUDA capability — only RDMA-class transport plus the
 // backend's gpu_rkey suffice.
@@ -971,14 +970,14 @@ size_t UcxCommunicator::Write(const char *buffer, size_t size) {
 // pre-registered tx_scratch_ buffer and sent as one contiguous chunk with
 // the memh hint, which lets UCX bypass its internal RNDV-fragment staging
 // (UCX_RNDV_FRAG_SIZE) and DMA directly from the registered memory.
-size_t UcxCommunicator::WriteIov(const struct iovec *iov, size_t iov_count) {
+size_t UcxCommunicator::WriteIov(const gvirtus::communicators::IovFrag *iov, size_t iov_count) {
     if (endpoint_ == nullptr || worker_ == nullptr) {
         throw std::runtime_error("UcxCommunicator: WriteIov called without an active endpoint");
     }
     if (iov == nullptr || iov_count == 0) return 0;
 
     size_t total = 0;
-    for (size_t i = 0; i < iov_count; ++i) total += iov[i].iov_len;
+    for (size_t i = 0; i < iov_count; ++i) total += iov[i].len;
 
     // RMA fast path: if the server advertised its RX slot rkeys (via
     // RmaSetup at connect time) and the payload is large enough to amortise
@@ -1002,8 +1001,8 @@ size_t UcxCommunicator::WriteIov(const struct iovec *iov, size_t iov_count) {
         // Fast path: IOV directly, eager AM.
         std::vector<ucp_dt_iov_t> ucx_iov(iov_count);
         for (size_t i = 0; i < iov_count; ++i) {
-            ucx_iov[i].buffer = iov[i].iov_base;
-            ucx_iov[i].length = iov[i].iov_len;
+            ucx_iov[i].buffer = iov[i].base;
+            ucx_iov[i].length = iov[i].len;
         }
         ucx_debug_log("WriteIov(AM,iov) begin frags=%zu total=%zu", iov_count, total);
 
@@ -1028,8 +1027,8 @@ size_t UcxCommunicator::WriteIov(const struct iovec *iov, size_t iov_count) {
         char *dst = static_cast<char *>(tx_scratch_.addr);
         size_t off = 0;
         for (size_t i = 0; i < iov_count; ++i) {
-            std::memcpy(dst + off, iov[i].iov_base, iov[i].iov_len);
-            off += iov[i].iov_len;
+            std::memcpy(dst + off, iov[i].base, iov[i].len);
+            off += iov[i].len;
         }
     }
 

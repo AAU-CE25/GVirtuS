@@ -71,6 +71,18 @@ enum class SegKind { Inline, HostRef };                     // extensible
 length are recorded as a `HostRef` segment, and `GetIov()` emits them
 interleaved with arena slices in the correct order.
 
+**Update (`docs/GPUDIRECT_PLUGIN_EXTENSION_PLAN.md`):** the "extensible"
+`SegKind` enum above has since grown a third member, `GpuRef`. `Add<T>(ptr,
+n)` itself (not just `AddRef`) now auto-detects a device pointer and
+records it as a `GpuRef` segment instead of copying — no new Buffer method
+was added for this. `GetIov()`'s signature changed from
+`std::vector<struct iovec>` to `std::vector<IovFrag>` (a small
+`{base, len, is_device}` struct defined in `Communicator.h`) so each
+fragment carries its memory-kind tag through to `Communicator::WriteIov`/
+`WriteFrame`/`WriteIovRma`, which is the "future GpuRef ... fold into this
+same ordered model" this document's `Buffer.h` companion comment
+predicted.
+
 `Buffer::Dump()` is now segment-aware: it frames with `GetLogicalSize()`
 and uses `WriteIov` when segments exist, falling back to the single
 contiguous `Write` otherwise. **With no `AddRef` segments the behaviour

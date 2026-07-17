@@ -322,7 +322,7 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
         // AddHostPointerForArgumentsDirect (Buffer::AddRef) — the big user
         // payload is then referenced in place and never copied. The
         // transport's WriteFrame then delivers the whole message atomically.
-        std::vector<struct iovec> payload_iov;
+        std::vector<gvirtus::communicators::IovFrag> payload_iov;
         input_buffer->GetIov(payload_iov);
         auto tB = steady_clock::now();
 

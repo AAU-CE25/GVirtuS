@@ -28,9 +28,12 @@
  * @author Giuseppe Coviello <giuseppe.coviello@uniparthenope.it>
  * @date   Sun Oct 18 13:23:56 2009
  *
- * @brief
- *
- *
+ * @brief  Result pairs a handler's exit code with its output Buffer — what
+ * Process.cpp sends back to the frontend after executing one intercepted
+ * CUDA call. HasGpuPayload() lets the backend dispatch loop and RpcCodec
+ * ask the output Buffer whether any of its segments are zero-copy device
+ * memory, without plugin code ever touching a GPU-specific API on Result
+ * itself.
  */
 
 #pragma once
@@ -55,22 +58,20 @@ class Result {
     void TimeTaken(double time_taken);
     double TimeTaken() const;
 
-    // Optional zero-copy GPU payload (GVIRTUS_GPUDIRECT path). When set, the
-    // OutputBuffer contains only the protocol prefix (size_t count). The
-    // actual `count` bytes live on the GPU at `gpu_addr`. The UCX-AM
-    // response writer (Process.cpp::write_ucx_am_response) detects this and
-    // routes the GPU buffer as a separate iov entry registered with
-    // UCS_MEMORY_TYPE_CUDA in WriteIovRma. Frontend receives the data
-    // contiguously into its host RX slot via peer-DMA.
-    void SetGpuPayload(void *gpu_addr, std::size_t size);
-    void *GetGpuPayload() const;
-    std::size_t GetGpuPayloadSize() const;
+    // A handler that wants zero-copy GPUDirect simply calls
+    // `out->Add<char>(gpu_ptr, count)` like every other plugin does for a
+    // bulk payload — Buffer::Add() auto-detects device memory and records
+    // it as a SegKind::GpuRef segment (see Buffer.h). HasGpuPayload()
+    // answers "does the response have a GPU-resident tail?" by asking the
+    // output Buffer directly, so there is no separate GPU-specific setter
+    // for plugin code to call on Result.
+    bool HasGpuPayload() const {
+        return mpOutputBuffer != nullptr && mpOutputBuffer->HasGpuSegments();
+    }
 
    private:
     int mExitCode;
     std::shared_ptr<Buffer> mpOutputBuffer;
     double mTimeTaken = 0;
-    void *mGpuPayload = nullptr;
-    std::size_t mGpuPayloadSize = 0;
 };
 }  // namespace gvirtus::communicators

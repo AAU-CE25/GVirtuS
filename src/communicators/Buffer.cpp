@@ -124,26 +124,31 @@ const char *const Buffer::GetBuffer() const { return mpBuffer; }
 
 size_t Buffer::GetBufferSize() const { return mLength; }
 
-void Buffer::GetIov(std::vector<struct iovec> &out) const {
+void Buffer::GetIov(std::vector<IovFrag> &out) const {
     out.clear();
     if (mSegments.empty()) {
-        // Fast path: one contiguous fragment (original behaviour).
-        if (mLength > 0) out.push_back(iovec{static_cast<void *>(mpBuffer), mLength});
+        // Fast path: one contiguous, host fragment (original behaviour).
+        if (mLength > 0)
+            out.push_back(IovFrag{static_cast<void *>(mpBuffer), mLength, false});
         return;
     }
     out.reserve(mSegments.size() + 1);
     for (const auto &s : mSegments) {
         if (s.kind == SegKind::Inline) {
             if (s.len > 0)
-                out.push_back(iovec{static_cast<void *>(mpBuffer + s.offset), s.len});
-        } else {  // HostRef: borrowed external bytes, never copied
-            out.push_back(iovec{const_cast<void *>(s.ptr), s.len});
+                out.push_back(
+                    IovFrag{static_cast<void *>(mpBuffer + s.offset), s.len, false});
+        } else if (s.kind == SegKind::HostRef) {
+            // Borrowed HOST bytes, never copied.
+            out.push_back(IovFrag{const_cast<void *>(s.ptr), s.len, false});
+        } else {  // SegKind::GpuRef: borrowed DEVICE bytes, never copied.
+            out.push_back(IovFrag{const_cast<void *>(s.ptr), s.len, true});
         }
     }
-    // Trailing inline run written after the last AddRef.
+    // Trailing inline run written after the last AddRef/Add(GpuRef).
     if (mInlineConsumed < mLength)
-        out.push_back(
-            iovec{static_cast<void *>(mpBuffer + mInlineConsumed), mLength - mInlineConsumed});
+        out.push_back(IovFrag{static_cast<void *>(mpBuffer + mInlineConsumed),
+                              mLength - mInlineConsumed, false});
 }
 
 void Buffer::SetGpuPayload(void *gpu_addr, std::size_t size) {
@@ -167,7 +172,7 @@ void Buffer::Dump(Communicator *c) const {
     if (mSegments.empty()) {
         c->Write(mpBuffer, mLength);
     } else {
-        std::vector<struct iovec> iov;
+        std::vector<IovFrag> iov;
         GetIov(iov);
         c->WriteIov(iov.data(), iov.size());
     }

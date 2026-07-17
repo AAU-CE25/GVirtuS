@@ -14,15 +14,28 @@
  *   is_gpu_pointer                         — used by the RMA fast path
  *
  * No static link to CUDA — libcudart is loaded via dlopen at first use.
+ *
+ * The cudaMalloc/cudaFree/cudaPointerGetAttributes dlsym resolver, the
+ * process-wide gpudirect-enabled flag, and is_gpu_pointer's logic all live
+ * in transport-agnostic gvirtus::communicators::{IsDevicePointer,
+ * DeviceProbeEnabled,SetDeviceProbeEnabled,AllocDeviceMemory,
+ * FreeDeviceMemory} (DeviceMemory.h), so that Buffer::Add() and the base
+ * Communicator::WriteIov() can classify and bounce device pointers without
+ * depending on any UCX header. Everything in this file that touches that
+ * state is a thin forwarder to the shared primitive — same dlsym
+ * candidates, same call_once caching, same short-circuit-on-disabled-gate
+ * behaviour (UcxRma.cpp's is_gpu_pointer call site, init_ucx's
+ * set_gpudirect_enabled call, etc. all see identical behaviour either way).
  */
 #include "UcxInternal.h"
 
-#include <atomic>
-#include <cstdio>
+#include <gvirtus/communicators/DeviceMemory.h>
+
 #include <cstdlib>
 #include <dlfcn.h>
 #include <malloc.h>
 #include <mutex>
+#include <atomic>
 
 #include <ucp/api/ucp.h>
 
@@ -31,6 +44,9 @@ namespace gvirtus::communicators::ucx_internal {
 namespace {
 
 // ---- Pinned-host resolver (cudaHostAlloc / cudaFreeHost) ----------------
+// Unrelated to the device-memory primitives (this allocates HOST memory
+// that happens to be page-locked for fast DMA) — stays local to UCX, no
+// other transport needs it.
 
 using cudaHostAlloc_t = int (*)(void **, size_t, unsigned);
 using cudaFreeHost_t  = int (*)(void *);
@@ -58,55 +74,6 @@ void load_cuda_pinned_funcs() {
     }
     ucx_debug_log("rx_pool: cudaHostAlloc unavailable, falling back to posix_memalign");
 }
-
-// ---- Device resolver (cudaMalloc / cudaFree / cudaPointerGetAttributes) -
-
-using cudaMalloc_t = int (*)(void **, size_t);
-using cudaFree_t   = int (*)(void *);
-using cudaPointerGetAttributes_t = int (*)(void *, const void *);
-
-// Mirror of cudaPointerAttributes (CUDA 11+ layout). `type` 0=Unregistered,
-// 1=Host, 2=Device, 3=Managed. Only `type` is read; remaining fields kept for
-// ABI alignment.
-struct cudaPointerAttributes_layout {
-    int   type;
-    int   device;
-    void *devicePointer;
-    void *hostPointer;
-};
-
-std::once_flag                                g_cuda_dev_once;
-std::atomic<cudaMalloc_t>                     g_cuda_malloc{nullptr};
-std::atomic<cudaFree_t>                       g_cuda_free{nullptr};
-std::atomic<cudaPointerGetAttributes_t>       g_cuda_pointer_attrs{nullptr};
-
-void load_cuda_device_funcs() {
-    const char *candidates[] = {
-        "libcudart.so.12", "libcudart.so.11", "libcudart.so", nullptr,
-    };
-    for (int i = 0; candidates[i]; ++i) {
-        void *h = dlopen(candidates[i], RTLD_NOW | RTLD_LOCAL);
-        if (!h) continue;
-        auto m = reinterpret_cast<cudaMalloc_t>(dlsym(h, "cudaMalloc"));
-        auto f = reinterpret_cast<cudaFree_t>(dlsym(h, "cudaFree"));
-        auto a = reinterpret_cast<cudaPointerGetAttributes_t>(
-                     dlsym(h, "cudaPointerGetAttributes"));
-        if (m && f) {
-            g_cuda_malloc.store(m);
-            g_cuda_free.store(f);
-            g_cuda_pointer_attrs.store(a);  // may be nullptr; is_gpu_pointer handles that
-            ucx_debug_log("gpudirect: loaded cuda runtime symbols from %s "
-                          "(pointer_attrs=%s)",
-                          candidates[i], a ? "yes" : "no");
-            return;
-        }
-        dlclose(h);
-    }
-    ucx_debug_log("gpudirect: cudaMalloc/cudaFree unavailable (libcudart not found)");
-}
-
-// Global flag: true iff GVIRTUS_GPUDIRECT=1 and probe succeeded.
-std::atomic<bool> g_gpudirect_enabled{false};
 
 }  // namespace
 
@@ -142,38 +109,23 @@ void free_pinned_host(unsigned char *p, bool is_cuda) {
     std::free(p);
 }
 
+// alloc_gpu_slot / free_gpu_slot: thin forwarders to the shared
+// AllocDeviceMemory/FreeDeviceMemory resolver (DeviceMemory.cpp) instead of
+// keeping a second copy of the cudaMalloc/cudaFree dlsym logic.
 unsigned char *alloc_gpu_slot(std::size_t n) {
-    std::call_once(g_cuda_dev_once, load_cuda_device_funcs);
-    auto fn = g_cuda_malloc.load();
-    if (fn == nullptr) return nullptr;
     void *p = nullptr;
-    if (fn(&p, n) != 0 || p == nullptr) return nullptr;
+    if (!gvirtus::communicators::AllocDeviceMemory(&p, n)) return nullptr;
     return static_cast<unsigned char *>(p);
 }
 
 void free_gpu_slot(unsigned char *p) {
-    if (p == nullptr) return;
-    auto fn = g_cuda_free.load();
-    if (fn != nullptr) fn(p);
+    gvirtus::communicators::FreeDeviceMemory(p);
 }
 
-// CRITICAL: this function is called from both frontend AND backend
-// (WriteIovRma runs on both sides). On the frontend, libcudart.so is the
-// GVirtuS shim that REMOTES cudaPointerGetAttributes as an RPC — both slow
-// and broken for our purposes (the frontend has no local GPU to ask
-// about). The g_gpudirect_enabled short-circuit avoids that RPC storm:
-// the frontend never has the env var set → returns false → no RPC. Only
-// the backend (where GPUDirect probed OK) actually calls into the cuda
-// runtime.
+// Thin forwarder to gvirtus::communicators::IsDevicePointer — see
+// DeviceMemory.h for the (unchanged) short-circuit/dlsym behaviour.
 bool is_gpu_pointer(const void *p) {
-    if (p == nullptr) return false;
-    if (!g_gpudirect_enabled.load()) return false;
-    std::call_once(g_cuda_dev_once, load_cuda_device_funcs);
-    auto fn = g_cuda_pointer_attrs.load();
-    if (fn == nullptr) return false;
-    cudaPointerAttributes_layout attrs{};
-    if (fn(&attrs, p) != 0) return false;
-    return attrs.type == 2 /*Device*/ || attrs.type == 3 /*Managed*/;
+    return gvirtus::communicators::IsDevicePointer(p);
 }
 
 bool probe_gpudirect(ucp_context_h ctx, std::string &reason) {
@@ -181,17 +133,9 @@ bool probe_gpudirect(ucp_context_h ctx, std::string &reason) {
         reason = "ucp_context is null";
         return false;
     }
-    std::call_once(g_cuda_dev_once, load_cuda_device_funcs);
-    auto cmalloc = g_cuda_malloc.load();
-    auto cfree   = g_cuda_free.load();
-    if (cmalloc == nullptr || cfree == nullptr) {
-        reason = "cudaMalloc/cudaFree symbols unavailable";
-        return false;
-    }
-
     void *gpu = nullptr;
-    if (cmalloc(&gpu, 4096) != 0 || gpu == nullptr) {
-        reason = "cudaMalloc(4K) failed (no GPU? OOM?)";
+    if (!gvirtus::communicators::AllocDeviceMemory(&gpu, 4096)) {
+        reason = "cudaMalloc(4K) failed (no GPU? OOM? libcudart missing?)";
         return false;
     }
 
@@ -208,16 +152,18 @@ bool probe_gpudirect(ucp_context_h ctx, std::string &reason) {
     if (st != UCS_OK) {
         reason  = "ucp_mem_map(CUDA) failed: ";
         reason += ucs_status_string(st);
-        cfree(gpu);
+        gvirtus::communicators::FreeDeviceMemory(gpu);
         return false;
     }
     ucp_mem_unmap(ctx, memh);
-    cfree(gpu);
+    gvirtus::communicators::FreeDeviceMemory(gpu);
     reason.clear();
     return true;
 }
 
-void set_gpudirect_enabled(bool ok) { g_gpudirect_enabled.store(ok); }
-bool gpudirect_enabled()             { return g_gpudirect_enabled.load(); }
+// Thin forwarders to the shared atomic (DeviceMemory.cpp). Single source of
+// truth for "is GPUDirect active" across UCX and Buffer::Add()'s gate.
+void set_gpudirect_enabled(bool ok) { gvirtus::communicators::SetDeviceProbeEnabled(ok); }
+bool gpudirect_enabled()             { return gvirtus::communicators::DeviceProbeEnabled(); }
 
 }  // namespace gvirtus::communicators::ucx_internal

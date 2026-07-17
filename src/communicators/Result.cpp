@@ -33,12 +33,3 @@ void Result::Dump(Communicator *c) {
 void Result::TimeTaken(double time_taken) { mTimeTaken = time_taken; }
 
 double Result::TimeTaken() const { return mTimeTaken; }
-
-void Result::SetGpuPayload(void *gpu_addr, std::size_t size) {
-    mGpuPayload = gpu_addr;
-    mGpuPayloadSize = size;
-}
-
-void *Result::GetGpuPayload() const { return mGpuPayload; }
-
-std::size_t Result::GetGpuPayloadSize() const { return mGpuPayloadSize; }

@@ -6,10 +6,18 @@
  *   - communicators::am::WriteRequest / ReadRequest / WriteResponse /
  *     ReadResponse  (envelope codec, both directions)
  *   - Buffer::AddRef / GetIov  (zero-copy payload segment)
+ *   - Buffer::Add()'s GpuRef auto-detect + Communicator::WriteIov's GPU-safe
+ *     fallback
  *
  * No CUDA/UCX/log4cplus needed:
  *   g++ -std=c++23 -I include tests/test_protocol_loopback.cpp \
- *       src/communicators/Buffer.cpp src/communicators/RpcCodec.cpp -o /tmp/tp
+ *       src/communicators/Buffer.cpp src/communicators/RpcCodec.cpp \
+ *       src/communicators/DeviceMemory.cpp -o /tmp/tp -ldl
+ *
+ * The GpuRef response scenario (see bottom of main()) additionally benefits
+ * from the fake libcudart in tests/fake_cudart.c on LD_LIBRARY_PATH; without
+ * it, IsDevicePointer degrades to false and that scenario verifies the
+ * (still correct) host copy fallback instead.
  */
 #include <cassert>
 #include <cstdio>
@@ -22,6 +30,7 @@
 #include "gvirtus/communicators/RpcCodec.h"
 #include "gvirtus/communicators/Buffer.h"
 #include "gvirtus/communicators/Communicator.h"
+#include "gvirtus/communicators/DeviceMemory.h"
 #include "gvirtus/communicators/Protocol.h"
 
 using namespace gvirtus::communicators;
@@ -64,7 +73,7 @@ int main() {
     in.AddRef(big, 8);  // borrowed segment — never copied
     in.Add(tail_arg);
 
-    std::vector<struct iovec> piov;
+    std::vector<IovFrag> piov;
     in.GetIov(piov);
     std::string err;
     bool wreq_ok = am::WriteRequest(&c, /*request_id*/ 0xABCDu, routine, piov.data(),
@@ -99,7 +108,7 @@ int main() {
     int result_val = 4242;
     out->Add(result_val);
     double exec = 0.5;
-    bool wok = am::WriteResponse(&c, got, /*exit_code*/ 0, exec, out, nullptr, 0, err);
+    bool wok = am::WriteResponse(&c, got, /*exit_code*/ 0, exec, out, err);
     assert(wok);
 
     // ---- FRONTEND: read the response via the codec ----
@@ -119,6 +128,70 @@ int main() {
     Buffer rout(reinterpret_cast<char *>(const_cast<unsigned char *>(got_out)), got_out_size);
     assert(rout.Get<int>() == result_val);
     c.ReleaseFrame();
+
+    // ---- GpuRef response scenario: a backend handler's output
+    // Buffer borrows a device pointer via Add() instead of copying, and the
+    // whole WriteResponse -> LoopComm (base-class WriteIov fallback) ->
+    // ReadResponse round trip must still deliver the correct bytes. LoopComm
+    // does not override WriteIov/WriteFrame, so this exercises exactly the
+    // GPU-safe default fallback in Communicator.h (DeviceMemcpyD2H bounce),
+    // the same path plain TcpCommunicator would take.
+    {
+        LoopComm c2;
+        SetDeviceProbeEnabled(true);
+        void *dev = nullptr;
+        const size_t kBig = GVIRTUS_GPUREF_THRESHOLD;
+        bool alloc_ok = AllocDeviceMemory(&dev, kBig);
+        std::vector<char> pattern(kBig);
+        for (size_t i = 0; i < kBig; ++i) pattern[i] = static_cast<char>((i * 7) & 0xFF);
+
+        if (alloc_ok && IsDevicePointer(dev)) {
+            assert(DeviceMemcpyD2H(dev, pattern.data(), kBig));  // seed "device" memory
+
+            am::EnvelopeHeader req2{};
+            req2.magic = am::kEnvelopeMagic;
+            req2.version = am::kEnvelopeVersion;
+            req2.request_id = 0x1111u;
+
+            auto out2 = std::make_shared<Buffer>();
+            out2->Add(result_val);
+            out2->Add(static_cast<char *>(dev), kBig);  // should take the GpuRef path
+            assert(out2->HasGpuSegments());
+
+            std::string werr;
+            bool wok2 = am::WriteResponse(&c2, req2, /*exit_code*/ 0, exec, out2, werr);
+            assert(wok2);
+
+            int exit2 = -1;
+            double exec2 = 0;
+            const unsigned char *out_data2 = nullptr;
+            size_t out_size2 = 0;
+            bool owns2 = false;
+            std::string rerr;
+            bool rok2 = am::ReadResponse(&c2, 0x1111u, exit2, exec2, out_data2, out_size2,
+                                        owns2, rerr);
+            assert(rok2);
+            assert(exit2 == 0);
+            assert(exec2 == exec);
+            assert(out_size2 == sizeof(int) + sizeof(size_t) + kBig);
+
+            Buffer rout2(reinterpret_cast<char *>(const_cast<unsigned char *>(out_data2)),
+                        out_size2);
+            assert(rout2.Get<int>() == result_val);
+            char *got_bytes = rout2.Assign<char>(kBig);
+            assert(memcmp(got_bytes, pattern.data(), kBig) == 0);
+            c2.ReleaseFrame();
+
+            printf("test_protocol_loopback: GpuRef response scenario exercised "
+                   "(real GpuRef borrow + DeviceMemcpyD2H bounce)\n");
+            FreeDeviceMemory(dev);
+        } else {
+            printf("test_protocol_loopback: no fake libcudart found -- GpuRef "
+                   "response scenario verified safe fallback only\n");
+            if (alloc_ok) FreeDeviceMemory(dev);
+        }
+        SetDeviceProbeEnabled(false);
+    }
 
     printf("test_protocol_loopback: ALL PASSED\n");
     return 0;

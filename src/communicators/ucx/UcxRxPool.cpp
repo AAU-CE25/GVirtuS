@@ -43,8 +43,8 @@ void UcxCommunicator::map_slot_to_ucp(ucp_context_h ctx, PinnedSlot &slot) {
             slot.memh = nullptr;  // continue without — UCX rcache will register on first use
         }
     }
-    // GPUDirect (Step B1): register the GPU shadow if it exists. UCX needs
-    // UCS_MEMORY_TYPE_CUDA explicitly here since memtype-cache is disabled.
+    // Register the GPU shadow if it exists. UCX needs UCS_MEMORY_TYPE_CUDA
+    // explicitly here since memtype-cache is disabled.
     if (slot.gpu_memh == nullptr && slot.gpu_addr != nullptr) {
         ucp_mem_map_params_t gpu_params{};
         gpu_params.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS |
@@ -92,10 +92,11 @@ void UcxCommunicator::init_rx_pool() {
     std::lock_guard<std::mutex> lk(rx_pool_->mu);
     if (!rx_pool_->slots.empty()) return;  // already initialized
 
-    // GPUDirect (Step B1): when active, each slot ALSO gets a GPU shadow
-    // region of the same capacity, mem_map'd as CUDA. The shadow is unused
-    // in B1 — purely additive. Step B2 will advertise its rkey to peers;
-    // Step B3 will route big H2D payloads here via NIC peer-DMA.
+    // When GPUDirect is active, each slot ALSO gets a GPU shadow region of
+    // the same capacity, mem_map'd as CUDA — purely additive alongside the
+    // host slot. The shadow's rkey gets advertised to peers by
+    // send_rma_setup(), and WriteIovRma routes big H2D payloads here via
+    // NIC peer-DMA.
     const bool gpudirect_active = gpudirect_enabled();
     size_t gpu_allocated_count = 0;
 
@@ -156,7 +157,7 @@ size_t UcxCommunicator::acquire_rx_slot(size_t needed) {
             return i;
         }
     }
-    // GPUDirect (Step B1): mirror host grow with a GPU shadow grow if active.
+    // Mirror the host grow with a GPU shadow grow if GPUDirect is active.
     const bool gpudirect_active = gpudirect_enabled();
 
     // No free slot big enough — grow the first free one (or append if none free).

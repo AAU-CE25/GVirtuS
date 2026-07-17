@@ -1,28 +1,38 @@
 /*
- * Communicator — abstract transport interface for GVirtuS.
+ * Communicator — abstract transport interface for GVirtuS. Every concrete
+ * transport (TcpCommunicator, UcxCommunicator, ...) implements this to move
+ * bytes between a frontend (intercepting CUDA calls) and a backend (running
+ * them on a real GPU). Beyond the basic stream Read()/Write(), it exposes:
  *
- * Extended for the UCX communicator feature with the following virtual methods:
+ *   WriteIov()  — gather-send: write N non-contiguous fragments (IovFrag,
+ *     see below) as one logical message. UCX maps this straight to
+ *     ucp_am_send_nbx with UCP_DATATYPE_IOV; the DEFAULT implementation
+ *     below is what a non-UCX transport (plain TCP, the loopback test
+ *     transport) falls back to — it concatenates fragments into one host
+ *     buffer, bouncing any device fragment through host memory via
+ *     DeviceMemcpyD2H first (a blind memcpy would corrupt/crash on a device
+ *     pointer).
  *
- *   WriteIov()  — gather-send: pass N non-contiguous iov fragments in a single
- *     call. UCX maps this to ucp_am_send_nbx with UCP_DATATYPE_IOV; other
- *     transports use the default concatenate-and-Write fallback. (Phase 4)
- *
- *   TryAcquireFrame() / ReleaseFrame()  — zero-copy frame handoff for message-
- *     oriented transports. Returns a pointer into the pinned RX-pool slot;
- *     caller parses in-place and releases when done. (Phase 4)
+ *   TryAcquireFrame() / ReleaseFrame()  — zero-copy frame handoff for
+ *     message-oriented transports. Returns a pointer into the pinned
+ *     RX-pool slot; caller parses in-place and releases when done.
  *
  *   current_frame_gpu()  — exposes the GPU-resident portion of the current
- *     frame (GPUDirect B4). Handlers can route via cudaMemcpyDeviceToDevice
- *     instead of bouncing through host. (Phase 6)
+ *     received frame, when the transport landed it straight on the GPU.
+ *     Handlers can route via cudaMemcpyDeviceToDevice instead of bouncing
+ *     through host.
  *
- *   current_connection_supports_cuda()  — per-connection RDMA transport gate.
- *     Enables mixed RDMA + TCP frontends on a single backend. (Phase 6)
+ *   current_connection_supports_cuda()  — per-connection RDMA transport
+ *     gate, so mixed RDMA + TCP frontends can be served from one backend.
  *
- *   tls_connection_supports_cuda (extern thread_local)  — per-thread flag set
- *     by Process.cpp before handler dispatch so plugins can query transport
- *     capability without coupling to UcxCommunicator. (Phase 3/6)
+ *   tls_connection_supports_cuda (extern thread_local)  — per-thread flag
+ *     set by Process.cpp before handler dispatch so plugins can query
+ *     transport capability without coupling to UcxCommunicator.
  *
- * Optimization phases: 3, 4, 6
+ * WriteIov()/WriteFrame() take IovFrag rather than a plain struct iovec:
+ * IovFrag carries an `is_device` tag alongside each fragment's
+ * pointer/length, set once by Buffer::Add()'s auto-detection of device
+ * memory (see Buffer.h, SegKind::GpuRef) and never re-probed here.
  */
 #pragma once
 
@@ -30,12 +40,28 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 #include <sys/uio.h>
 
 #include "Endpoint.h"
+#include "DeviceMemory.h"
 
 namespace gvirtus::communicators {
+
+// Tagged IoV fragment: same role as struct iovec (a pointer + length to be
+// gather-sent as part of one logical message), plus `is_device` recording
+// whether `base` is CUDA device/managed memory (set once, at Buffer::Add()
+// time, by IsDevicePointer() — never re-probed here). Defined here, not in
+// Buffer.h, because Buffer.h includes this header (for the Communicator
+// parameter type used by Buffer::Dump/Read) and a reverse include would be
+// circular.
+struct IovFrag {
+    void *base;
+    std::size_t len;
+    bool is_device;
+};
+
 /**
  * Communicator is an abstract class that implements a simple stream oriented
  * mechanism for communicating with two end points.
@@ -89,16 +115,30 @@ class Communicator {
     // ucp_am_send_nbx with UCP_DATATYPE_IOV, avoiding host-RAM staging for
     // large payloads (e.g. cudaMemcpy of 64MB). The default fallback below
     // preserves correctness for transports that don't support scatter — at
-    // the cost of one concatenation memcpy.
-    virtual size_t WriteIov(const struct iovec *iov, size_t iov_count) {
+    // the cost of one concatenation memcpy per fragment. GPU-safe: a
+    // fragment tagged is_device is brought to host memory via
+    // DeviceMemcpyD2H (dlsym'd cudaMemcpy D2H) instead of std::memcpy, which
+    // would corrupt/crash if handed a device pointer. This is the ONE place
+    // a non-RDMA-capable connection bounces GPU data through host memory —
+    // no plugin needs its own bounce logic.
+    virtual size_t WriteIov(const IovFrag *iov, size_t iov_count) {
         if (iov == nullptr || iov_count == 0) return 0;
         size_t total = 0;
-        for (size_t i = 0; i < iov_count; ++i) total += iov[i].iov_len;
+        for (size_t i = 0; i < iov_count; ++i) total += iov[i].len;
         std::vector<char> buf(total);
         size_t off = 0;
         for (size_t i = 0; i < iov_count; ++i) {
-            std::memcpy(buf.data() + off, iov[i].iov_base, iov[i].iov_len);
-            off += iov[i].iov_len;
+            if (iov[i].is_device) {
+                if (!DeviceMemcpyD2H(buf.data() + off, iov[i].base, iov[i].len)) {
+                    throw std::runtime_error(
+                        "Communicator::WriteIov: DeviceMemcpyD2H failed for a "
+                        "device-resident fragment (libcudart unavailable or "
+                        "invalid pointer)");
+                }
+            } else {
+                std::memcpy(buf.data() + off, iov[i].base, iov[i].len);
+            }
+            off += iov[i].len;
         }
         return Write(buf.data(), total);
     }
@@ -108,9 +148,9 @@ class Communicator {
     // read it back as a single frame via TryAcquireFrame(). Message-oriented
     // transports (UCX active messages) override this to use their native
     // delimiting (no length prefix) and the zero-copy send path.
-    virtual size_t WriteFrame(const struct iovec *iov, size_t iov_count) {
+    virtual size_t WriteFrame(const IovFrag *iov, size_t iov_count) {
         std::uint64_t total = 0;
-        for (size_t i = 0; i < iov_count; ++i) total += iov[i].iov_len;
+        for (size_t i = 0; i < iov_count; ++i) total += iov[i].len;
         Write(reinterpret_cast<const char *>(&total), sizeof(total));
         return WriteIov(iov, iov_count);
     }
@@ -135,11 +175,11 @@ class Communicator {
     }
     virtual void ReleaseFrame() {}
 
-    // GPUDirect (Variant B Step B4): after a successful TryAcquireFrame, a
-    // transport that supports GPU-resident payload landing (UCX with
-    // GPUDirect) may have an additional GPU pointer + size associated with
-    // the current frame. Default implementation returns no GPU payload —
-    // stream-oriented transports never have one.
+    // After a successful TryAcquireFrame, a transport that supports
+    // GPU-resident payload landing (UCX with GPUDirect) may have an
+    // additional GPU pointer + size associated with the current frame.
+    // Default implementation returns no GPU payload — stream-oriented
+    // transports never have one.
     virtual void current_frame_gpu(void *&gpu, std::size_t &size) const {
         gpu = nullptr;
         size = 0;

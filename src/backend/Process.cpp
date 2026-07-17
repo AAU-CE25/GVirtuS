@@ -159,11 +159,13 @@ void Process::Start() {
                     gvirtus::communicators::tls_connection_supports_cuda = false;
                 }
 
+                // GetOutputBuffer()->GetIov() (inside WriteResponse) already
+                // carries any GpuRef fragment Add() recorded on the output
+                // Buffer — no separate GPU parameter needed.
                 std::string write_error;
                 bool response_ok = communicators::am::WriteResponse(
                     client_comm, request_header, result->GetExitCode(), result->TimeTaken(),
-                    result->GetOutputBuffer(), result->GetGpuPayload(),
-                    result->GetGpuPayloadSize(), write_error);
+                    result->GetOutputBuffer(), write_error);
 
                 // Release the frame only AFTER Execute + response, since `input`
                 // points into it.

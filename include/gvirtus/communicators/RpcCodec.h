@@ -43,11 +43,15 @@ bool ReadRequest(Communicator *c, am::EnvelopeHeader &header, std::string &routi
 
 // Build and send the response frame for a completed request. The response
 // body is [exec_sec][output bytes (+ optional GPU tail)] — the output size
-// is recovered from the frame size, no length prefix on the wire.
+// is recovered from the frame size, no length prefix on the wire. Any
+// GPU-resident tail (Buffer::SegKind::GpuRef, see Buffer.h) is read
+// directly off output_buffer's tagged GetIov() — there is no separate
+// gpu_payload parameter: the Buffer already knows, fragment by fragment,
+// what is host vs device memory.
 // Returns false on a transport error (`error` set).
 bool WriteResponse(Communicator *c, const am::EnvelopeHeader &request_header, int exit_code,
                    double server_exec_sec, const std::shared_ptr<Buffer> &output_buffer,
-                   void *gpu_payload, std::size_t gpu_payload_size, std::string &error);
+                   std::string &error);
 
 // ---- Frontend side -------------------------------------------------------
 
@@ -57,7 +61,7 @@ bool WriteResponse(Communicator *c, const am::EnvelopeHeader &request_header, in
 // envelope no longer encodes payload_size.
 // Returns false on a transport error (`error` set).
 bool WriteRequest(Communicator *c, std::uint32_t request_id, const std::string &routine,
-                  const struct iovec *payload_iov, std::size_t payload_iov_count,
+                  const IovFrag *payload_iov, std::size_t payload_iov_count,
                   std::string &error);
 
 // Acquire the next frame, validate that it is a Response for

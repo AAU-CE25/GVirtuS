@@ -48,7 +48,7 @@ using namespace gvirtus::communicators::ucx_internal;
 void UcxCommunicator::send_rma_setup() {
     if (endpoint_ == nullptr || context_ == nullptr) return;
 
-    // Snapshot rx slot metadata. With GPUDirect Step B2 each slot may also
+    // Snapshot rx slot metadata. With GPUDirect active, each slot may also
     // expose a GPU shadow (gpu_addr / gpu_capacity / gpu_rkey).
     struct PackedSlot {
         std::uint64_t addr;
@@ -56,7 +56,8 @@ void UcxCommunicator::send_rma_setup() {
         void *rkey_buf{nullptr};
         size_t rkey_len{0};
         // GPU shadow (optional). When gpu_rkey_buf == nullptr the slot
-        // advertises host only — matches the pre-B2 wire format byte for byte.
+        // advertises host only — matches the host-only wire format byte for
+        // byte, so peers without a GPU shadow are unaffected.
         std::uint64_t gpu_addr{0};
         std::uint64_t gpu_capacity{0};
         void *gpu_rkey_buf{nullptr};
@@ -108,7 +109,7 @@ void UcxCommunicator::send_rma_setup() {
     using gvirtus::communicators::am::kEnvelopeMagic;
     using gvirtus::communicators::am::kEnvelopeVersion;
 
-    // Wire format (Step B2 extension):
+    // Wire format:
     //   [EnvelopeHeader]
     //   [N * RmaSlotDescriptor]     ← per-slot header; descriptor.reserved0
     //                                  bit 0 = "has_gpu_shadow" flag
@@ -117,8 +118,8 @@ void UcxCommunicator::send_rma_setup() {
     //     If has_gpu_shadow:
     //       [u64 gpu_addr][u64 gpu_capacity][u32 gpu_rkey_size][gpu_rkey_blob]
     //
-    // Old peers (pre-B2) see descriptor.reserved0=0 always → no GPU block →
-    // identical to pre-B2 layout.
+    // Peers without a GPU shadow see descriptor.reserved0=0 always → no GPU
+    // block → plain host-only layout.
     constexpr std::uint32_t kHasGpuShadow = 1u << 0;
 
     size_t descriptors_bytes = packed.size() * sizeof(RmaSlotDescriptor);
@@ -250,9 +251,9 @@ void UcxCommunicator::handle_rma_setup_am(const void *data, size_t length) {
         RemoteSlot rs{desc_ptr[i].remote_addr,
                       desc_ptr[i].slot_capacity, rkey};
 
-        // GPUDirect Step B2: parse optional GPU extension after the host
-        // rkey blob if the descriptor's flag bit is set. Old peers don't
-        // set this flag → no extension to read → rs.gpu_rkey stays null.
+        // Parse the optional GPU extension after the host rkey blob if the
+        // descriptor's flag bit is set. Peers without a GPU shadow don't set
+        // this flag → no extension to read → rs.gpu_rkey stays null.
         if ((desc_ptr[i].reserved0 & kHasGpuShadow) != 0u) {
             const size_t kFixedExt = sizeof(std::uint64_t)  // gpu_addr
                                    + sizeof(std::uint64_t)  // gpu_capacity
@@ -327,8 +328,8 @@ void UcxCommunicator::destroy_rma_state() {
 //     a one-time registration cost (typically ~10ms for 64MB).
 //
 // Both paths end with a tiny RmaPosted AM carrying the slot index.
-size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
-                                    size_t total) {
+size_t UcxCommunicator::WriteIovRma(const gvirtus::communicators::IovFrag *iov,
+                                    size_t iov_count, size_t total) {
     // Pick a remote slot. Round-robin keeps things simple; the synchronous
     // request/response pattern guarantees the previous slot has already
     // been consumed by the server before we get here for the next message.
@@ -362,14 +363,14 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
         return v != nullptr && std::strcmp(v, "0") != 0;
     }();
 
-    // GPUDirect Step B3: set when the big iov fragment is routed to the
-    // peer's GPU shadow. Communicated to the peer via RmaPosted:
+    // Set when the big iov fragment is routed to the peer's GPU shadow.
+    // Communicated to the peer via RmaPosted:
     //   routine_size = gpu_split_bytes (= big_size routed to GPU)
     //   status_code  = gpu_split_offset (= pre_size in host slot — the
     //                  position where the GPU data belongs in the logical
     //                  message). Allows biggest to be at ANY iov index, not
-    //                  just last (Fase 5 puts user_src at index 3 with a
-    //                  trailing [count][kind] = 12-byte input_post).
+    //                  just last (the protocol puts user_src at index 3 with
+    //                  a trailing [count][kind] = 12-byte input_post).
     std::uint64_t gpu_split_bytes  = 0;
     std::uint32_t gpu_split_offset = 0;
 
@@ -377,14 +378,14 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
     // path treats it as the payload to ucp_put directly from caller memory
     // and stages every other fragment through tx_scratch_. With the legacy
     // 3-entry layout [header][routine][payload] the biggest sits at index
-    // iov_count-1, matching the prior behavior. With the Fase 5 layout
-    // [header][routine][input_pre][user_src][input_post] the biggest sits
-    // at an interior index — argmax catches both.
+    // iov_count-1, matching the prior behavior. With the current 5-entry
+    // layout [header][routine][input_pre][user_src][input_post] the biggest
+    // sits at an interior index — argmax catches both.
     size_t biggest_idx = 0;
     size_t big_size = 0;
     for (size_t i = 0; i < iov_count; ++i) {
-        if (iov[i].iov_len > big_size) {
-            big_size = iov[i].iov_len;
+        if (iov[i].len > big_size) {
+            big_size = iov[i].len;
             biggest_idx = i;
         }
     }
@@ -393,13 +394,16 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
     // get put to rs.addr + 0. Bytes AFTER the biggest go to
     // rs.addr + pre_size + big_size to preserve wire order.
     size_t pre_size = 0;
-    for (size_t i = 0; i < biggest_idx; ++i) pre_size += iov[i].iov_len;
+    for (size_t i = 0; i < biggest_idx; ++i) pre_size += iov[i].len;
     const size_t post_size = small_size - pre_size;
-    // Detect GPU mem in the biggest fragment ONCE here so we can both (a)
-    // force zerocopy when GPU is present (staged path would memcpy from GPU
-    // into tx_scratch → SIGSEGV) and (b) reuse the value for the memh
-    // registration further down.
-    const bool big_is_gpu = is_gpu_pointer(iov[biggest_idx].iov_base);
+    // Read the tag Buffer::Add() already set instead of re-probing with
+    // is_gpu_pointer/cudaPointerGetAttributes here — the Buffer that
+    // produced this iov already knows, per fragment, whether it is device
+    // memory. Saves one driver call per large RMA send. Still used for
+    // (a) forcing zerocopy when GPU is present (staged path would memcpy
+    // from GPU into tx_scratch → SIGSEGV) and (b) the memh registration
+    // hint further down.
+    const bool big_is_gpu = iov[biggest_idx].is_device;
     // Only worth splitting when the "big" fragment is genuinely big and the
     // "small" prefix isn't empty (otherwise we'd just be issuing one put).
     // big_is_gpu overrides zerocopy_enabled: with GPU mem we have no choice,
@@ -420,8 +424,8 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
             size_t off = 0;
             for (size_t i = 0; i < iov_count; ++i) {
                 if (i == biggest_idx) continue;
-                std::memcpy(dst + off, iov[i].iov_base, iov[i].iov_len);
-                off += iov[i].iov_len;
+                std::memcpy(dst + off, iov[i].base, iov[i].len);
+                off += iov[i].len;
             }
         }
 
@@ -471,7 +475,7 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
         static thread_local std::unordered_map<const void *, ucp_mem_h>
             user_memh_cache;
 
-        const void *user_addr = iov[biggest_idx].iov_base;
+        const void *user_addr = iov[biggest_idx].base;
         ucp_mem_h user_memh = nullptr;
         bool memh_owned = false;  // true iff we own this memh and must unmap after the put
 
@@ -526,15 +530,15 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
             p_big.op_attr_mask = 0;
         }
 
-        // GPUDirect Step B3: route the big fragment to the peer's GPU shadow
-        // when available. Triggers NIC peer-DMA into remote GPU memory via
-        // peermem. The biggest fragment can sit at ANY iov index (Fase 5
-        // puts user_src at idx 3 with a 12-byte [count][kind] post). We
-        // pass the GPU offset (= pre_size) via RmaPosted.status_code so the
-        // receiver knows where to fold the GPU bytes back into the host slot.
+        // Route the big fragment to the peer's GPU shadow when available.
+        // Triggers NIC peer-DMA into remote GPU memory via peermem. The
+        // biggest fragment can sit at ANY iov index (the protocol puts
+        // user_src at idx 3 with a 12-byte [count][kind] post). We pass the
+        // GPU offset (= pre_size) via RmaPosted.status_code so the receiver
+        // knows where to fold the GPU bytes back into the host slot.
         //
-        // 4 MB threshold (raised from 64 KB after the B4 sweep showed N=256
-        // and N=512 regressed): below this size the 3-put orchestration +
+        // 4 MB threshold (raised from 64 KB after a sweep showed N=256 and
+        // N=512 regressed): below this size the 3-put orchestration +
         // peer-DMA setup overhead exceeds the savings from skipping the
         // host bounce. 4 MB matches simple_matrix N=1024 (4 MB), the
         // smallest payload where GPUDirect demonstrably wins.
@@ -566,7 +570,7 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
         }
 
         void *req_big = ucp_put_nbx(endpoint_,
-                                    iov[biggest_idx].iov_base, big_size,
+                                    iov[biggest_idx].base, big_size,
                                     big_target_addr, big_target_rkey, &p_big);
 
         wait_request_completion(req_pre,  "rma_put_pre");
@@ -586,8 +590,8 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
             char *dst = static_cast<char *>(tx_scratch_.addr);
             size_t off = 0;
             for (size_t i = 0; i < iov_count; ++i) {
-                std::memcpy(dst + off, iov[i].iov_base, iov[i].iov_len);
-                off += iov[i].iov_len;
+                std::memcpy(dst + off, iov[i].base, iov[i].len);
+                off += iov[i].len;
             }
         }
 

@@ -23,6 +23,13 @@
  *             Department of Applied Science
  */
 
+// Backend-side handlers for the CUDA Driver API's memory-management calls
+// (cuMemAlloc, cuMemFree, cuMemcpyDtoH/HtoD, array creation, etc). Each
+// handler unmarshals its arguments from input_buffer, calls the real driver
+// entry point on the backend's GPU, and packs any outputs into a fresh
+// Buffer for the reply Result. See MemcpyDtoH below for the one handler
+// that takes a fast/slow path depending on GPUDirect availability.
+
 #include "CudaDrHandler.h"
 
 using namespace std;
@@ -74,9 +81,32 @@ CUDA_DRIVER_HANDLER(MemMap) {
 CUDA_DRIVER_HANDLER(MemcpyDtoH) {
     CUdeviceptr srcDevice = input_buffer->Get<CUdeviceptr>();
     size_t ByteCount = input_buffer->Get<size_t>();
+    std::shared_ptr<Buffer> out = std::make_shared<Buffer>();
+
+    // Buffer::Add()'s device-pointer auto-detect only takes the zero-copy
+    // GpuRef path when DeviceProbeEnabled() is true AND ByteCount is above
+    // GVIRTUS_GPUREF_THRESHOLD; its fallback path does a plain host memmove,
+    // which is only safe for a genuine host pointer. So srcDevice must never
+    // be handed to Add() unconditionally — that would crash on any
+    // deployment without GPUDirect active (the common case). Instead we gate
+    // explicitly on the same precondition Add() itself checks, mirroring the
+    // two-tier structure CudaRtHandler_memory.cpp uses for its D2H fast path.
+    if (gvirtus::communicators::DeviceProbeEnabled() &&
+        ByteCount >= GVIRTUS_GPUREF_THRESHOLD) {
+        // Fast path: Add() will recognize srcDevice as device memory and
+        // borrow it as a GpuRef segment instead of copying — no cuMemcpyDtoH,
+        // no new[]/delete[]. The transport (RMA peer-DMA, or the GPU-safe
+        // WriteIov fallback on a non-RDMA connection) does the actual move.
+        out->Add<char>((char *)srcDevice, ByteCount);
+        return std::make_shared<Result>(CUDA_SUCCESS, out);
+    }
+
+    // Legacy path (GPUDirect inactive or below threshold): do the real
+    // device-to-host copy ourselves, exactly as before, then hand Add() the
+    // already-host bytes — Add() correctly takes its copy path for a genuine
+    // host pointer.
     void *dstHost = new char[ByteCount];
     CUresult exit_code = cuMemcpyDtoH(dstHost, srcDevice, ByteCount);
-    std::shared_ptr<Buffer> out = std::make_shared<Buffer>();
     out->Add<char>((char *)dstHost, ByteCount);
     delete[] (char *)dstHost;
     return std::make_shared<Result>((cudaError_t)exit_code, out);

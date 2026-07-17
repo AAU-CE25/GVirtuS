@@ -83,14 +83,7 @@ bool ReadRequest(Communicator *c, am::EnvelopeHeader &header, std::string &routi
 
 bool WriteResponse(Communicator *c, const am::EnvelopeHeader &request_header, int exit_code,
                    double server_exec_sec, const std::shared_ptr<Buffer> &output_buffer,
-                   void *gpu_payload, std::size_t gpu_payload_size, std::string &error) {
-    std::size_t host_out_size = 0;
-    const char *out_data = nullptr;
-    if (output_buffer != nullptr) {
-        host_out_size = output_buffer->GetBufferSize();
-        out_data = output_buffer->GetBuffer();
-    }
-
+                   std::string &error) {
     am::EnvelopeHeader rh{};
     rh.magic = am::kEnvelopeMagic;
     rh.version = am::kEnvelopeVersion;
@@ -101,30 +94,25 @@ bool WriteResponse(Communicator *c, const am::EnvelopeHeader &request_header, in
     rh.request_id = request_header.request_id;
     rh.status_code = static_cast<std::uint32_t>(exit_code);
 
-    // [header][exec_sec][host out bytes][optional GPU tail]
+    // [header][exec_sec][output buffer's tagged fragments]. Any GPU-resident
+    // tail (Buffer::SegKind::GpuRef, set by Add()'s auto-detect — see
+    // Buffer.h) is just another fragment output_buffer->GetIov() emits,
+    // tagged is_device=true — there is no separate GPU parameter to thread
+    // through anymore.
     // wire_out_size is no longer encoded — the receiver derives it from
     // (frame_size - sizeof(header) - sizeof(double)).
-    struct iovec iov[4];
-    int n = 0;
-    iov[n].iov_base = &rh;
-    iov[n].iov_len = sizeof(rh);
-    ++n;
-    iov[n].iov_base = &server_exec_sec;
-    iov[n].iov_len = sizeof(double);
-    ++n;
-    if (host_out_size > 0 && out_data != nullptr) {
-        iov[n].iov_base = const_cast<char *>(out_data);
-        iov[n].iov_len = host_out_size;
-        ++n;
-    }
-    if (gpu_payload != nullptr && gpu_payload_size > 0) {
-        iov[n].iov_base = gpu_payload;
-        iov[n].iov_len = gpu_payload_size;
-        ++n;
+    std::vector<IovFrag> frags;
+    frags.reserve(4);
+    frags.push_back(IovFrag{static_cast<void *>(&rh), sizeof(rh), false});
+    frags.push_back(IovFrag{static_cast<void *>(&server_exec_sec), sizeof(double), false});
+    if (output_buffer != nullptr) {
+        std::vector<IovFrag> body;
+        output_buffer->GetIov(body);
+        for (const auto &f : body) frags.push_back(f);
     }
 
     try {
-        c->WriteFrame(iov, static_cast<std::size_t>(n));
+        c->WriteFrame(frags.data(), frags.size());
         c->Sync();
     } catch (const std::exception &e) {
         error = e.what();
@@ -135,7 +123,7 @@ bool WriteResponse(Communicator *c, const am::EnvelopeHeader &request_header, in
 }
 
 bool WriteRequest(Communicator *c, std::uint32_t request_id, const std::string &routine,
-                  const struct iovec *payload_iov, std::size_t payload_iov_count,
+                  const IovFrag *payload_iov, std::size_t payload_iov_count,
                   std::string &error) {
     // Sanity check, not a real limit. routine_size is u32 (4 GB headroom);
     // any real CUDA routine name is ~50 chars. We bound at u32 max to guard
@@ -157,15 +145,16 @@ bool WriteRequest(Communicator *c, std::uint32_t request_id, const std::string &
 
     // [header][routine] followed by the caller's payload IoV fragments. The
     // payload iov may contain a single marshaled-arena segment OR an
-    // interleaved sequence of inline + borrowed (AddRef) segments — either
-    // way the codec gather-sends them in place, never copying. The framing
-    // layer carries the total size, so the envelope omits payload_size.
-    std::vector<struct iovec> iov;
+    // interleaved sequence of inline + borrowed (AddRef/GpuRef) segments —
+    // either way the codec gather-sends them in place, never copying. The
+    // framing layer carries the total size, so the envelope omits
+    // payload_size.
+    std::vector<IovFrag> iov;
     iov.reserve(2 + payload_iov_count);
-    iov.push_back(iovec{static_cast<void *>(&rh), sizeof(rh)});
+    iov.push_back(IovFrag{static_cast<void *>(&rh), sizeof(rh), false});
     if (!routine.empty())
         iov.push_back(
-            iovec{const_cast<char *>(routine.data()), routine.size()});
+            IovFrag{const_cast<char *>(routine.data()), routine.size(), false});
     for (std::size_t i = 0; i < payload_iov_count; ++i) iov.push_back(payload_iov[i]);
 
     try {

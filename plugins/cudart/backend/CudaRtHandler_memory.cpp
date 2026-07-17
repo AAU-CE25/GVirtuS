@@ -95,7 +95,7 @@ void *get_tls_gpu_scratch(size_t needed) {
     return tls_gpu_scratch;
 }
 
-// Fase 1+2 TLS host slot for the D2H legacy path. Replaces the per-call
+// TLS host slot for the D2H legacy path. Replaces the per-call
 // `new char[count]` allocation: first call faults all pages via memset(0),
 // subsequent calls reuse the warm slot. Combined with the non-owning
 // Buffer(char*, size_t) view (mOwnBuffer=false), eliminates two of the
@@ -339,12 +339,12 @@ CUDA_ROUTINE_HANDLER(Memcpy) {
                     cerr << e.what() << endl;
                     return std::make_shared<Result>(cudaErrorMemoryAllocation);
                 }
-                // GPUDirect Variant B Step B4: if the peer routed the payload
-                // into the slot's GPU shadow (peer-DMA via peermem), the
-                // Buffer carries a GPU-resident tail pointer. Skip the host
-                // AssignAll (which would read garbage from the host slot's
-                // hole) and cudaMemcpy D2D from the GPU shadow directly —
-                // saves one PCIe round-trip per H2D call.
+                // If the peer routed the payload into the slot's GPU shadow
+                // (peer-DMA via peermem), the Buffer carries a GPU-resident
+                // tail pointer. Skip the host AssignAll (which would read
+                // garbage from the host slot's hole) and cudaMemcpy D2D from
+                // the GPU shadow directly — saves one PCIe round-trip per
+                // H2D call.
                 void *gpu_src = input_buffer->GetGpuPayload();
                 size_t gpu_src_size = input_buffer->GetGpuPayloadSize();
                 if (gpu_src != nullptr && gpu_src_size >= count) {
@@ -381,13 +381,14 @@ CUDA_ROUTINE_HANDLER(Memcpy) {
                 // Saves the backend D2H copy through host pinned mem (~4.78 ms
                 // warm at 64 MB on L40S/Gen4) and the redundant host buffer.
                 //
-                // 4 MB threshold (mirrors Variant B's threshold in WriteIovRma).
+                // 4 MB threshold (mirrors the threshold used in WriteIovRma).
                 // Below this size the per-call setup cost (TLS scratch alloc/check,
                 // cudaMemcpy D2D launch overhead, dual-iov response orchestration
                 // in Process.cpp) exceeds the savings from skipping the host
                 // bounce. Empirically observed: at N=256 (256 KB) and N=512 (1 MB)
                 // host_ms regressed from ~0.7/1.1 ms (pre-GPUDirect) to ~1.5/1.9 ms
-                // with GPUDirect on. 4 MB matches Variant B and protects small RPCs.
+                // with GPUDirect on. 4 MB matches the RMA path's threshold and
+                // protects small RPCs.
                 constexpr size_t kGpuDirectD2HThreshold = 4u * 1024u * 1024u;
                 if (gvirtus_gpudirect_enabled() && count >= kGpuDirectD2HThreshold) {
                     void *gpu_scratch = get_tls_gpu_scratch(count);
@@ -396,17 +397,26 @@ CUDA_ROUTINE_HANDLER(Memcpy) {
                                                cudaMemcpyDeviceToDevice);
                         if (exit_code == cudaSuccess) {
                             try {
-                                // Wire format matches Add<char>(p,n): [size_t count][bytes].
-                                // We emit only the size_t prefix here; the count bytes
-                                // come via Result::GetGpuPayload() in Process.cpp.
+                                // out->Add() auto-detects gpu_scratch as device
+                                // memory (we're already inside the
+                                // gvirtus_gpudirect_enabled() +
+                                // size-threshold gate above, so
+                                // communicators::DeviceProbeEnabled() -- the weaker
+                                // process-wide check Add() itself re-verifies -- is
+                                // guaranteed true here too) and borrows it as a
+                                // GpuRef segment instead of copying. Produces the
+                                // exact same [size_t count][bytes] wire shape the
+                                // old Add<size_t>(count) + Result::SetGpuPayload
+                                // combo did, without the separate Result side
+                                // channel — GetIov() emits the GpuRef fragment
+                                // itself, tagged, for Process.cpp/RpcCodec to route.
                                 out = std::make_shared<Buffer>();
-                                out->Add<size_t>(count);
+                                out->Add<char>(static_cast<char *>(gpu_scratch), count);
                             } catch (const std::exception &e) {
                                 cerr << e.what() << endl;
                                 return std::make_shared<Result>(cudaErrorMemoryAllocation);
                             }
                             result = std::make_shared<Result>(exit_code, out);
-                            result->SetGpuPayload(gpu_scratch, count);
                             break;
                         }
                         // cudaMemcpy D2D failed: fall through to host path.
@@ -414,7 +424,7 @@ CUDA_ROUTINE_HANDLER(Memcpy) {
                 }
 
                 // Legacy host path (also used when GPUDirect probe failed
-                // or scratch alloc failed). Uses Fase 1+2 TLS pre-faulted
+                // or scratch alloc failed). Uses the TLS pre-faulted
                 // slot to avoid per-call new[]+page-faults, and a non-owning
                 // Buffer view to skip Add<char>'s 64 MB memmove into mpBuffer.
                 //
