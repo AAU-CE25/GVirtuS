@@ -108,6 +108,19 @@ class Frontend {
     void Execute(const char *routine, const communicators::Buffer *input_buffer = NULL);
 
     /**
+     * Asynchronous / fire-and-forget dispatch (GVIRTUS_ASYNC_DISPATCH). Sends
+     * the request without waiting for a response; only honoured on the UCX
+     * Active-Message transport (falls back to a synchronous Execute otherwise).
+     * Intended solely for stream-ordered, output-less CUDA calls (e.g.
+     * cudaLaunchKernel); any error is reconciled by the backend onto the next
+     * synchronous call, matching CUDA's deferred async-error semantics.
+     *
+     * @param routine the name of the routine to execute.
+     * @param input_buffer the buffer containing the parameters of the routine.
+     */
+    void ExecuteAsync(const char *routine, const communicators::Buffer *input_buffer = NULL);
+
+    /**
      * Prepares the Frontend for the execution. This method _must_ be called
      * before any requests of execution or any method for adding parameters for
      * the next execution.
@@ -294,6 +307,14 @@ class Frontend {
 #endif
 
    private:
+    /**
+     * Shared implementation of Execute()/ExecuteAsync(). When
+     * force_fire_and_forget is true and the transport is UCX AM, the request is
+     * sent without waiting for a response.
+     */
+    void ExecuteInternal(const char *routine, const communicators::Buffer *input_buffer,
+                         bool force_fire_and_forget);
+
     /**
      * Constructs a new Frontend. It creates and sets also the Communicator to
      * use obtaining the information from the configuration file which path is

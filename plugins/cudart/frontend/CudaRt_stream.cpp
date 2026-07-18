@@ -66,7 +66,7 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaStreamWaitEvent(cudaStream_t strea
     CudaRtFrontend::AddDevicePointerForArguments(stream);
     CudaRtFrontend::AddDevicePointerForArguments(event);
     CudaRtFrontend::AddVariableForArguments(flags);
-    CudaRtFrontend::Execute("cudaStreamWaitEvent");
+    CudaRtFrontend::ExecuteMaybeAsync("cudaStreamWaitEvent");
     return CudaRtFrontend::GetExitCode();
 }
 

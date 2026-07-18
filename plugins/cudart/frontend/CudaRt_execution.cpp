@@ -151,7 +151,7 @@ extern "C" __host__ cudaError_t cudaLaunchKernelExC(const cudaLaunchConfig_t *co
 
     CudaRtFrontend::AddHostPointerForArguments<byte>(pArgsPayload, argsPayloadSize);
 
-    CudaRtFrontend::Execute("cudaLaunchKernelExC");
+    CudaRtFrontend::ExecuteMaybeAsync("cudaLaunchKernelExC");
     cudaError_t cudaError = CudaRtFrontend::GetExitCode();
     free(pArgsPayload);
 
@@ -208,7 +208,7 @@ extern "C" __host__ cudaError_t cudaLaunchKernel(const void *func, dim3 gridDim,
     // cout << "SharedMem: " << sharedMem << endl;
     // cout << "Stream: " << stream << endl;
 
-    CudaRtFrontend::Execute("cudaLaunchKernel");
+    CudaRtFrontend::ExecuteMaybeAsync("cudaLaunchKernel");
     free(pArgsPayload);
     return CudaRtFrontend::GetExitCode();
 }

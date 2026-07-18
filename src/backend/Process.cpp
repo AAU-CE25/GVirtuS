@@ -393,6 +393,13 @@ void Process::Start() {
         const bool ucx_am_mode = client_comm != nullptr && client_comm->to_string() == "ucxcommunicator";
 
         if (ucx_am_mode) {
+            // Async dispatch (GVIRTUS_ASYNC_DISPATCH): fire-and-forget requests
+            // carry kEnvelopeFlagNoResponse and get no response. A failure in
+            // one is latched here and reconciled onto the next response-bearing
+            // (sync) call, mirroring CUDA's "async errors surface at the next
+            // synchronization point" semantics. Per-connection (this worker
+            // thread owns one client), so no locking is needed.
+            int deferred_async_error = 0;
             try {
                 for (;;) {
                     gvirtus::communicators::ucxam::EnvelopeHeader request_header{};
@@ -466,9 +473,43 @@ void Process::Start() {
                         gvirtus::communicators::tls_connection_supports_cuda = false;
                     }
 
+                    const bool no_response =
+                        (request_header.reserved0 &
+                         gvirtus::communicators::ucxam::kEnvelopeFlagNoResponse) != 0;
+                    const int call_exit = result->GetExitCode();
+
+                    if (no_response) {
+                        // Fire-and-forget: the frontend did not wait for a
+                        // response, so we must NOT write one (it would desync
+                        // the strictly in-order request/response stream). Latch
+                        // any failure for the next sync call to report.
+                        if (call_exit != 0) deferred_async_error = call_exit;
+
+                        // Release the pinned RX-pool slot (handler is done with
+                        // am_input, which points into it).
+                        if (owns_frame) client_comm->ReleaseFrame();
+
+                        LOG4CPLUS_DEBUG(logger,
+                                        "[Process " << getpid() << "]: AM async routine '"
+                                                    << am_routine << "' exit=" << call_exit
+                                                    << " [req_id=" << request_header.request_id
+                                                    << "], no response sent.");
+                        continue;
+                    }
+
+                    // Reconcile: if this (sync) call succeeded but a prior async
+                    // op failed, report the async error here; then clear it (it
+                    // is now surfaced). If this call has its own error, that is
+                    // the latest error and takes precedence.
+                    int effective_exit = call_exit;
+                    if (effective_exit == 0 && deferred_async_error != 0) {
+                        effective_exit = deferred_async_error;
+                    }
+                    deferred_async_error = 0;
+
                     std::string write_error;
                     bool response_ok = write_ucx_am_response(client_comm, request_header,
-                                                             result->GetExitCode(), result->TimeTaken(),
+                                                             effective_exit, result->TimeTaken(),
                                                              result->GetOutputBuffer(),
                                                              result->GetGpuPayload(),
                                                              result->GetGpuPayloadSize(),
@@ -487,7 +528,7 @@ void Process::Start() {
 
                     LOG4CPLUS_DEBUG(logger,
                                     "[Process " << getpid() << "]: AM routine '" << am_routine
-                                                << "' returned " << result->GetExitCode()
+                                                << "' returned " << effective_exit
                                                 << " [req_id=" << request_header.request_id
                                                 << "].");
                 }
