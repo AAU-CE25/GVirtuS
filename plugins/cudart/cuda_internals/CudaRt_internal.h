@@ -153,4 +153,27 @@ typedef struct {
     std::vector<NvInfoKParam> params;
 } NvInfoFunction;
 
+// --- Frontend-local CUDA runtime state (GUSTO optimization) -------------------
+// cudaGetDevice / cudaGetLastError / cudaPeekAtLastError query per-host-thread
+// runtime state that the frontend can track locally instead of issuing a
+// blocking RPC every time. The current device changes only via cudaSetDevice;
+// the "last error" is simply the most recent non-success exit code returned by
+// any remoted cudart call (exactly CUDA's sticky-error semantics). Tracking
+// these client-side removes ~58% of the control-plane RPCs in LLM decode with
+// no behavioural change. See CudaRt_error.cpp for definitions.
+namespace cudart_state {
+// Record the exit code of the most recent remoted cudart call. Only non-success
+// codes update the sticky last-error (successful calls never clear it — CUDA
+// semantics); cudaGetLastError() clears it.
+void note_exit_code(int exit_code);
+// Return the sticky last error AND reset it to cudaSuccess (cudaGetLastError).
+int take_last_error();
+// Return the sticky last error without clearing it (cudaPeekAtLastError).
+int peek_last_error();
+// Current device ordinal for the calling thread (CUDA default = 0).
+int current_device();
+// Update the cached current device (call on a successful cudaSetDevice).
+void set_current_device(int device);
+}  // namespace cudart_state
+
 #endif  // GVIRTUS_CUDART_INTERNAL_H
