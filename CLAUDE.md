@@ -128,3 +128,25 @@ The Handler interface (`include/gvirtus/backend/Handler.h`) requires:
 ## Hardware Context
 
 Development targets: NVIDIA L40s GPU, Mellanox BlueField-3 NIC (RoCEv2), Ubuntu 22.04, CUDA 12.6.3, cuDNN 9.5.1.
+
+## ⚠️ STANDING RULE — ALWAYS CLEAN UP STALLED PROCESSES / ZOMBIES / CONTEXTS / CONTAINERS WHILE TESTING/BENCHMARKING
+
+Leftover state silently corrupts results and makes runs appear "slow" or "hung" when nothing is
+actually wrong with the code. **After every test/benchmark — and especially after any `timeout`,
+crash, Ctrl-C, or interrupted run — clean up before the next run:**
+
+- **Kill stalled/zombie frontend processes** (they hold connections + GPU memory and clog the
+  backend): `docker exec <fe-container> bash -lc 'for p in $(pgrep -f "llama|simple_matrix|<bin>"); do kill -9 $p; done'`.
+  A `timeout`-killed client frequently leaves the process (and its backend-side connection) alive.
+- **Restart the backend fresh** between transport/GPUDirect phases and whenever a client crashed or
+  was killed: `docker rm -f <backend-container>` then relaunch. A crashed CUDA context (e.g. after a
+  CUDA 700 or an abort) poisons the persistent backend context — a restart is mandatory.
+- **Verify GPU memory is actually freed** on BOTH nodes before trusting a run:
+  `nvidia-smi --query-gpu=memory.used --format=csv,noheader`. Orphaned backend containers can leak
+  many GB and starve GPUDirect registration (symptom: `cudaMalloc(4K) failed`, stalls, exit-134).
+  Non-root `kill` cannot reap root-owned container procs — use `docker rm -f` on the owning container.
+- **Never diagnose a "regression" or "slowness" before ruling out leftover state.** In practice a
+  multi-minute "hang" was repeatedly just accumulated zombies + a poisoned backend; cleanup returned
+  the same run to a few seconds. Clean first, measure second.
+- Prefer wrapping benchmark commands so they self-clean on exit (append a `kill` of the just-run
+  binary), and always `docker ps` / `pgrep` to confirm a clean slate before the next measurement.

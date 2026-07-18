@@ -1,5 +1,22 @@
 # GitHub Copilot Instructions
 
+## ⚠️ STANDING RULE — ALWAYS CLEAN UP STALLED PROCESSES / ZOMBIES / CONTEXTS / CONTAINERS WHILE TESTING/BENCHMARKING
+
+Leftover state silently corrupts results and makes runs look "slow"/"hung" when the code is fine.
+**After every test/benchmark — especially after any `timeout`, crash, Ctrl-C, or interrupted run —
+clean up before the next run:**
+- Kill stalled/zombie frontend processes (they hold connections + GPU memory and clog the backend):
+  `docker exec <fe-container> bash -lc 'for p in $(pgrep -f "llama|simple_matrix|<bin>"); do kill -9 $p; done'`.
+  A `timeout`-killed client usually leaves the process and its backend-side connection alive.
+- Restart the backend fresh between transport/GPUDirect phases and after any client crash/kill
+  (`docker rm -f <backend>` then relaunch) — a crashed CUDA context poisons the persistent backend.
+- Verify GPU memory is actually freed on BOTH nodes (`nvidia-smi --query-gpu=memory.used --format=csv,noheader`)
+  before trusting a run; orphaned containers can leak many GB and starve GPUDirect (symptoms:
+  `cudaMalloc(4K) failed`, stalls, exit-134). Non-root `kill` can't reap root-owned container procs — use `docker rm -f`.
+- NEVER diagnose a "regression"/"slowness" before ruling out leftover state. A multi-minute "hang"
+  was repeatedly just accumulated zombies + a poisoned backend; cleanup returned the run to seconds.
+  Clean first, measure second. Confirm a clean slate (`docker ps` / `pgrep`) before each measurement.
+
 ## Project Overview
 
 **GVirtuS** (Generic Virtualization Service) is a framework that transparently virtualizes NVIDIA CUDA GPU resources over a network. Applications on GPU-less machines link against a GVirtuS frontend stub that intercepts CUDA API calls, serializes them, and forwards them to a backend host with a physical GPU.

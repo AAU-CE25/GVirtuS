@@ -1,4 +1,4 @@
-.PHONY: docker-build-push-dev local-docker-build-backend docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test local-docker-build-simple-matrix
+.PHONY: docker-build-push-dev local-docker-build-backend docker-build-push-prod docker-build-push-docker-test run-docker-gvirtus-test stop-docker-gvirtus-test run-gvirtus-backend-dev run-gvirtus-tests stop-gvirtus docker-build-openpose run-openpose-test stop-openpose-test docker-build-2d-human-parsing run-2d-human-parsing-test stop-2d-human-parsing-test docker-build-simple-matrix run-simple-matrix-test stop-simple-matrix-test local-docker-build-simple-matrix docker-build-babelstream local-docker-build-babelstream run-babelstream-test stop-babelstream-test
 USER := $(shell whoami | cut -d'@' -f1 | tr -d '.')
 DOCKER_HUB_USERNAME ?= aauce25
 
@@ -195,6 +195,51 @@ run-simple-matrix-test:
 
 stop-simple-matrix-test:
 	docker stop simple_matrix_test_container-$(USER) || true
+
+docker-build-babelstream:
+	docker buildx build \
+		--platform linux/amd64 \
+		--push \
+		--no-cache \
+		-f examples/babelstream/Dockerfile \
+		-t $(DOCKER_HUB_USERNAME)/babelstream_gvirtus:cuda12.6 \
+		.
+
+local-docker-build-babelstream:
+	docker buildx build \
+		--platform linux/amd64 \
+		--load \
+		--no-cache \
+		-f examples/babelstream/Dockerfile \
+		-t $(DOCKER_REPO_DEV)/babelstream_gvirtus:cuda12.6 \
+		.
+
+run-babelstream-test:
+	docker run --rm \
+		--name babelstream_test_container-$(USER) \
+		$(SIMPLE_MATRIX_GPU_FLAGS) \
+		--network host \
+		--device /dev/infiniband \
+		--cap-add IPC_LOCK \
+		--ulimit memlock=-1 \
+		-e GVIRTUS_CONFIG=/opt/GVirtuS/etc/properties_ucx.json \
+		-e GVIRTUS_UCX_DATAPATH=$(GVIRTUS_UCX_DATAPATH) \
+		$(if $(SIZE),-e SIZE=$(SIZE)) \
+		$(if $(ITERS),-e ITERS=$(ITERS)) \
+		$(if $(CUDA_ARCH),-e CUDA_ARCH=$(CUDA_ARCH)) \
+		$(if $(UCX_TLS),-e UCX_TLS=$(UCX_TLS)) \
+		$(if $(UCX_NET_DEVICES),-e UCX_NET_DEVICES=$(UCX_NET_DEVICES)) \
+		-e UCX_LOG_LEVEL=$(UCX_LOG_LEVEL) \
+		$(if $(UCX_SOCKADDR_TLS_PRIORITY),-e UCX_SOCKADDR_TLS_PRIORITY=$(UCX_SOCKADDR_TLS_PRIORITY)) \
+		$(if $(UCX_IB_GID_INDEX),-e UCX_IB_GID_INDEX=$(UCX_IB_GID_INDEX)) \
+		$(if $(UCX_RNDV_THRESH),-e UCX_RNDV_THRESH=$(UCX_RNDV_THRESH)) \
+		-v ./examples/babelstream:/opt/GVirtuS/examples \
+		-v ./etc/properties_ucx.json:/opt/GVirtuS/etc/properties_ucx.json \
+		$(DOCKER_REPO_DEV)/babelstream_gvirtus:cuda12.6 \
+		bash /opt/GVirtuS/examples/frontend.sh
+
+stop-babelstream-test:
+	docker stop babelstream_test_container-$(USER) || true
 
 ucx-discover:
 	@bash scripts/ucx-discover.sh
