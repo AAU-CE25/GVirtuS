@@ -180,6 +180,7 @@ CUDA_ROUTINE_HANDLER(DeviceGetDefaultMemPool);
 // Testing
 CUDA_ROUTINE_HANDLER(OccupancyMaxActiveBlocksPerMultiprocessor);
 CUDA_ROUTINE_HANDLER(DeviceGetAttribute);
+CUDA_ROUTINE_HANDLER(DeviceGetPCIBusId);
 CUDA_ROUTINE_HANDLER(DeviceGetStreamPriorityRange);
 
 /* CudaRtHandler_error */

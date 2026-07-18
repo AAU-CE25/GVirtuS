@@ -257,6 +257,7 @@ void CudaRtHandler::Initialize() {
     mspHandlers->insert(
         CUDA_ROUTINE_HANDLER_PAIR(OccupancyMaxActiveBlocksPerMultiprocessorWithFlags));
     mspHandlers->insert(CUDA_ROUTINE_HANDLER_PAIR(DeviceGetAttribute));
+    mspHandlers->insert(CUDA_ROUTINE_HANDLER_PAIR(DeviceGetPCIBusId));
     mspHandlers->insert(CUDA_ROUTINE_HANDLER_PAIR(DeviceGetStreamPriorityRange));
     mspHandlers->insert(CUDA_ROUTINE_HANDLER_PAIR(SetDeviceFlags));
     mspHandlers->insert(CUDA_ROUTINE_HANDLER_PAIR(SetValidDevices));
