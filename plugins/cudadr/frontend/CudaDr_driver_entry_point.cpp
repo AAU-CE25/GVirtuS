@@ -284,7 +284,11 @@ using namespace std;
   }
 
   #define GVS_TRAMPOLINE_BYTES 32
-  #define GVS_TRAMPOLINE_COUNT 512
+  #define GVS_TRAMPOLINE_COUNT 4096  // was 512: cuDF/RMM request >512 driver symbols via
+                                     // cuGetProcAddress; exhausting the pool made the overflow
+                                     // symbols fall back to gvirtusGenericNotSupportedStub
+                                     // (NOT_SUPPORTED=801), which can surface later as a sticky
+                                     // cudaError at the first stream sync. 4096*32B = 128KB RWX.
 
   static uint8_t* gvs_trampoline_page  = nullptr;
   static int      gvs_trampoline_next  = 0;
