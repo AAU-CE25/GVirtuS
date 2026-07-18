@@ -135,6 +135,24 @@ CUDA_ROUTINE_HANDLER(DeviceGetAttribute) {
     return std::make_shared<Result>(exit_code, out);
 }
 
+CUDA_ROUTINE_HANDLER(DeviceGetPCIBusId) {
+    // Frontend sends: host char buffer (len bytes), int len, int device.
+    char* pciBusId = input_buffer->AssignAll<char>();
+    int len = input_buffer->Get<int>();
+    int device = input_buffer->Get<int>();
+    cudaError_t exit_code = cudaDeviceGetPCIBusId(pciBusId, len, device);
+    std::shared_ptr<Buffer> out = std::make_shared<Buffer>();
+
+    try {
+        out->Add(pciBusId, len);
+    } catch (const std::exception& e) {
+        LOG4CPLUS_DEBUG(pThis->GetLogger(), LOG4CPLUS_TEXT("Exception: ") << e.what());
+        return std::make_shared<Result>(cudaErrorMemoryAllocation);
+    }
+
+    return std::make_shared<Result>(exit_code, out);
+}
+
 CUDA_ROUTINE_HANDLER(IpcGetMemHandle) {
     cudaIpcMemHandle_t* handle = input_buffer->Assign<cudaIpcMemHandle_t>();
     void* devPtr = input_buffer->GetFromMarshal<void*>();
