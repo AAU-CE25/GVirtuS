@@ -26,6 +26,8 @@ using namespace std;
                                         CUdriverProcAddressQueryResult* symbolStatus);                                                                                                                                                                                                      
                                                                                                                                                                                                                                                                                             
   extern "C" CUresult cuDriverGetVersion(int *driverVersion);                                                                                                                                                                                                                               
+  extern "C" CUresult cuGetErrorString(CUresult error, const char **pStr);
+  extern "C" CUresult cuGetErrorName(CUresult error, const char **pStr);
                                                                                                                                                                                                                                                                                             
   extern "C" CUresult cuDeviceGetCount(int *count);                                                                                                                                                                                                                                         
   extern "C" CUresult cuDeviceGet(CUdevice *device, int ordinal);
@@ -708,6 +710,23 @@ using namespace std;
           set_symbol_found(pfn, reinterpret_cast<void*>(&cuDriverGetVersion), symbolStatus);
           return CUDA_SUCCESS;                                                                                                                                                                                                                                                              
       }                                                                                                                                                                                                                                                                                     
+
+      /*
+       * Error-string helpers. cuda-python / RMM resolve these via
+       * cuGetProcAddress and call them to format CUresult codes. Without a
+       * real wiring they fell through to the generic JIT trampoline, which
+       * cannot fill the output `const char **pStr` -> the caller dereferences
+       * an uninitialized pointer -> SIGSEGV during RMM init. Wire the real
+       * GVirtuS implementations (CudaDr_error.cpp), which set *pStr.
+       */
+      if (strcmp(symbol, "cuGetErrorString") == 0) {
+          set_symbol_found(pfn, reinterpret_cast<void*>(&cuGetErrorString), symbolStatus);
+          return CUDA_SUCCESS;
+      }
+      if (strcmp(symbol, "cuGetErrorName") == 0) {
+          set_symbol_found(pfn, reinterpret_cast<void*>(&cuGetErrorName), symbolStatus);
+          return CUDA_SUCCESS;
+      }
    
       /*                                                                                                                                                                                                                                                                                    
        * Device discovery.

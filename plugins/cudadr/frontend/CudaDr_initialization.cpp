@@ -91,9 +91,19 @@ extern "C" CUresult cuInit(unsigned int flags) {
 
     cuInit_fn_t fn = g_real_cuinit.load();
     if (fn != nullptr) {
-        return fn(flags);
+        // Call the real local driver ONLY for its side effect (UCX
+        // libuct_cuda memory-type probing + reentrancy safety), but DISCARD
+        // its return value. In the GVirtuS model the physical GPU lives on the
+        // backend; the frontend container has no local device, so the real
+        // compat driver returns CUDA_ERROR_NO_DEVICE. Forwarding that made
+        // cuda-python's runtime reimplementation (which calls cuInit first
+        // during lazy init) abort every device query with cudaErrorNoDevice,
+        // even though the GVirtuS driver RPCs (cuDeviceGetCount/cuDeviceGet)
+        // correctly report the remote device. Always report SUCCESS: the real
+        // devices are enumerated over the RPC path, not the local driver.
+        (void)fn(flags);
     }
-    // No real libcuda available locally - best-effort SUCCESS so optional
-    // consumers (libuct_cuda capability probing) don't abort.
+    // Best-effort SUCCESS so optional consumers (libuct_cuda capability
+    // probing, cuda-python runtime lazy init) proceed to the RPC device path.
     return CUDA_SUCCESS;
 }
