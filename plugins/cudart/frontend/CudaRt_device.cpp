@@ -49,10 +49,11 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaChooseDevice(int *device,
 }
 
 extern "C" __host__ __device__ cudaError_t CUDARTAPI cudaGetDevice(int *device) {
-    CudaRtFrontend::Prepare();
-    CudaRtFrontend::Execute("cudaGetDevice");
-    if (CudaRtFrontend::Success()) *device = CudaRtFrontend::GetOutputVariable<int>();
-    return CudaRtFrontend::GetExitCode();
+    // Frontend-local: the current device is per-thread state that only changes
+    // via cudaSetDevice, which we track in cudart_state. No RPC.
+    if (device == nullptr) return cudaErrorInvalidValue;
+    *device = cudart_state::current_device();
+    return cudaSuccess;
 }
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaGetDeviceCount(int *count) {
@@ -98,7 +99,11 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaSetDevice(int device) {
     CudaRtFrontend::Prepare();
     CudaRtFrontend::AddVariableForArguments(device);
     CudaRtFrontend::Execute("cudaSetDevice");
-    return CudaRtFrontend::GetExitCode();
+    cudaError_t ec = CudaRtFrontend::GetExitCode();
+    // Keep the frontend-local current-device cache (used by cudaGetDevice) in
+    // sync, but only if the backend actually switched (success).
+    if (ec == cudaSuccess) cudart_state::set_current_device(device);
+    return ec;
 }
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaSetDeviceFlags(unsigned int flags) {

@@ -31,6 +31,8 @@
 #include <lz4.h>
 
 #include <cstdio>
+#include <cstring>
+#include <stack>
 
 #include "CudaRt.h"
 
@@ -341,33 +343,50 @@ extern "C" __host__ int __cudaSynchronizeThreads(void **x, void *y) {
     return 0;
 }
 
+// --- Prototype optimization (GUSTO): local call-configuration stack -----------
+// Real CUDA implements __cudaPushCallConfiguration / __cudaPopCallConfiguration
+// purely with a THREAD-LOCAL stack: the compiler-generated <<<grid,block>>>
+// launch glue pushes the config, then immediately pops it and passes the values
+// to cudaLaunchKernel. GVirtuS' frontend cudaLaunchKernel already re-serializes
+// gridDim/blockDim/sharedMem/stream to the backend (see CudaRt_execution.cpp),
+// so the backend never needs the pushed config. The previous implementation
+// still sent BOTH Push and Pop as blocking RPCs — 2 needless round-trips per
+// kernel launch. For RPC-bound workloads (LLM decode = hundreds of launches per
+// token) this is a dominant cost. Handling them locally is fully behaviour-
+// preserving (identical semantics to native CUDA) and removes those 2 RPCs.
+namespace {
+struct GvirtusCallConfig {
+    dim3 gridDim;
+    dim3 blockDim;
+    size_t sharedMem;
+    cudaStream_t stream;
+};
+thread_local std::stack<GvirtusCallConfig> g_gvirtus_call_config_stack;
+}  // namespace
+
 extern "C" __host__ __device__ unsigned CUDARTAPI __cudaPushCallConfiguration(dim3 gridDim,
                                                                               dim3 blockDim,
                                                                               size_t sharedMem,
                                                                               cudaStream_t stream) {
-    CudaRtFrontend::Prepare();
-    CudaRtFrontend::AddVariableForArguments(gridDim);
-    CudaRtFrontend::AddVariableForArguments(blockDim);
-    CudaRtFrontend::AddVariableForArguments(sharedMem);
-    CudaRtFrontend::AddDevicePointerForArguments(stream);
-
-    CudaRtFrontend::Execute("cudaPushCallConfiguration");
-
-    return CudaRtFrontend::GetExitCode();
+#ifndef __CUDA_ARCH__
+    g_gvirtus_call_config_stack.push(GvirtusCallConfig{gridDim, blockDim, sharedMem, stream});
+#endif
+    // 0 == success: the <<<>>> launch glue proceeds to pop + cudaLaunchKernel.
+    return 0;
 }
 
 extern "C" cudaError_t CUDARTAPI __cudaPopCallConfiguration(dim3 *gridDim, dim3 *blockDim,
                                                             size_t *sharedMem,
                                                             cudaStream_t *stream) {
-    CudaRtFrontend::Prepare();
-
-    CudaRtFrontend::Execute("cudaPopCallConfiguration");
-
-    *gridDim = CudaRtFrontend::GetOutputVariable<dim3>();
-    *blockDim = CudaRtFrontend::GetOutputVariable<dim3>();
-    *sharedMem = CudaRtFrontend::GetOutputVariable<size_t>();
-    cudaStream_t stream1 = CudaRtFrontend::GetOutputVariable<cudaStream_t>();
-
-    memcpy(stream, &stream1, sizeof(cudaStream_t));
-    return CudaRtFrontend::GetExitCode();
+    if (g_gvirtus_call_config_stack.empty()) {
+        // Should not happen (push always precedes pop); fail safe.
+        return cudaErrorUnknown;
+    }
+    GvirtusCallConfig c = g_gvirtus_call_config_stack.top();
+    g_gvirtus_call_config_stack.pop();
+    *gridDim = c.gridDim;
+    *blockDim = c.blockDim;
+    *sharedMem = c.sharedMem;
+    memcpy(stream, &c.stream, sizeof(cudaStream_t));
+    return cudaSuccess;
 }
