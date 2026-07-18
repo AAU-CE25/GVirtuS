@@ -1671,6 +1671,23 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
     // into tx_scratch → SIGSEGV) and (b) reuse the value for the memh
     // registration further down.
     const bool big_is_gpu = is_gpu_pointer(iov[biggest_idx].iov_base);
+
+    // Control/data-path gate (GPUDirect B3). Consume the per-message hint set
+    // by Frontend::Execute::SetNextDeviceFragment (reset it once here so it
+    // never leaks into a later message). The big fragment may be peer-DMA'd
+    // into the peer GPU shadow ONLY when it is exactly the Fase-5 device-
+    // destined direct-input fragment (today: sync cudaMemcpy H2D — the one
+    // routine whose backend handler consumes GetGpuPayload()). Control-path
+    // buffers (fatbin, cuModuleLoadData, nvrtc, marshaled args) travel in
+    // mpInputBuffer, carry no device fragment, and thus stay in the host slot.
+    const void  *dev_frag     = next_dev_frag_addr_;
+    const size_t dev_frag_len = next_dev_frag_len_;
+    next_dev_frag_addr_ = nullptr;
+    next_dev_frag_len_  = 0;
+    const bool big_is_device_data = (dev_frag != nullptr) &&
+                                    (iov[biggest_idx].iov_base == dev_frag) &&
+                                    (big_size == dev_frag_len);
+
     // Only worth splitting when the "big" fragment is genuinely big and the
     // "small" prefix isn't empty (otherwise we'd just be issuing one put).
     // big_is_gpu overrides zerocopy_enabled: with GPU mem we have no choice,
@@ -1823,6 +1840,7 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
         const bool route_big_to_gpu = (rs.gpu_rkey != nullptr) &&
                                       (rs.gpu_addr != 0) &&
                                       (big_size >= (4u * 1024u * 1024u)) &&
+                                      big_is_device_data &&
                                       current_connection_supports_cuda();
         std::uint64_t big_target_addr = route_big_to_gpu
                                         ? rs.gpu_addr

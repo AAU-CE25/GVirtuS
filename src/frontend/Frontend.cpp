@@ -368,6 +368,14 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
         auto tB = steady_clock::now();
 
         frontend->mDataSent += payload_size;
+        // Control/data-path gate for GPUDirect B3: tell the communicator which
+        // (if any) iov fragment is the Fase-5 device-destined direct input, so
+        // WriteIovRma peer-DMAs ONLY that one into the peer GPU shadow. When
+        // there is no direct input (fatbin, module loads, nvrtc, plain args —
+        // control-path), pass nullptr so the whole payload stays host-side.
+        frontend->_communicator->obj_ptr()->SetNextDeviceFragment(
+            has_direct ? frontend->mDirectInputSrc : nullptr,
+            has_direct ? frontend->mDirectInputBytes : 0);
         frontend->_communicator->obj_ptr()->WriteIov(iov, static_cast<size_t>(n));
         auto tC = steady_clock::now();
 

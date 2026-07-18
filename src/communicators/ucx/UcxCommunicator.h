@@ -66,6 +66,14 @@ class UcxCommunicator : public Communicator {
     // GVIRTUS_GPUDIRECT=1 and the probe passed.
     bool current_connection_supports_cuda() const override;
 
+    // See Communicator::SetNextDeviceFragment. Records the address+length of
+    // the next WriteIov's Fase-5 device-destined direct-input fragment;
+    // WriteIovRma consumes it (once) to gate B3 GPU-shadow routing.
+    void SetNextDeviceFragment(const void *addr, size_t len) override {
+        next_dev_frag_addr_ = addr;
+        next_dev_frag_len_  = len;
+    }
+
     std::string to_string() override { return "ucxcommunicator"; }
 
    private:
@@ -261,6 +269,13 @@ class UcxCommunicator : public Communicator {
     // negotiated, 1 = RDMA-class transport negotiated. mutable because
     // current_connection_supports_cuda() is logically const.
     mutable std::atomic<int> supports_cuda_cached_{-1};
+
+    // Control/data-path gate for B3. Set per-message by Frontend::Execute via
+    // SetNextDeviceFragment (nullptr for control-path messages), consumed once
+    // in WriteIovRma. Only the fragment matching this addr+len may be routed to
+    // the peer GPU shadow. Not atomic: one frontend connection == one thread.
+    const void *next_dev_frag_addr_ = nullptr;
+    size_t      next_dev_frag_len_  = 0;
 };
 
 }  // namespace gvirtus::communicators

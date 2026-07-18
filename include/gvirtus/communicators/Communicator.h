@@ -124,6 +124,22 @@ class Communicator {
 
     virtual void run() {};
 
+    // Per-message hint set by Frontend::Execute right before WriteIov: the
+    // address+length of a Fase-5 device-destined "data-path" fragment
+    // (mDirectInputSrc). Only this fragment may be peer-DMA'd into the peer
+    // GPU shadow (GPUDirect Step B3); everything else — fatbin, module blobs,
+    // nvrtc, marshaled args (control-path) — must land in the host slot,
+    // because only the shadow-aware backend handler (sync cudaMemcpy H2D)
+    // reads GetGpuPayload(). Default no-op → control-path only. UcxCommunicator
+    // overrides; TCP/Hybrid ignore it.
+    //
+    // Declared LAST among the virtuals on purpose: appending (rather than
+    // inserting mid-class) keeps every pre-existing vtable slot index stable,
+    // so a binary built against the older header stays ABI-compatible with one
+    // built against this header — important given the mixed baked/mounted libs
+    // in this project's docker + native runs.
+    virtual void SetNextDeviceFragment(const void * /*addr*/, size_t /*len*/) {}
+
    private:
 };
 
