@@ -173,8 +173,13 @@ extern "C" CUresult cuMemGetInfo(size_t *free, size_t *total) {
     CudaDrFrontend::Prepare();
     CudaDrFrontend::Execute("cuMemGetInfo");
     if (CudaDrFrontend::Success()) {
-        *free = *(CudaDrFrontend::GetOutputHostPointer<size_t>());
-        *total = *(CudaDrFrontend::GetOutputHostPointer<size_t>());
+        // Backend writes two raw scalars (out->Add(free); out->Add(total)),
+        // so read them as scalars. GetOutputHostPointer<size_t>() expects the
+        // length-prefixed array layout that only Add(pointer) produces, and
+        // mis-parsed these raw scalars -> Buffer::Get(): Can't read any
+        // unsigned long -> terminate during numba's context prepare_for_use.
+        *free = CudaDrFrontend::GetOutputVariable<size_t>();
+        *total = CudaDrFrontend::GetOutputVariable<size_t>();
     }
     return CudaDrFrontend::GetExitCode();
 }

@@ -34,7 +34,15 @@ __attribute__((visibility("default"))) CUresult cuDeviceGetNvSciSyncAttributes(v
 __attribute__((visibility("default"))) CUresult cuDeviceGetP2PAttribute(void) { return CUDA_ERROR_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) CUresult cuDeviceGetPCIBusId(void) { return CUDA_ERROR_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) CUresult cuDeviceGetTexture1DLinearMaxWidth(void) { return CUDA_ERROR_NOT_SUPPORTED; }
-__attribute__((visibility("default"))) CUresult cuDeviceGetUuid(void) { fprintf(stderr, "[COMPAT_STUB] cuDeviceGetUuid CALLED\n");fflush(stderr);return CUDA_ERROR_NOT_SUPPORTED; }
+// cuDeviceGetUuid[/_v2]: numba (used by cuDF via JIT) resolves this exported
+// symbol directly and requires it to succeed to build the device identity for
+// its context cache. The old (void)->NOT_SUPPORTED stub made numba's
+// current_context() raise CudaAPIError(801); inside cuDF's background init
+// thread that killed the thread -> its GVirtuS connection reset -> the main
+// import cudf hung. Return a deterministic (zeroed) 16-byte UUID + SUCCESS:
+// there is a single virtual device, so a constant identity is sufficient.
+extern "C" __attribute__((visibility("default"))) CUresult cuDeviceGetUuid(void *uuid, int dev) { (void)dev; if (uuid) { for (int i = 0; i < 16; ++i) ((char *)uuid)[i] = 0; } return 0; }
+extern "C" __attribute__((visibility("default"))) CUresult cuDeviceGetUuid_v2(void *uuid, int dev) { (void)dev; if (uuid) { for (int i = 0; i < 16; ++i) ((char *)uuid)[i] = 0; } return 0; }
 __attribute__((visibility("default"))) CUresult cuDeviceGraphMemTrim(void) { return CUDA_ERROR_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) CUresult cuDevicePrimaryCtxSetFlags(void) { fprintf(stderr, "[COMPAT_STUB] cuDevicePrimaryCtxSetFlags CALLED\n");fflush(stderr);return CUDA_ERROR_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) CUresult cuDevicePrimaryCtxSetFlags_v2(void) { return CUDA_ERROR_NOT_SUPPORTED; }
