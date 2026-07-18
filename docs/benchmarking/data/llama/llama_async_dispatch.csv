@@ -1,0 +1,27 @@
+config,transport,gpudirect,async_dispatch,backend_loglevel,pp8_tps,pp8_stddev,tg16_tps,tg16_stddev,notes
+rdma_sync,RDMA(ucx-am),disabled,off,ERROR,558.85,1.49,87.35,0.08,clean baseline (rec#1+#2 only)
+rdma_async,RDMA(ucx-am),disabled,on,ERROR,1216.84,4.40,189.86,0.10,+async dispatcher
+gpudirect_sync,RDMA+GPUDirect(ucx-am),enabled,off,ERROR,558.02,1.32,86.71,0.02,GPUDirect enabled backend (data path idle for llama)
+gpudirect_async,RDMA+GPUDirect(ucx-am),enabled,on,ERROR,1214.67,11.25,186.51,0.15,+async dispatcher
+# --- superseded DEBUG-loglevel run (kept for the log-level finding) ---
+rdma_sync_DEBUG,RDMA(ucx-am),disabled,off,DEBUG,250.52,0.49,40.65,0.24,backend at DEBUG halves throughput vs ERROR (per-RPC logging on hot path)
+rdma_async_DEBUG,RDMA(ucx-am),disabled,on,DEBUG,528.93,68.43,87.62,0.10,ditto
+#
+# Model: TinyLlama-1.1B-Chat Q4_K_M. Cmd: llama-bench -ngl 99 -p 8 -n 16 -r 2. GGML_CUDA_DISABLE_GRAPHS=1.
+# Frontend links GVirtuS cudart stub (verified via ldd). Frontend does NOT set GVIRTUS_GPUDIRECT (avoids probe poisoning).
+# Backend GPUDirect run: GVIRTUS_GPUDIRECT=1 GVIRTUS_RMA_ZEROCOPY=1; log confirms "GPUDirect=enabled" + 2/2 GPU shadow slots.
+#
+# KEY FINDINGS (2026-07-18, clean ERROR-level runs):
+# 1. Async speedup is ~2.17x and TRANSPORT-INDEPENDENT: RDMA 87.35->189.86 (2.17x), GPUDirect 86.71->186.51 (2.15x).
+#    Expected: async removes per-launch RPC round-trips (count x latency), not bandwidth.
+# 2. GPUDirect == RDMA for llama, with AND without async (86.71~=87.35 off; 186.51~=189.86 on; within ~1% noise).
+#    llama is control-plane-bound; per-token transfers are tiny/host-sourced so NIC->GPU peer-DMA has nothing to accelerate
+#    (backend advertised GPU shadows but llama does not trip the >=4MB RMA GPU path). Matches doc 07's earlier finding.
+# 3. BACKEND LOG LEVEL CONFOUND: DEBUG logging (per-RPC log line on the hot path) ~halves throughput. The async RATIO
+#    is robust across DEBUG (2.16x) and ERROR (2.17x), but absolute numbers must be taken at ERROR. Earlier DEBUG
+#    absolute numbers (40.65/87.62) were understated ~2x.
+# 4. Async-path engagement verified on the wire: with async ON the backend logged 14,139 cudaLaunchKernel as
+#    fire-and-forget ("no response sent") and 0 with async OFF; cudaMemcpyAsync stayed SYNC (901 responses) as designed.
+#
+# vs bare metal (634.9 tg16): async-ON RDMA 189.86 = ~3.3x slower (was ~79x before any opts, ~16x after rec#1+#2 at DEBUG).
+# Correctness: llama-cli -> "the capital of France is Paris. It is located in the Ile-de-France"; unit test PASS on/off.

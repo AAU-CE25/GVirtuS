@@ -1,0 +1,5 @@
+config,pp8_ts,pp8_sd,tg16_ts,tg16_sd,note
+baremetal,2773.07,1066.26,634.87,26.85,native /usr/local/cuda libcudart on local L40S; same llama-bench methodology
+gvirtus-tcp,25.41,10.18,3.58,1.16,UCX_TLS=tcp self; backend GD=0
+gvirtus-rdma,50.62,1.83,8.04,0.07,rc_mlx5; backend log GPUDirect=disabled (verified)
+gvirtus-rdma-gpudirect,49.10,0.07,7.96,0.02,rc_mlx5; backend log GPUDirect=enabled (verified)

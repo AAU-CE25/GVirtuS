@@ -1,0 +1,31 @@
+benchmark,regime,metric,config,async_off,async_on,async_ratio,notes
+BabelStream,launch-bound,Triad GB/s @256K elems,RDMA+GPUDirect,176.0,230.9,1.31,small size = launch-overhead-bound
+BabelStream,launch-bound,Triad GB/s @512K elems,RDMA+GPUDirect,353.1,457.7,1.30,
+BabelStream,launch-bound,Triad GB/s @1M elems,RDMA+GPUDirect,702.1,845.8,1.20,
+BabelStream,transitional,Triad GB/s @2M elems,RDMA+GPUDirect,1393.7,1472.1,1.06,
+BabelStream,bandwidth-bound,Triad GB/s @16M elems,RDMA+GPUDirect,648.4,641.4,0.99,large size = bandwidth-bound; async no help
+miniBUDE,compute-bound,GFLOP/s (bm1 iter8),RDMA+GPUDirect,216.528,216.531,1.00,valid=true both; async no effect
+transfer_bw2,transfer-bound,D2H GB/s @256MB,RDMA+GPUDirect,8.785,8.691,0.99,pure cudaMemcpy; async no effect (within noise)
+transfer_bw2,transfer-bound,H2D GB/s @256MB,RDMA+GPUDirect,6.766,6.762,1.00,pure cudaMemcpy; async no effect
+simple_matrix,transfer-bound,host avg ms (n=16000),RDMA+GPUDirect,567.5,564.3,1.01,cuBLAS SGEMM + sync memcpy; async no effect (lower is better)
+simple_matrix,transfer-bound,sgemm avg ms (n=16000),RDMA+GPUDirect,157.0,156.5,1.00,async no effect
+llama,launch/RPC-bound,token gen tg16 t/s,RDMA,87.35,189.86,2.17,for reference (measured separately)
+llama,launch/RPC-bound,token gen tg16 t/s,RDMA+GPUDirect,86.71,186.51,2.15,for reference
+# Backend: fresh, GVIRTUS_LOGLEVEL=40000 (ERROR), GPUDirect=1 RMA_ZEROCOPY=1 (GPUDirect rows). Frontend links GVirtuS stub.
+# Cmds: BabelStream cuda-stream-fe -s <size> -n 100 --csv; miniBUDE cuda-bude-gvirtus --deck data/bm1 --iter 8;
+#       transfer_bw2 268435456 20 (MINBYTES=4096); simple_matrix 16000 5 1. Raw: babel_async_raw.csv, minibude_async.csv,
+#       transfer_async.csv, matrix_async.csv in this folder.
+#
+# CONCLUSION: the async dispatcher's benefit scales with LAUNCH-BOUNDEDNESS, as predicted:
+#   launch/RPC-bound (llama +117%, BabelStream small +20..31%) >> transitional (BabelStream 2M +6%)
+#   >> bandwidth/compute/transfer-bound (BabelStream large, miniBUDE, transfer_bw2, simple_matrix: ~0%).
+# No regressions: on non-launch-bound workloads async off == async on within noise.
+#
+# SECONDARY FINDING (not async): the CURRENT build (rec#1/#2 + zero-copy AM) is ~5.6x faster on small-size
+#   BabelStream than the pre-optimization numbers in babelstream_summary_gbps.csv (e.g. Triad@256K: old
+#   gvirtus-rdma 30.2 GB/s -> current sync 176 GB/s). The pre-opt multi-transport table there is stale for GVirtuS.
+#
+# PRE-EXISTING BUGS OBSERVED (not caused by async; reproduce with async OFF too):
+#  - BabelStream at exactly 4194304 elements (2^22) fails (rc=1) on a fresh backend, while 2^21 and 2^23 succeed.
+#  - Backend GPU memory leaks across client connections (reached 45/46 GB after many runs -> cudaMalloc fails);
+#    known issue (doc 05). Restart backend between heavy sweeps.

@@ -1,0 +1,8 @@
+config,my_n,my_avg_host_ms,my_avg_sgemm_ms,my_check,paper_n,paper_ms,note
+UCX RDMA+GPUDirect (zerocopy),16000,358.4,157.9,pass,16384,389.5,backend GD=1 RMA_ZEROCOPY=1
+UCX RDMA (zerocopy),16000,496.9,156.8,pass,16384,548.4,backend GD=0 RMA_ZEROCOPY=1
+UCX RDMA (no zerocopy / staged),16000,698.9,156.9,pass,,,backend GD=0 RMA_ZEROCOPY=0 (not a paper config; shows staged D2H penalty)
+Baremetal,,,,,16384,306.0,paper reference (not re-measured this session)
+UCX TCP,,,,,16384,2210.7,paper reference
+Plain RDMA (pre-project),,,,,16384,2265.6,paper reference
+Plain TCP (pre-project),,,,,16384,3073.1,paper reference
