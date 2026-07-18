@@ -134,8 +134,14 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaHostAlloc(void **ptr, size_t size,
     printf("Requesting cudaHostAlloc\n");
 #endif
     // Achtung: we can't use host page-locked memory, so we use simple pageable
-    // memory here.
-    if ((*ptr = malloc(size)) == NULL) return cudaErrorMemoryAllocation;
+    // memory here. Real cudaHostAlloc returns memory aligned to at least 256
+    // bytes; plain malloc() only guarantees 16 bytes on glibc, which breaks
+    // callers that assert stronger alignment (e.g. ggml's TENSOR_ALIGNMENT=32,
+    // causing intermittent crashes). Use a 256-byte aligned allocation.
+    if (posix_memalign(ptr, 256, size ? size : 1) != 0) {
+        *ptr = NULL;
+        return cudaErrorMemoryAllocation;
+    }
     return cudaSuccess;
 }
 
@@ -212,8 +218,12 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMallocArray(cudaArray **arrayPtr,
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaMallocHost(void **ptr, size_t size) {
     // Achtung: we can't use host page-locked memory, so we use simple pageable
-    // memory here.
-    if ((*ptr = malloc(size)) == NULL) return cudaErrorMemoryAllocation;
+    // memory here. Match real CUDA's >=256-byte alignment (plain malloc only
+    // gives 16 on glibc, breaking ggml's TENSOR_ALIGNMENT=32 assert intermittently).
+    if (posix_memalign(ptr, 256, size ? size : 1) != 0) {
+        *ptr = NULL;
+        return cudaErrorMemoryAllocation;
+    }
     return cudaSuccess;
 }
 
@@ -899,7 +909,7 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemsetAsync(void *devPtr, int c, s
     CudaRtFrontend::AddDevicePointerForArguments(devPtr);
     CudaRtFrontend::AddVariableForArguments(c);
     CudaRtFrontend::AddVariableForArguments(count);
-    CudaRtFrontend::Execute("cudaMemset");
+    CudaRtFrontend::ExecuteMaybeAsync("cudaMemset");
     return CudaRtFrontend::GetExitCode();
 }
 

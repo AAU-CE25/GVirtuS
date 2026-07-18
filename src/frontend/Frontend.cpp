@@ -46,6 +46,7 @@
 #include <chrono>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <mutex>
 #include <atomic>
@@ -60,6 +61,77 @@
 using std::chrono::duration_cast;
 using std::chrono::milliseconds;
 using std::chrono::steady_clock;
+
+// --- Per-RPC latency tracing (GUSTO benchmarking, INFOCOM) --------------------
+// Env-gated: when GVIRTUS_LATENCY_TRACE=<file> is set, every UCX Active-Message
+// RPC records its total round-trip latency (µs), the server-side execution time
+// (µs), routine name and effective payload size into a per-thread buffer. All
+// buffers are flushed to <file> as CSV at process exit. Zero cost when the env
+// var is unset (a single atomic-free bool check on the hot path). Enables
+// p50/p90/p99/p99.9 + CDF + tail analysis without perturbing steady-state means.
+namespace gvirtus_lattrace {
+struct Sample {
+    long rt_us;          // total client-observed round-trip
+    long server_us;      // server-reported execution time
+    unsigned long bytes; // effective payload size
+    const char *routine; // string literal (static lifetime) from Execute()
+};
+
+class Tracer {
+ public:
+    static Tracer &instance() {
+        static Tracer t;
+        return t;
+    }
+    bool enabled() const { return enabled_; }
+    void registerBuffer(std::vector<Sample> *buf) {
+        std::lock_guard<std::mutex> lk(mtx_);
+        buffers_.push_back(buf);
+    }
+    ~Tracer() { flush(); }
+    void flush() {
+        if (!enabled_) return;
+        std::lock_guard<std::mutex> lk(mtx_);
+        std::ofstream ofs(path_);
+        if (!ofs) return;
+        ofs << "routine,payload_bytes,rt_us,server_us\n";
+        for (auto *b : buffers_)
+            for (const auto &s : *b)
+                ofs << (s.routine ? s.routine : "?") << ',' << s.bytes << ','
+                    << s.rt_us << ',' << s.server_us << '\n';
+    }
+
+ private:
+    Tracer() {
+        const char *p = std::getenv("GVIRTUS_LATENCY_TRACE");
+        if (p && p[0]) {
+            enabled_ = true;
+            path_ = p;
+        }
+    }
+    bool enabled_ = false;
+    std::string path_;
+    std::mutex mtx_;
+    std::vector<std::vector<Sample> *> buffers_;
+};
+
+// Per-thread sample buffer (heap-allocated, intentionally never freed so it
+// survives thread exit and is still valid when Tracer flushes at process exit).
+inline thread_local std::vector<Sample> *tls_buf = nullptr;
+
+inline void record(const char *routine, unsigned long bytes, long rt_us, long server_us) {
+    Tracer &tr = Tracer::instance();
+    if (!tr.enabled()) return;
+    if (tls_buf == nullptr) {
+        tls_buf = new std::vector<Sample>();
+        tls_buf->reserve(1u << 17);
+        tr.registerBuffer(tls_buf);
+    }
+    tls_buf->push_back(Sample{rt_us, server_us, bytes, routine});
+}
+}  // namespace gvirtus_lattrace
+
+using std::chrono::microseconds;
 
 using namespace std;
 using namespace log4cplus;
@@ -250,6 +322,20 @@ Frontend *Frontend::GetFrontend(Communicator *c) {
 }
 
 void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
+    ExecuteInternal(routine, input_buffer, /*force_fire_and_forget=*/false);
+}
+
+// Asynchronous / fire-and-forget dispatch (GVIRTUS_ASYNC_DISPATCH). Only the
+// UCX Active-Message transport honours this; on other transports it degrades to
+// a normal synchronous Execute (the stream protocol always expects a response).
+// The caller must only route stream-ordered, output-less CUDA calls here (see
+// the frontend stub allowlist); any failure surfaces at the next sync point.
+void Frontend::ExecuteAsync(const char *routine, const Buffer *input_buffer) {
+    ExecuteInternal(routine, input_buffer, /*force_fire_and_forget=*/true);
+}
+
+void Frontend::ExecuteInternal(const char *routine, const Buffer *input_buffer,
+                               bool force_fire_and_forget) {
     // Reentrancy guard for libuct_cuda's module init firing cu* calls during
     // ucp_init() (which itself runs inside Frontend::Init -> Connect). At
     // that point _communicator->obj_ptr() is set but not yet Connected; if
@@ -290,6 +376,9 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
     frontend->mRoutinesExecuted++;
 
     const bool ucx_am_mode = frontend->_communicator->obj_ptr()->to_string() == "ucxcommunicator";
+    // Fire-and-forget only applies to the UCX AM transport; other transports
+    // must still round-trip (their stream protocol expects a response).
+    const bool fire_and_forget = force_fire_and_forget && ucx_am_mode;
 
     if (ucx_am_mode) {
         auto start_send = steady_clock::now();
@@ -303,7 +392,9 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
         req_header.version = gvirtus::communicators::ucxam::kEnvelopeVersion;
         req_header.message_type = static_cast<std::uint16_t>(gvirtus::communicators::ucxam::MessageType::Request);
         req_header.header_size = static_cast<std::uint16_t>(sizeof(gvirtus::communicators::ucxam::EnvelopeHeader));
-        req_header.reserved0 = 0;
+        req_header.reserved0 = fire_and_forget
+                                   ? gvirtus::communicators::ucxam::kEnvelopeFlagNoResponse
+                                   : 0;
         req_header.status_code = 0;
         req_header.request_id = request_id;
         req_header.routine_size = static_cast<std::uint64_t>(routine_size);
@@ -378,6 +469,34 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
             has_direct ? frontend->mDirectInputBytes : 0);
         frontend->_communicator->obj_ptr()->WriteIov(iov, static_cast<size_t>(n));
         auto tC = steady_clock::now();
+
+        if (fire_and_forget) {
+            // Fire-and-forget: WriteIov already waited for LOCAL send completion
+            // (wait_request_completion inside the communicator), so the stack
+            // envelope header + iov are safe to release now, and the request is
+            // in-order on the wire. We deliberately skip Sync() (worker flush)
+            // and the entire response read — that is where the round-trip
+            // latency we are eliminating lives. Errors are reconciled by the
+            // backend onto the next synchronous call.
+            send_sec =
+                duration_cast<milliseconds>(steady_clock::now() - start_send).count() / 1000.0;
+            frontend->ClearDirectInput();
+            frontend->mpOutputBuffer->Reset();
+            frontend->mExitCode = 0;  // cudaSuccess; async errors surface at next sync point
+            frontend->mSendingTime += send_sec;
+
+            if (gvirtus_lattrace::Tracer::instance().enabled()) {
+                const long rt_us =
+                    duration_cast<microseconds>(steady_clock::now() - start_send).count();
+                gvirtus_lattrace::record(routine,
+                                         static_cast<unsigned long>(effective_payload), rt_us, 0);
+            }
+
+            LOG4CPLUS_DEBUG(logger, "[UCX AM] fire-and-forget '"
+                                        << routine << "' [req_id=" << request_id
+                                        << ", send=" << send_sec << "s]");
+            return;
+        }
 
         frontend->_communicator->obj_ptr()->Sync();
         auto tD = steady_clock::now();
@@ -546,6 +665,14 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
         }
 
         recv_sec = duration_cast<milliseconds>(steady_clock::now() - start_recv).count() / 1000.0;
+
+        if (gvirtus_lattrace::Tracer::instance().enabled()) {
+            const long rt_us =
+                duration_cast<microseconds>(steady_clock::now() - start_send).count();
+            gvirtus_lattrace::record(routine,
+                                     static_cast<unsigned long>(effective_payload), rt_us,
+                                     static_cast<long>(server_exec_sec * 1e6));
+        }
 
         if (profile) {
             auto us = [](auto a, auto b) {

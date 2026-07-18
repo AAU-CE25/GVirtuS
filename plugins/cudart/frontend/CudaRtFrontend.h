@@ -57,6 +57,46 @@ class CudaRtFrontend {
             // calls may dereference invalid state and crash the process.
             std::exit(EXIT_FAILURE);
         }
+        // Track the sticky last error client-side so cudaGetLastError/
+        // cudaPeekAtLastError can answer locally without a round-trip.
+        cudart_state::note_exit_code(
+            static_cast<int>(gvirtus::frontend::Frontend::GetFrontend()->GetExitCode()));
+    }
+
+    // Fire-and-forget dispatch for stream-ordered, output-less CUDA calls
+    // (GVIRTUS_ASYNC_DISPATCH). Sends without waiting for a response on the UCX
+    // AM transport; degrades to a synchronous Execute on other transports. Does
+    // NOT touch the sticky last error: a valid async launch returns cudaSuccess
+    // (never clears the sticky error), and any real failure is folded by the
+    // backend into the next synchronous call, where Execute() records it.
+    static inline void ExecuteAsync(const char* routine, const Buffer* input_buffer = NULL) {
+        try {
+            gvirtus::frontend::Frontend::GetFrontend()->ExecuteAsync(routine, input_buffer);
+        } catch (const std::exception& e) {
+            cerr << "Async execution exception: " << e.what() << endl;
+            std::exit(EXIT_FAILURE);
+        }
+    }
+
+    // Runtime gate for the async dispatcher: GVIRTUS_ASYNC_DISPATCH=1 enables
+    // fire-and-forget for the curated stream-ordered stub allowlist; anything
+    // else (unset / "0") keeps the fully-synchronous behaviour. Read once.
+    static inline bool AsyncDispatchEnabled() {
+        static const bool enabled = []() {
+            const char* v = std::getenv("GVIRTUS_ASYNC_DISPATCH");
+            return v != nullptr && v[0] == '1' && v[1] == '\0';
+        }();
+        return enabled;
+    }
+
+    // Dispatch a stream-ordered, output-less routine asynchronously when the
+    // gate is on, otherwise synchronously. Only call this for routines on the
+    // vetted async allowlist (no output parameters the caller consumes).
+    static inline void ExecuteMaybeAsync(const char* routine, const Buffer* input_buffer = NULL) {
+        if (AsyncDispatchEnabled())
+            ExecuteAsync(routine, input_buffer);
+        else
+            Execute(routine, input_buffer);
     }
 
     /**
