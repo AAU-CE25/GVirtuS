@@ -965,6 +965,18 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaHostUnregister(void *ptr) {
 // TODO: needs testing
 extern "C" __host__ cudaError_t CUDARTAPI
 cudaPointerGetAttributes(cudaPointerAttributes *attributes, const void *ptr) {
+    // GVirtuS short-circuit: ptr from a known device allocation (cudaMalloc / RMM pool).
+    // The RPC handler below is unvalidated (// TODO) and crashes cupy's
+    // UnownedMemory(device_id=-1) path (rmm_cupy_allocator) behind cuDF .values/.to_cupy.
+    // isInDeviceRange is populated by cudaMalloc via addDeviceRange (b56a77f).
+    if (attributes != nullptr && CudaRtFrontend::isInDeviceRange(ptr)) {
+        memset(attributes, 0, sizeof(cudaPointerAttributes));
+        attributes->type = cudaMemoryTypeDevice;
+        attributes->device = 0;
+        attributes->devicePointer = const_cast<void *>(ptr);
+        attributes->hostPointer = nullptr;
+        return cudaSuccess;
+    }
     CudaRtFrontend::Prepare();
     CudaRtFrontend::AddVariableForArguments(ptr);
     CudaRtFrontend::Execute("cudaPointerGetAttributes");
