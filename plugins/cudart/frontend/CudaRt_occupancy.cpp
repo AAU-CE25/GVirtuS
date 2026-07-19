@@ -82,6 +82,11 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaOccupancyAvailableDynamicSMemPerBl
     long per_block = (long)smemPerSM / numBlocks;
     long avail = per_block - (long)attr.sharedSizeBytes;
     if (avail < 0) avail = 0;
+    // GVirtuS: the >48KB dynamic-shmem opt-in (cudaFuncSetAttribute
+    // MaxDynamicSharedMemorySize) is not honored on the backend yet, so a launch
+    // requesting >48KB fails with InvalidValue. cuDF uses 0.5*avail, so cap avail
+    // to keep that under the 48KB default (49152). TODO: wire the opt-in, drop cap.
+    if (avail > 96256L) avail = 96256L;
     *dynamicSmemSize = (size_t)avail;
     return cudaSuccess;
 }
