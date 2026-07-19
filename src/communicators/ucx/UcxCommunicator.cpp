@@ -1181,13 +1181,23 @@ void UcxCommunicator::init_rx_pool() {
     // app receives the response, slot 0 is free for the next request). Was
     // 4 originally but each cudaHostAlloc(64MB) + ucp_mem_map costs ~75ms;
     // halving the count halves per-connection setup time.
-    constexpr size_t kInitialSlotCount = 2;
-    // 64MB payload + 1MB headroom: leaves room for the envelope header
-    // (~40B), the routine name (variable), and any pad bytes the protocol
-    // might tack on. Without this slack a 64MB cudaMemcpy lands at 64MB+N
-    // bytes total, exceeds rs.capacity, and WriteIovRma falls back to the
-    // AM-stream IOV path (silently losing the RMA fast path).
-    constexpr size_t kInitialSlotCap   = (1024u * 1024u + 1024u) * 1024u;  // 1025MB
+    // Slot count and per-slot capacity are configurable for the async
+    // dispatcher (Phase 2): more slots let the frontend keep more fire-and-forget
+    // large-H2D copies in flight before it must drain. Defaults preserve the
+    // original synchronous behaviour (2 x 1025 MB). For async, prefer more,
+    // smaller slots to bound memory, e.g. GVIRTUS_RMA_SLOTS=8
+    // GVIRTUS_RMA_SLOT_CAP_MB=128. Note total pinned memory is
+    // count * cap * (1 + gpudirect_shadow); keep it modest (GPU-leak sensitive).
+    auto env_size = [](const char *k, size_t dflt) -> size_t {
+        const char *v = std::getenv(k);
+        if (v == nullptr || v[0] == '\0') return dflt;
+        char *end = nullptr;
+        unsigned long long parsed = std::strtoull(v, &end, 10);
+        return (parsed > 0) ? static_cast<size_t>(parsed) : dflt;
+    };
+    const size_t kInitialSlotCount = env_size("GVIRTUS_RMA_SLOTS", 2);
+    const size_t kInitialSlotCap =
+        env_size("GVIRTUS_RMA_SLOT_CAP_MB", 1025) * 1024u * 1024u;  // default 1025MB
 
     std::lock_guard<std::mutex> lk(rx_pool_->mu);
     if (!rx_pool_->slots.empty()) return;  // already initialized
