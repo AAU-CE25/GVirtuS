@@ -420,3 +420,14 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
         return;
     }
 }
+
+// Resets the calling thread's input Buffer so the next marshaled call starts
+// from a clean slate. Every plugin's per-routine frontend wrapper calls this
+// (via e.g. CudaDrFrontend::Prepare() -> Frontend::GetFrontend()->Prepare())
+void Frontend::Prepare() {
+    pid_t tid = syscall(SYS_gettid);
+    {
+        if (this->mpFrontends->find(tid) != mpFrontends->end())
+            mpFrontends->find(tid)->second->mpInputBuffer->Reset();
+    }
+}
