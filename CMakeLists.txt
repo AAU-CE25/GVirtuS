@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.18)
 cmake_policy(SET CMP0104 NEW)
 
-project(GVirtuS LANGUAGES CXX)
+project(GVirtuS LANGUAGES CXX C)
 
 # ===== LZ4 check & link =====
 find_package(LZ4 QUIET)

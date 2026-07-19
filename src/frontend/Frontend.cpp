@@ -329,7 +329,7 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
         frontend->mDataSent += payload_size;
         std::string err;
         if (!gvirtus::communicators::am::WriteRequest(
-                frontend->_communicator->obj_ptr(), request_id, routine,
+                frontend->_communicator->obj_ptr().get(), request_id, routine,
                 payload_iov.data(), payload_iov.size(), err)) {
             throw std::runtime_error("Frontend: WriteRequest failed: " + err);
         }
@@ -346,7 +346,7 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
         const unsigned char *out_data = nullptr;
         bool owns_frame = false;
         if (!gvirtus::communicators::am::ReadResponse(
-                frontend->_communicator->obj_ptr(), request_id, exit_code, server_exec_sec,
+                frontend->_communicator->obj_ptr().get(), request_id, exit_code, server_exec_sec,
                 out_data, out_buffer_size, owns_frame, err)) {
             if (owns_frame) frontend->_communicator->obj_ptr()->ReleaseFrame();
             throw std::runtime_error("Frontend: ReadResponse failed: " + err);
