@@ -61,6 +61,7 @@
 #include <gvirtus/communicators/Communicator.h>
 
 #include <map>
+#include <cstdint>
 
 namespace gvirtus::frontend {
 /**
@@ -119,6 +120,18 @@ class Frontend {
      * @param input_buffer the buffer containing the parameters of the routine.
      */
     void ExecuteAsync(const char *routine, const communicators::Buffer *input_buffer = NULL);
+
+    /**
+     * Deferred device-to-host copy (Phase 3 async dispatcher). Sends the D2H
+     * request in stream order but does NOT block for the reply; the destination
+     * `dst` (count bytes) is filled from the reply at the next synchronization
+     * point (drained at the start of the next synchronous Execute). Only the
+     * caller's pinned host buffers may be deferred (pageable dst must stay
+     * synchronous). On non-UCX transports this degrades to a synchronous copy
+     * that fills `dst` immediately. The frontend owns writing into `dst`.
+     */
+    void ExecuteDeferredD2H(const char *routine, void *dst, size_t count,
+                            const communicators::Buffer *input_buffer = NULL);
 
     /**
      * Prepares the Frontend for the execution. This method _must_ be called
@@ -308,12 +321,27 @@ class Frontend {
 
    private:
     /**
-     * Shared implementation of Execute()/ExecuteAsync(). When
-     * force_fire_and_forget is true and the transport is UCX AM, the request is
-     * sent without waiting for a response.
+     * Dispatch mode for ExecuteInternal.
+     *   Sync         — send and block for the reply (default).
+     *   FireAndForget— send, no reply expected (UCX AM only).
+     *   DeferredD2H  — send, reply collected later (drained at next sync).
+     */
+    enum class DispatchMode { Sync, FireAndForget, DeferredD2H };
+
+    /**
+     * Shared implementation of Execute()/ExecuteAsync()/ExecuteDeferredD2H().
+     * For DeferredD2H, d2h_dst/d2h_count record where the reply payload must be
+     * written when the pending copy is drained.
      */
     void ExecuteInternal(const char *routine, const communicators::Buffer *input_buffer,
-                         bool force_fire_and_forget);
+                         DispatchMode mode, void *d2h_dst = nullptr, size_t d2h_count = 0);
+
+    /**
+     * Read and complete all outstanding DeferredD2H replies (in-order FIFO
+     * guarantees they precede any later synchronous reply). Called at the start
+     * of a synchronous receive so a sync call never mis-reads a deferred reply.
+     */
+    void DrainPendingD2H();
 
     /**
      * Constructs a new Frontend. It creates and sets also the Communicator to
@@ -344,6 +372,21 @@ class Frontend {
     size_t      mDirectInputBytes        = 0;
     size_t      mDirectInputBufferOffset = 0;
     std::shared_ptr<communicators::Buffer> mpLaunchBuffer;
+
+    // Phase 3 async dispatcher: outstanding deferred D2H copies, keyed by AM
+    // request_id, recording where the reply payload must land. Drained at the
+    // next synchronous receive.
+    struct PendingD2H {
+        void *dst;
+        size_t count;
+    };
+    std::map<std::uint64_t, PendingD2H> mPendingD2H;
+
+    // Phase 2 async dispatcher: count of fire-and-forget large-H2D copies that
+    // have consumed an RMA remote slot since the last drain (any synchronous
+    // response). Bounds outstanding async RMA sends to the slot count so a
+    // remote slot is never reused before the backend consumed it.
+    size_t mAsyncRmaInflight = 0;
 
     int mExitCode;
     static std::map<pthread_t, Frontend *> *mpFrontends;

@@ -75,6 +75,7 @@
 #include <fstream>
 #include <iostream>
 #include <mutex>
+#include <algorithm>
 #include <atomic>
 #include <vector>
 
@@ -348,7 +349,7 @@ Frontend *Frontend::GetFrontend(Communicator *c) {
 }
 
 void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
-    ExecuteInternal(routine, input_buffer, /*force_fire_and_forget=*/false);
+    ExecuteInternal(routine, input_buffer, DispatchMode::Sync);
 }
 
 // Asynchronous / fire-and-forget dispatch (GVIRTUS_ASYNC_DISPATCH). Only the
@@ -357,11 +358,90 @@ void Frontend::Execute(const char *routine, const Buffer *input_buffer) {
 // The caller must only route stream-ordered, output-less CUDA calls here (see
 // the frontend stub allowlist); any failure surfaces at the next sync point.
 void Frontend::ExecuteAsync(const char *routine, const Buffer *input_buffer) {
-    ExecuteInternal(routine, input_buffer, /*force_fire_and_forget=*/true);
+    ExecuteInternal(routine, input_buffer, DispatchMode::FireAndForget);
+}
+
+// Deferred D2H: send in stream order, collect the reply (and write it into dst)
+// at the next synchronous receive. UCX-only; degrades to synchronous fill.
+void Frontend::ExecuteDeferredD2H(const char *routine, void *dst, size_t count,
+                                  const Buffer *input_buffer) {
+    ExecuteInternal(routine, input_buffer, DispatchMode::DeferredD2H, dst, count);
+}
+
+// Complete one deferred D2H reply: locate the pending entry by request_id and
+// copy the payload ([size_t inner_count][inner_count bytes]) into its dst.
+void Frontend::DrainPendingD2H() {
+    namespace am = gvirtus::communicators::ucxam;
+    auto *comm = _communicator->obj_ptr().get();
+    const size_t fixed = sizeof(double) + sizeof(size_t);  // exec_sec + out_size
+
+    auto complete = [this](std::uint64_t request_id, int status,
+                           const unsigned char *out_data, size_t out_size) {
+        auto it = mPendingD2H.find(request_id);
+        if (it == mPendingD2H.end()) {
+            throw std::runtime_error("DrainPendingD2H: reply for unknown request_id");
+        }
+        if (status == 0 && out_data != nullptr && out_size >= sizeof(size_t)) {
+            size_t inner = 0;
+            std::memcpy(&inner, out_data, sizeof(size_t));
+            const size_t n = std::min(inner, it->second.count);
+            if (n > 0 && it->second.dst != nullptr && out_size >= sizeof(size_t) + n) {
+                std::memcpy(it->second.dst, out_data + sizeof(size_t), n);
+            }
+        }
+        mPendingD2H.erase(it);
+    };
+
+    while (!mPendingD2H.empty()) {
+        am::EnvelopeHeader h{};
+        const unsigned char *frame = nullptr;
+        size_t frame_size = 0;
+        if (comm->TryAcquireFrame(frame, frame_size)) {
+            if (frame_size < sizeof(h)) {
+                comm->ReleaseFrame();
+                throw std::runtime_error("DrainPendingD2H: frame smaller than header");
+            }
+            std::memcpy(&h, frame, sizeof(h));
+            if (h.magic != am::kEnvelopeMagic || h.version != am::kEnvelopeVersion ||
+                h.header_size != sizeof(h)) {
+                comm->ReleaseFrame();
+                throw std::runtime_error("DrainPendingD2H: invalid reply header");
+            }
+            const size_t payload_len = static_cast<size_t>(h.payload_size);
+            const unsigned char *out_data = nullptr;
+            size_t out_size = 0;
+            if (payload_len >= fixed && frame_size >= sizeof(h) + fixed) {
+                std::memcpy(&out_size, frame + sizeof(h) + sizeof(double), sizeof(size_t));
+                out_data = frame + sizeof(h) + fixed;
+            }
+            complete(h.request_id, static_cast<int>(h.status_code), out_data, out_size);
+            comm->ReleaseFrame();
+        } else {
+            if (!read_exact(comm, reinterpret_cast<char *>(&h), sizeof(h))) {
+                throw std::runtime_error("DrainPendingD2H: failed to read reply header");
+            }
+            if (h.magic != am::kEnvelopeMagic || h.version != am::kEnvelopeVersion ||
+                h.header_size != sizeof(h)) {
+                throw std::runtime_error("DrainPendingD2H: invalid reply header");
+            }
+            std::vector<unsigned char> payload(static_cast<size_t>(h.payload_size));
+            if (!payload.empty() &&
+                !read_exact(comm, reinterpret_cast<char *>(payload.data()), payload.size())) {
+                throw std::runtime_error("DrainPendingD2H: failed to read reply payload");
+            }
+            const unsigned char *out_data = nullptr;
+            size_t out_size = 0;
+            if (payload.size() >= fixed) {
+                std::memcpy(&out_size, payload.data() + sizeof(double), sizeof(size_t));
+                out_data = payload.data() + fixed;
+            }
+            complete(h.request_id, static_cast<int>(h.status_code), out_data, out_size);
+        }
+    }
 }
 
 void Frontend::ExecuteInternal(const char *routine, const Buffer *input_buffer,
-                               bool force_fire_and_forget) {
+                               DispatchMode mode, void *d2h_dst, size_t d2h_count) {
     // Reentrancy guard for libuct_cuda's module init firing cu* calls during
     // ucp_init() (which itself runs inside Frontend::Init -> Connect). At
     // that point _communicator->obj_ptr() is set but not yet Connected; if
@@ -404,7 +484,30 @@ void Frontend::ExecuteInternal(const char *routine, const Buffer *input_buffer,
     const bool ucx_am_mode = frontend->_communicator->obj_ptr()->to_string() == "ucxcommunicator";
     // Fire-and-forget only applies to the UCX AM transport; other transports
     // must still round-trip (their stream protocol expects a response).
-    const bool fire_and_forget = force_fire_and_forget && ucx_am_mode;
+    bool fire_and_forget = (mode == DispatchMode::FireAndForget) && ucx_am_mode;
+    // Deferred D2H: UCX-only; on other transports fall through to a synchronous
+    // read and fill dst inline below.
+    const bool deferred_d2h = (mode == DispatchMode::DeferredD2H) && ucx_am_mode;
+
+    // Phase 2 RMA slot flow control: a large H2D that would take the zero-copy
+    // RMA slot path can only be fire-and-forget while a free remote slot is
+    // available. Once we would wrap the ring onto a slot the backend has not
+    // consumed yet, demote THIS copy to synchronous -- waiting for its response
+    // drains every prior fire-and-forget RMA send (strict in-order FIFO),
+    // freeing all slots. No extra messages, correct backpressure.
+    if (fire_and_forget) {
+        auto *comm = frontend->_communicator->obj_ptr().get();
+        const size_t rma_payload = input_buffer->GetBufferSize() + frontend->mDirectInputBytes;
+        if (comm->rma_uses_slots(rma_payload)) {
+            const size_t slots = comm->rma_slot_count();
+            if (slots == 0 || frontend->mAsyncRmaInflight + 1 >= slots) {
+                fire_and_forget = false;
+                frontend->mAsyncRmaInflight = 0;
+            } else {
+                frontend->mAsyncRmaInflight++;
+            }
+        }
+    }
 
     if (ucx_am_mode) {
         auto start_send = steady_clock::now();
@@ -516,6 +619,25 @@ void Frontend::ExecuteInternal(const char *routine, const Buffer *input_buffer,
             return;
         }
 
+        if (deferred_d2h) {
+            // Deferred D2H: the request is on the wire in stream order; the
+            // backend will reply normally, but we collect that reply (and write
+            // it into d2h_dst) at the next synchronous receive (DrainPendingD2H).
+            // Strict in-order FIFO guarantees this reply precedes any later
+            // synchronous reply, so it is safe to defer.
+            send_sec =
+                duration_cast<milliseconds>(steady_clock::now() - start_send).count() / 1000.0;
+            frontend->ClearDirectInput();
+            frontend->mpOutputBuffer->Reset();
+            frontend->mExitCode = 0;  // optimistic; real status rides the drained reply
+            frontend->mSendingTime += send_sec;
+            frontend->mPendingD2H[request_id] = Frontend::PendingD2H{d2h_dst, d2h_count};
+            LOG4CPLUS_DEBUG(logger, "[UCX AM] deferred-D2H '"
+                                        << routine << "' [req_id=" << request_id
+                                        << ", dst=" << d2h_dst << ", count=" << d2h_count << "]");
+            return;
+        }
+
         frontend->_communicator->obj_ptr()->Sync();
         auto tD = steady_clock::now();
 
@@ -524,6 +646,11 @@ void Frontend::ExecuteInternal(const char *routine, const Buffer *input_buffer,
         // Fase 5: direct input chunk has been consumed by WriteIov+Sync above;
         // drop the pointer so the next Execute() doesn't accidentally inherit it.
         frontend->ClearDirectInput();
+
+        // Drain any outstanding deferred D2H replies first: strict in-order FIFO
+        // means they arrive before THIS call's reply, so a synchronous read must
+        // consume them (filling their dst) before reading its own reply.
+        if (!frontend->mPendingD2H.empty()) frontend->DrainPendingD2H();
 
         frontend->mpOutputBuffer->Reset();
         auto start_recv = steady_clock::now();
@@ -684,6 +811,11 @@ void Frontend::ExecuteInternal(const char *routine, const Buffer *input_buffer,
 
         recv_sec = duration_cast<milliseconds>(steady_clock::now() - start_recv).count() / 1000.0;
 
+        // A synchronous response proves (strict in-order FIFO) the backend has
+        // processed and freed every prior fire-and-forget RMA slot, so the ring
+        // is fully drained.
+        frontend->mAsyncRmaInflight = 0;
+
         if (gvirtus_lattrace::Tracer::instance().enabled()) {
             const long rt_us =
                 duration_cast<microseconds>(steady_clock::now() - start_send).count();
@@ -799,6 +931,15 @@ void Frontend::ExecuteInternal(const char *routine, const Buffer *input_buffer,
         if (hybrid) {
             hybrid->end_call();
         }
+    }
+
+    // Defensive: on a non-UCX transport a DeferredD2H request is handled
+    // synchronously above; fill the caller's dst from the output buffer here so
+    // ExecuteDeferredD2H always owns the copy regardless of transport.
+    if (mode == DispatchMode::DeferredD2H && d2h_dst != nullptr && d2h_count > 0 &&
+        frontend->mExitCode == 0) {
+        char *src = frontend->mpOutputBuffer->Assign<char>(d2h_count);
+        if (src != nullptr) memmove(d2h_dst, src, d2h_count);
     }
 }
 

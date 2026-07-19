@@ -28,8 +28,57 @@
 
 #include "CudaRt.h"
 
+#include <cstdint>
+#include <map>
+#include <mutex>
+
 using namespace std;
 using gvirtus::common::mappedPointer;
+
+// Phase 3 async dispatcher: registry of the frontend's pinned host allocations
+// (cudaHostAlloc / cudaMallocHost). A deferred async D2H is only safe when its
+// destination is one of these tracked buffers -- pageable dst must stay
+// synchronous because real CUDA fills it synchronously (deferring would let a
+// no-sync reader observe stale bytes). Ranges are [base, base+size).
+//
+// Function-local statics (Meyers singletons); allocated with new and never
+// freed so they survive BOTH early static init (the communicator's init_rx_pool
+// calls cudaHostAlloc during CudaRtFrontend's static constructor) AND static
+// destruction at exit (the communicator's rx_pool teardown calls cudaFreeHost
+// after libcudart's statics would otherwise be destroyed). Both fiascos crash a
+// plain file-scope or plain local-static container; the tiny one-time leak here
+// is the standard, safe fix.
+namespace {
+std::mutex &pinned_mu() {
+    static std::mutex *m = new std::mutex();
+    return *m;
+}
+std::map<uintptr_t, size_t> &pinned_map() {
+    static std::map<uintptr_t, size_t> *m = new std::map<uintptr_t, size_t>();  // base -> size
+    return *m;
+}
+
+void gvirtus_track_pinned(void *p, size_t size) {
+    if (p == nullptr) return;
+    std::lock_guard<std::mutex> lk(pinned_mu());
+    pinned_map()[reinterpret_cast<uintptr_t>(p)] = size;
+}
+void gvirtus_untrack_pinned(void *p) {
+    if (p == nullptr) return;
+    std::lock_guard<std::mutex> lk(pinned_mu());
+    pinned_map().erase(reinterpret_cast<uintptr_t>(p));
+}
+// True iff [dst, dst+count) lies entirely within one tracked pinned allocation.
+bool gvirtus_is_pinned(const void *dst, size_t count) {
+    const uintptr_t a = reinterpret_cast<uintptr_t>(dst);
+    std::lock_guard<std::mutex> lk(pinned_mu());
+    auto &m = pinned_map();
+    auto it = m.upper_bound(a);
+    if (it == m.begin()) return false;
+    --it;  // greatest base <= a
+    return a >= it->first && (a + count) <= (it->first + it->second);
+}
+}  // namespace
 
 cudaMemcpyKind inferMemcpyKind(void *dst, const void *src) {
     if (CudaRtFrontend::isDevicePointer(dst) && CudaRtFrontend::isDevicePointer(src)) {
@@ -96,6 +145,7 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaFreeArray(cudaArray *array) {
 }
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaFreeHost(void *ptr) {
+    gvirtus_untrack_pinned(ptr);
     free(ptr);
     return cudaSuccess;
 }
@@ -133,6 +183,7 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaHostAlloc(void **ptr, size_t size,
         *ptr = NULL;
         return cudaErrorMemoryAllocation;
     }
+    gvirtus_track_pinned(*ptr, size);
     return cudaSuccess;
 }
 
@@ -214,6 +265,7 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMallocHost(void **ptr, size_t size
         *ptr = NULL;
         return cudaErrorMemoryAllocation;
     }
+    gvirtus_track_pinned(*ptr, size);
     return cudaSuccess;
 }
 
@@ -554,6 +606,10 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpy3DAsync(const cudaMemcpy3DPa
 extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpyAsync(void *dst, const void *src, size_t count,
                                                           cudaMemcpyKind kind,
                                                           cudaStream_t stream) {
+    // Async dispatch: H2D and D2D carry no return data. Small copies
+    // fire-and-forget on the AM path; large H2D uses the RMA path with the
+    // frontend's slot flow control (Phase 2). D2H still needs deferred
+    // completion (Phase 3) and stays synchronous here.
     if (kind == cudaMemcpyDefault) {
         kind = inferMemcpyKind(dst, src);
     }
@@ -585,7 +641,11 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpyAsync(void *dst, const void 
             CudaRtFrontend::AddVariableForArguments(count);
             CudaRtFrontend::AddVariableForArguments(kind);
             CudaRtFrontend::AddDevicePointerForArguments(stream);
-            CudaRtFrontend::Execute("cudaMemcpyAsync");
+            // H2D returns no data. Small copies fire-and-forget on the AM path;
+            // large copies take the RMA path where the frontend's slot flow
+            // control keeps them async while a free remote slot exists and
+            // transparently demotes to synchronous (draining the ring) otherwise.
+            CudaRtFrontend::ExecuteMaybeAsync("cudaMemcpyAsync");
             break;
         case cudaMemcpyDeviceToHost:
             // cout << "cudaMemcpyAsync DeviceToHost" << endl;
@@ -595,12 +655,17 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpyAsync(void *dst, const void 
             CudaRtFrontend::AddVariableForArguments(count);
             CudaRtFrontend::AddVariableForArguments(kind);
             CudaRtFrontend::AddDevicePointerForArguments(stream);
-            // cout << "cudaMemcpyAsync DeviceToHost: "
-            //      << "dst: " << dst << ", src: " << src << ", count: " << count
-            //      << ", kind: " << kind << ", stream: " << stream << endl;
-            CudaRtFrontend::Execute("cudaMemcpyAsync");
-            if (CudaRtFrontend::Success()) {
-                memmove(dst, CudaRtFrontend::GetOutputHostPointer<char>(count), count);
+            // D2H returns data. When the async gate is on AND dst is one of our
+            // tracked pinned buffers, defer: the frontend writes dst at the next
+            // sync point (Phase 3). Otherwise (gate off, or pageable dst) copy
+            // synchronously as before.
+            if (CudaRtFrontend::AsyncDispatchEnabled() && gvirtus_is_pinned(dst, count)) {
+                CudaRtFrontend::ExecuteDeferredD2H("cudaMemcpyAsync", dst, count);
+            } else {
+                CudaRtFrontend::Execute("cudaMemcpyAsync");
+                if (CudaRtFrontend::Success()) {
+                    memmove(dst, CudaRtFrontend::GetOutputHostPointer<char>(count), count);
+                }
             }
             break;
         case cudaMemcpyDeviceToDevice:
@@ -610,7 +675,9 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpyAsync(void *dst, const void 
             CudaRtFrontend::AddVariableForArguments(count);
             CudaRtFrontend::AddVariableForArguments(kind);
             CudaRtFrontend::AddDevicePointerForArguments(stream);
-            CudaRtFrontend::Execute("cudaMemcpyAsync");
+            // D2D carries only pointers (small AM payload) and returns no data,
+            // so it is always safe to fire-and-forget when the gate is on.
+            CudaRtFrontend::ExecuteMaybeAsync("cudaMemcpyAsync");
             break;
     }
     return CudaRtFrontend::GetExitCode();
