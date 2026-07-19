@@ -277,6 +277,20 @@ class CudaRtFrontend {
         return (devicePointers->find(p) == devicePointers->end() ? false : true);
     }
 
+    static inline void addDeviceRange(const void* base, size_t size) {
+        if (base != NULL && size > 0) (*deviceRanges)[base] = size;
+    }
+    // True if p lies within any registered [base, base+size) cudaMalloc allocation.
+    // Used ONLY to disambiguate cudaMemcpyDefault (RMM pool/offset device pointers).
+    static inline bool isInDeviceRange(const void* p) {
+        if (deviceRanges->empty()) return false;
+        auto it = deviceRanges->upper_bound(p);
+        if (it == deviceRanges->begin()) return false;
+        --it;
+        const char* base = static_cast<const char*>(it->first);
+        return static_cast<const char*>(p) < base + it->second;
+    }
+
     static inline gvirtus::common::mappedPointer getMappedPointer(void* device) {
         return mappedPointers->find(device)->second;
     };
@@ -329,6 +343,7 @@ class CudaRtFrontend {
    private:
     static map<const void*, gvirtus::common::mappedPointer>* mappedPointers;
     static set<const void*>* devicePointers;
+    static map<const void*, size_t>* deviceRanges;
     static map<pthread_t, stack<void*>*>* toManage;
     static list<configureFunction>* setup;
     Buffer* mpInputBuffer;

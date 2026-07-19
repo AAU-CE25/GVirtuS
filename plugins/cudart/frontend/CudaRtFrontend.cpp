@@ -38,6 +38,7 @@ CudaRtFrontend msInstance __attribute_used__;
 
 map<const void*, mappedPointer>* CudaRtFrontend::mappedPointers = NULL;
 set<const void*>* CudaRtFrontend::devicePointers = NULL;
+map<const void*, size_t>* CudaRtFrontend::deviceRanges = NULL;
 map<pthread_t, stack<void*>*>* CudaRtFrontend::toManage = NULL;
 
 map<const void*, std::string>* CudaRtFrontend::mapHost2DeviceFunc = NULL;
@@ -45,6 +46,7 @@ map<std::string, NvInfoFunction>* CudaRtFrontend::mapDeviceFunc2InfoFunc = NULL;
 
 CudaRtFrontend::CudaRtFrontend() {
     if (devicePointers == NULL) devicePointers = new set<const void*>();
+    if (deviceRanges == NULL) deviceRanges = new map<const void*, size_t>();
     if (mappedPointers == NULL) mappedPointers = new map<const void*, mappedPointer>();
 
     if (mapHost2DeviceFunc == NULL) mapHost2DeviceFunc = new map<const void*, std::string>();

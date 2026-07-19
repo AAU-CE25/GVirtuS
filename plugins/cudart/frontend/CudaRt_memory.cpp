@@ -44,6 +44,10 @@ cudaMemcpyKind inferMemcpyKind(void *dst, const void *src) {
         // host-host Default. CuPy reserva device por driver-API (no registrado) ->
         // ambos extremos son device -> D2D, no HostToHost (que haría memmove de
         // direcciones device en espacio host -> SIGSEGV).
+        bool dstDev = CudaRtFrontend::isInDeviceRange(dst);
+        bool srcDev = CudaRtFrontend::isInDeviceRange(src);
+        if (srcDev && !dstDev) return cudaMemcpyDeviceToHost;
+        if (dstDev && !srcDev) return cudaMemcpyHostToDevice;
         return cudaMemcpyDeviceToDevice;
     }
 }
@@ -163,6 +167,7 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMalloc(void **devPtr, size_t size)
         *devPtr = CudaRtFrontend::GetOutputDevicePointer();
         // cout << "cudaMalloc frontend devPtr: " << *devPtr << endl;
         CudaRtFrontend::addDevicePointer(*devPtr);
+        CudaRtFrontend::addDeviceRange(*devPtr, size);
     }
     return CudaRtFrontend::GetExitCode();
 }
