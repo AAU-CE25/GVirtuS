@@ -168,15 +168,23 @@ class Buffer {
         size_t size = safe_sizeof<T>() * n;
         Add(size);  // length prefix -> inline arena (mpBuffer), same as always
 
-        if (DeviceProbeEnabled() && size >= GVIRTUS_GPUREF_THRESHOLD &&
-            IsDevicePointer(static_cast<const void *>(item))) {
-            mSegments.push_back(Segment{SegKind::Inline, mInlineConsumed, nullptr,
-                                        mLength - mInlineConsumed});
-            mInlineConsumed = mLength;
-            mSegments.push_back(
-                Segment{SegKind::GpuRef, 0, static_cast<const void *>(item), size});
-            mExternalBytes += size;
-            return;  // NO memmove — bytes stay on the GPU.
+        // Function-pointer T (e.g. marshaling a callback like cuOccupancy's
+        // blockSizeToDynamicSMemSize or cudnnSetCallback's debug hook) can
+        // never be CUDA device memory, and a function pointer can't be
+        // static_cast to const void* at all — skip the probe entirely at
+        // compile time for non-object T, falling through to the plain copy
+        // below exactly as before this auto-detect existed.
+        if constexpr (std::is_object_v<T>) {
+            if (DeviceProbeEnabled() && size >= GVIRTUS_GPUREF_THRESHOLD &&
+                IsDevicePointer(static_cast<const void *>(item))) {
+                mSegments.push_back(Segment{SegKind::Inline, mInlineConsumed, nullptr,
+                                            mLength - mInlineConsumed});
+                mInlineConsumed = mLength;
+                mSegments.push_back(
+                    Segment{SegKind::GpuRef, 0, static_cast<const void *>(item), size});
+                mExternalBytes += size;
+                return;  // NO memmove — bytes stay on the GPU.
+            }
         }
 
         // Unchanged legacy path: host memory (or GPUDirect inactive/below
