@@ -42,8 +42,8 @@ using namespace std;
   extern "C" CUresult cuCtxGetCurrent(CUcontext *pctx);
   extern "C" CUresult cuCtxSetCurrent(CUcontext ctx);                                                                                                                                                                                                                                       
   extern "C" CUresult cuCtxSynchronize(void);
-  /*extern "C" CUresult cuCtxGetFlags(unsigned int *flags);                                                                                                                                                                                                                                   
-  extern "C" CUresult cuCtxGetApiVersion(CUcontext ctx, unsigned int *version);   */                                                                                                                                                                                                          
+  /*extern "C" CUresult cuCtxGetFlags(unsigned int *flags);*/
+  extern "C" CUresult cuCtxGetApiVersion(CUcontext ctx, unsigned int *version);
   extern "C" CUresult cuCtxGetLimit(size_t *value, CUlimit limit);                                                                                                                                                                                                                          
   extern "C" CUresult cuCtxSetLimit(CUlimit limit, size_t value);                                                                                                                                                                                                                           
   extern "C" CUresult cuCtxPushCurrent_v2(CUcontext ctx);                                                                                                                                                                                                                                   
@@ -846,12 +846,12 @@ using namespace std;
       /*if (strcmp(symbol, "cuCtxGetFlags") == 0) {                                                                                                                                                                                                                                           
           set_symbol_found(pfn, reinterpret_cast<void*>(&cuCtxGetFlags), symbolStatus);
           return CUDA_SUCCESS;                                                                                                                                                                                                                                                              
-      }
+      }*/
                                                                                                                                                                                                                                                                                             
       if (strcmp(symbol, "cuCtxGetApiVersion") == 0) {                                                                                                                                                                                                                                      
           set_symbol_found(pfn, reinterpret_cast<void*>(&cuCtxGetApiVersion), symbolStatus);
           return CUDA_SUCCESS;                                                                                                                                                                                                                                                              
-      }   */                                                                                                                                                                                                                                                                                  
+      }
    
       if (strcmp(symbol, "cuCtxGetLimit") == 0) {                                                                                                                                                                                                                                           
           set_symbol_found(pfn, reinterpret_cast<void*>(&cuCtxGetLimit), symbolStatus);
