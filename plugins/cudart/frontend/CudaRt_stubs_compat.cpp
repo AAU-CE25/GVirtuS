@@ -225,7 +225,7 @@ __attribute__((visibility("default"))) cudaError_t_local cudaMemsetAsync_ptsz() 
 __attribute__((visibility("default"))) cudaError_t_local cudaMemset_ptds() { STUB_LOG("cudaMemset_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMipmappedArrayGetMemoryRequirements() { STUB_LOG("cudaMipmappedArrayGetMemoryRequirements"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMipmappedArrayGetSparseProperties() { STUB_LOG("cudaMipmappedArrayGetSparseProperties"); return CUDART_STUB_NOT_SUPPORTED; }
-__attribute__((visibility("default"))) cudaError_t_local cudaOccupancyAvailableDynamicSMemPerBlock() { STUB_LOG("cudaOccupancyAvailableDynamicSMemPerBlock"); return CUDART_STUB_NOT_SUPPORTED; }
+// cudaOccupancyAvailableDynamicSMemPerBlock: real impl in CudaRt_occupancy.cpp
 __attribute__((visibility("default"))) cudaError_t_local cudaOccupancyMaxActiveClusters() { STUB_LOG("cudaOccupancyMaxActiveClusters"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaOccupancyMaxPotentialClusterSize() { STUB_LOG("cudaOccupancyMaxPotentialClusterSize"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaSignalExternalSemaphoresAsync() { STUB_LOG("cudaSignalExternalSemaphoresAsync"); return CUDART_STUB_NOT_SUPPORTED; }

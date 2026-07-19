@@ -59,3 +59,29 @@ extern "C" __host__ cudaError_t cudaOccupancyMaxActiveBlocksPerMultiprocessorWit
     if (CudaRtFrontend::Success()) *numBlocks = *(CudaRtFrontend::GetOutputHostPointer<int>());
     return CudaRtFrontend::GetExitCode();
 }
+
+/* cudaOccupancyAvailableDynamicSMemPerBlock -- host-side calc (needed by RAPIDS/cuDF
+ * groupby hash aggs). available dynamic shmem/block = maxSharedMemPerSM/numBlocks -
+ * kernel static shmem. Uses the real cudaFuncGetAttributes + cudaDeviceGetAttribute
+ * (both RPC to the backend), so no backend change is required. */
+extern "C" __host__ cudaError_t CUDARTAPI cudaOccupancyAvailableDynamicSMemPerBlock(
+        size_t *dynamicSmemSize, const void *func, int numBlocks, int blockSize) {
+    (void)blockSize;
+    if (dynamicSmemSize == NULL || func == NULL || numBlocks <= 0)
+        return cudaErrorInvalidValue;
+    struct cudaFuncAttributes attr;
+    cudaError_t err = cudaFuncGetAttributes(&attr, func);
+    if (err != cudaSuccess) return err;
+    int device = 0;
+    err = cudaGetDevice(&device);
+    if (err != cudaSuccess) return err;
+    int smemPerSM = 0;
+    err = cudaDeviceGetAttribute(&smemPerSM,
+                                 cudaDevAttrMaxSharedMemoryPerMultiprocessor, device);
+    if (err != cudaSuccess) return err;
+    long per_block = (long)smemPerSM / numBlocks;
+    long avail = per_block - (long)attr.sharedSizeBytes;
+    if (avail < 0) avail = 0;
+    *dynamicSmemSize = (size_t)avail;
+    return cudaSuccess;
+}
