@@ -77,6 +77,7 @@ add_library(gvirtus-communicators SHARED
     src/communicators/ucx/Endpoint_Ucx.cpp
     src/communicators/EndpointFactory.cpp
     src/communicators/Result.cpp
+    src/communicators/DeviceMemory.cpp
 )
 target_link_libraries(gvirtus-communicators gvirtus-common)
 gvirtus_install_target(gvirtus-communicators)
