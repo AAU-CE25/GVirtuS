@@ -226,7 +226,7 @@ class Frontend {
    */
   void AddSymbolForArguments(const char *symbol) {
       AddStringForArguments(CudaUtil::MarshalHostPointer((void *) symbol));
-      AddStringForArguments(symbol);
+      AddStringForArguments(CudaUtil::MarshalHostPointer((void *) symbol));
   }
 
   template <class T>T GetOutputVariable() {

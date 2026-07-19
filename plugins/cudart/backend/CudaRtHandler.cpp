@@ -27,6 +27,7 @@
  */
 
 #include "CudaRtHandler.h"
+#include "CudaUtil.h"
 
 using namespace std;
 using namespace log4cplus;
@@ -226,6 +227,7 @@ const char *CudaRtHandler::GetSymbol(std::shared_ptr<Buffer> in) {
     char *symbol = in->AssignString();
     char *our_symbol = const_cast<char *>(GetVar(symbol_handler));
     if (our_symbol != NULL) symbol = const_cast<char *>(our_symbol);
+    else symbol = (char *)CudaUtil::UnmarshalPointer(symbol_handler);
     return symbol;
 }
 
