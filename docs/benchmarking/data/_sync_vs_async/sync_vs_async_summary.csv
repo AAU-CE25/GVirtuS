@@ -1,0 +1,28 @@
+benchmark,config,transport,gpudirect,async_dispatch,metric,value,stddev,unit,notes
+llama,sync,RDMA(ucx-am),disabled,off,tg16,87.16,0.12,tok/s,before async dispatcher (gate off)
+llama,async,RDMA(ucx-am),disabled,on,tg16,187.43,0.20,tok/s,after (gate on)
+llama,sync,RDMA(ucx-am),disabled,off,pp8,558.23,2.20,tok/s,before async dispatcher (gate off)
+llama,async,RDMA(ucx-am),disabled,on,pp8,1204.48,7.81,tok/s,after (gate on)
+simple_matrix,sync,RDMA(ucx-am),disabled,off,sgemm_ms,156.36,,ms,lower is better (n=16000 iters=5)
+simple_matrix,async,RDMA(ucx-am),disabled,on,sgemm_ms,156.59,,ms,lower is better
+simple_matrix,sync,RDMA(ucx-am),disabled,off,host_ms,737.70,,ms,full per-iter H2D+GEMM+D2H (lower better)
+simple_matrix,async,RDMA(ucx-am),disabled,on,host_ms,725.80,,ms,full per-iter H2D+GEMM+D2H (lower better)
+# ------------------------------------------------------------------------------------------------
+# Backend: fresh, GVIRTUS_LOGLEVEL=40000 (ERROR), GPUDirect=0, RDMA (rc_mlx5), GVIRTUS_RMA_SLOTS=4 CAP=256MB.
+# Build: current (async dispatcher + all 3 cudaMemcpyAsync phases). "sync" = GVIRTUS_ASYNC_DISPATCH=0
+#        which routes every call through the original synchronous path -> represents behaviour BEFORE
+#        the async dispatcher. "async" = GVIRTUS_ASYNC_DISPATCH=1.
+# Cmds: llama-bench -m tinyllama-1.1b-q4.gguf -ngl 99 -p 8 -n 16 -r 2 (GGML_CUDA_DISABLE_GRAPHS=1);
+#       simple_matrix 16000 5 1. Raw logs: llama_{sync,async}_raw.log, matrix_sync_vs_async_raw.csv.
+#
+# RESULTS (2026-07-19):
+#  llama  : tg16 87.16 -> 187.43  = 2.15x (+115%);  pp8 558.23 -> 1204.48 = 2.16x (+116%).
+#  matrix : sgemm 156.36 ~= 156.59 (identical);  host 737.70 ~= 725.80 (within ~1.6% noise) -> async
+#           has NO effect on simple_matrix (it is transfer-bound: cuBLAS SGEMM + synchronous cudaMemcpy,
+#           not on the async path). This is the expected "no regression" result.
+#
+# REGRESSION CHECK: the sync (async-off) numbers on the CURRENT build match the historical async-off
+#  baseline (llama tg16 87.16 vs 87.35; pp8 558.2 vs 558.9) -> the async-dispatcher + cudaMemcpyAsync
+#  changes did NOT regress the synchronous path.
+#
+# vs bare metal (llama tg16 634.9): sync ~7.3x slower, async ~3.4x slower.
