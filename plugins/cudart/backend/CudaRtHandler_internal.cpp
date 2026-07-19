@@ -293,7 +293,7 @@ CUDA_ROUTINE_HANDLER(RegisterVar) {
         void **fatCubinHandle = pThis->GetFatBinary(handler);
         // LOG4CPLUS_DEBUG(pThis->GetLogger(), "FatCubinHandle: " <<
         // fatCubinHandle);
-        char *hostVar = input_buffer->AssignString();
+        char *hostVar = (char *)CudaUtil::UnmarshalPointer(input_buffer->AssignString());
         // LOG4CPLUS_DEBUG(pThis->GetLogger(), "HostVar: " << hostVar);
         char *deviceAddress = strdup(input_buffer->AssignString());
         // LOG4CPLUS_DEBUG(pThis->GetLogger(), "DeviceAddress: " <<

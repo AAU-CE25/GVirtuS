@@ -739,7 +739,7 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpyFromSymbol(void *dst, const 
             CudaRtFrontend::AddDevicePointerForArguments((void *)0x666);
             // Achtung: passing the address and the content of symbol
             CudaRtFrontend::AddStringForArguments(CudaUtil::MarshalHostPointer(symbol));
-            CudaRtFrontend::AddStringForArguments((char *)symbol);
+            CudaRtFrontend::AddStringForArguments(CudaUtil::MarshalHostPointer(symbol));
             CudaRtFrontend::AddVariableForArguments(count);
             CudaRtFrontend::AddVariableForArguments(offset);
             CudaRtFrontend::AddVariableForArguments(kind);
@@ -751,7 +751,7 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpyFromSymbol(void *dst, const 
             CudaRtFrontend::AddDevicePointerForArguments(dst);
             // Achtung: passing the address and the content of symbol
             CudaRtFrontend::AddStringForArguments(CudaUtil::MarshalHostPointer(symbol));
-            CudaRtFrontend::AddStringForArguments((char *)symbol);
+            CudaRtFrontend::AddStringForArguments(CudaUtil::MarshalHostPointer(symbol));
             CudaRtFrontend::AddVariableForArguments(count);
             CudaRtFrontend::AddVariableForArguments(offset);
             CudaRtFrontend::AddVariableForArguments(kind);
@@ -835,7 +835,7 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpyToSymbol(const void *symbol,
         case cudaMemcpyHostToDevice:
             // Achtung: passing the address and the content of symbol
             CudaRtFrontend::AddStringForArguments(CudaUtil::MarshalHostPointer(symbol));
-            CudaRtFrontend::AddStringForArguments((char *)symbol);
+            CudaRtFrontend::AddStringForArguments(CudaUtil::MarshalHostPointer(symbol));
             CudaRtFrontend::AddHostPointerForArguments<char>(
                 static_cast<char *>(const_cast<void *>(src)), count);
             CudaRtFrontend::AddVariableForArguments(count);
@@ -850,7 +850,7 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpyToSymbol(const void *symbol,
         case cudaMemcpyDeviceToDevice:
             // Achtung: passing the address and the content of symbol
             CudaRtFrontend::AddStringForArguments(CudaUtil::MarshalHostPointer(symbol));
-            CudaRtFrontend::AddStringForArguments((char *)symbol);
+            CudaRtFrontend::AddStringForArguments(CudaUtil::MarshalHostPointer(symbol));
             CudaRtFrontend::AddDevicePointerForArguments(src);
             CudaRtFrontend::AddVariableForArguments(count);
             CudaRtFrontend::AddVariableForArguments(kind);

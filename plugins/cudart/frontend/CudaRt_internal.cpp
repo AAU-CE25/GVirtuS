@@ -299,7 +299,7 @@ extern "C" __host__ void __cudaRegisterVar(void **fatCubinHandle, char *hostVar,
                                            int size, int constant, int global) {
     CudaRtFrontend::Prepare();
     CudaRtFrontend::AddStringForArguments(CudaUtil::MarshalHostPointer(fatCubinHandle));
-    CudaRtFrontend::AddStringForArguments(hostVar);
+    CudaRtFrontend::AddStringForArguments(CudaUtil::MarshalHostPointer(hostVar));
     CudaRtFrontend::AddStringForArguments(deviceAddress);
     CudaRtFrontend::AddStringForArguments(deviceName);
     CudaRtFrontend::AddVariableForArguments(ext);
