@@ -115,7 +115,7 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaGetSymbolAddress(void **devPtr, co
     CudaRtFrontend::AddSymbolForArguments((char *)symbol);
     CudaRtFrontend::Execute("cudaGetSymbolAddress");
     if (CudaRtFrontend::Success())
-        *devPtr = CudaUtil::UnmarshalPointer(CudaRtFrontend::GetOutputString());
+        *devPtr = CudaRtFrontend::GetOutputDevicePointer();
     return CudaRtFrontend::GetExitCode();
 }
 
