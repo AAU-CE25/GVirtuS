@@ -70,3 +70,35 @@ Driver: `/tmp/run_suite.sh <babel|minibude|transfer|matrix> <0|1>` on es-dpu-02 
 env + `GVIRTUS_ASYNC_DISPATCH`, calls the `~/benchmarks/harness/*.sh` scripts). Backend fresh at
 ERROR via `/tmp/gvirtus-backend-run-err.sh` on es-dpu-01. Restart the backend between long sweeps to
 avoid the GPU leak.
+
+---
+
+## Addendum — `cudaMemcpyAsync` made async (all 3 directions)
+
+The v1 dispatcher excluded `cudaMemcpyAsync`; it is now async in three phases (all gated by
+`GVIRTUS_ASYNC_DISPATCH`, validated with `examples/testing/test_memcpyasync_phase{1,2,3}.cu` on RDMA,
+correctness bit-identical to the sync path, no regression on llama):
+
+- **Phase 1 — D2D + small H2D (fire-and-forget).** D2D carries only pointers; small H2D (< 64 KB, AM
+  path) returns no data. Both go fire-and-forget like `cudaLaunchKernel`. Verified on the wire
+  (backend logs `cudaMemcpyAsync … no response sent`).
+- **Phase 2 — large H2D via RMA-slot flow control (ack-free).** The RMA data path round-robins a
+  bounded set of remote slots (configurable: `GVIRTUS_RMA_SLOTS`, `GVIRTUS_RMA_SLOT_CAP_MB`). The
+  frontend tracks in-flight slots and, when the ring would wrap onto a slot the backend hasn't
+  consumed, **demotes that one copy to synchronous** — which drains all prior slots (strict in-order
+  FIFO). No extra network messages; correct backpressure. Test: 24 distinct large-H2D buffers with 8
+  slots → **21 fire-and-forget + 3 sync demotions, all buffers intact** (slot reuse would corrupt).
+- **Phase 3 — D2H via deferred completion.** A D2H into a **pinned** dst (`cudaMallocHost`/
+  `cudaHostAlloc`, tracked) is sent in stream order but its reply is collected at the next
+  synchronization point (`DrainPendingD2H`, drained at the start of the next synchronous receive —
+  in-order FIFO guarantees the reply precedes it). **No backend change needed**: the backend's D2H
+  handler copies into a pageable buffer, which makes the copy synchronous and correctly
+  stream-ordered before it replies. Pageable dst stays synchronous (real CUDA fills it synchronously).
+  Test verifies a deferred D2H captures device state **at its stream position** (before a later kernel
+  overwrites the source).
+
+**Regression note (no perf loss by design):** async either overlaps or applies correct backpressure;
+the ack-free Phase-2 design adds no extra round-trips, and Phase-3 replaces the sync reply with the
+same reply collected later. A static-init/destruction-order fiasco in the pinned-allocation registry
+(hit because the communicator's `init_rx_pool` calls `cudaHostAlloc` during static init) was fixed
+with immortal function-local singletons.
