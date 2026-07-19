@@ -99,6 +99,20 @@ class CudaRtFrontend {
             Execute(routine, input_buffer);
     }
 
+    // Deferred device-to-host copy (Phase 3): the frontend writes the reply into
+    // dst at the next synchronization point. The caller must NOT read its own
+    // output buffer afterwards -- dst is filled by the frontend.
+    static inline void ExecuteDeferredD2H(const char* routine, void* dst, size_t count,
+                                          const Buffer* input_buffer = NULL) {
+        try {
+            gvirtus::frontend::Frontend::GetFrontend()->ExecuteDeferredD2H(routine, dst, count,
+                                                                           input_buffer);
+        } catch (const std::exception& e) {
+            cerr << "Deferred D2H execution exception: " << e.what() << endl;
+            std::exit(EXIT_FAILURE);
+        }
+    }
+
     /**
      * Prepares the Frontend for the execution. This method _must_ be called
      * before any requests of execution or any method for adding parameters for
