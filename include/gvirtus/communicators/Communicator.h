@@ -139,6 +139,19 @@ class Communicator {
     // that actually negotiated an RDMA lane.
     virtual bool current_connection_supports_cuda() const { return false; }
 
+    // RMA data-path flow control (async dispatcher, Phase 2). Number of remote
+    // RX slots available for the zero-copy WriteIovRma path (0 if the transport
+    // has no RMA fast path or it isn't set up yet). The frontend uses this to
+    // bound outstanding fire-and-forget large-H2D copies so it never reuses a
+    // remote slot the backend hasn't consumed yet.
+    virtual size_t rma_slot_count() const { return 0; }
+    // True iff a request whose wire payload is `bytes` would travel on the RMA
+    // slot path (rather than the AM path), i.e. it consumes a remote slot.
+    virtual bool rma_uses_slots(size_t bytes) const {
+        (void)bytes;
+        return false;
+    }
+
     virtual void Sync() = 0;
 
     /**

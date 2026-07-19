@@ -97,6 +97,16 @@ class UcxCommunicator : public Communicator {
     // GVIRTUS_GPUDIRECT=1 and the probe passed.
     bool current_connection_supports_cuda() const override;
 
+    // RMA flow-control introspection for the async dispatcher (Phase 2).
+    size_t rma_slot_count() const override {
+        return rma_setup_received_.load() ? remote_slots_.size() : 0;
+    }
+    bool rma_uses_slots(size_t bytes) const override {
+        // Mirror WriteIov's RMA-path gate: large enough payload + setup done.
+        return bytes >= kRmaThresholdBytes && rma_setup_received_.load() &&
+               !remote_slots_.empty();
+    }
+
     std::string to_string() override { return "ucxcommunicator"; }
 
    private:
@@ -245,6 +255,8 @@ class UcxCommunicator : public Communicator {
     std::condition_variable rma_setup_cv_;
     std::atomic<bool> rma_setup_received_{false};
     size_t next_remote_slot_idx_{0};
+    // Payload size (bytes) at/above which WriteIov takes the RMA slot path.
+    static constexpr size_t kRmaThresholdBytes = 64u * 1024u;
 
     void send_rma_setup();                                   // server side
     void handle_rma_setup_am(const void *data, size_t length); // client side
