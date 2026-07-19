@@ -12,7 +12,11 @@
  */
 #include "gvirtus/communicators/RpcCodec.h"
 
+#include <log4cplus/logger.h>
+#include <log4cplus/loggingmacros.h>
+
 #include <cstring>
+#include <ios>
 #include <stdexcept>
 #include <vector>
 #include <sys/uio.h>
@@ -54,6 +58,21 @@ bool ReadRequest(Communicator *c, am::EnvelopeHeader &header, std::string &routi
     std::memcpy(&header, frame, sizeof(header));
     if (!valid_header(header)) {
         c->ReleaseFrame();
+        // Diagnostic: capture what was actually on the wire, since "invalid
+        // envelope header" alone doesn't say whether this is stale/zeroed
+        // memory (uninitialized slot) or a plausible-but-wrong value
+        // (misaligned/reordered fragment).
+        static log4cplus::Logger logger =
+            log4cplus::Logger::getInstance(LOG4CPLUS_TEXT("GVirtuS.RpcCodec"));
+        LOG4CPLUS_WARN(logger,
+            "ReadRequest: invalid envelope header (magic=0x"
+                << std::hex << header.magic << std::dec
+                << " version=" << static_cast<unsigned>(header.version)
+                << " type=" << static_cast<unsigned>(header.message_type)
+                << " routine_size=" << header.routine_size
+                << ", want magic=0x" << std::hex << am::kEnvelopeMagic << std::dec
+                << " version=" << static_cast<unsigned>(am::kEnvelopeVersion)
+                << ") frame_size=" << frame_size);
         error = "invalid envelope header";
         return false;
     }
