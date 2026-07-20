@@ -64,12 +64,16 @@ CUDA_ROUTINE_HANDLER(MemPoolSetAttribute) {
     cudaMemPool_t memPool = input_buffer->Get<cudaMemPool_t>();
     cudaMemPoolAttr attr = input_buffer->Get<cudaMemPoolAttr>();
 
-    void* value =
-        isMemPoolReuseAttr(attr)
-            ? reinterpret_cast<void*>(input_buffer->Get<int>())
-            : reinterpret_cast<void*>(input_buffer->Get<cuuint64_t>());
-
-    cudaError_t exit_code = cudaMemPoolSetAttribute(memPool, attr, value);
+    // FIX: value is a POINTER to the attribute value; the previous code cast the
+    // scalar value itself to void* -> real cudaMemPoolSetAttribute dereferenced it -> SIGSEGV.
+    cudaError_t exit_code;
+    if (isMemPoolReuseAttr(attr)) {
+        int v = input_buffer->Get<int>();
+        exit_code = cudaMemPoolSetAttribute(memPool, attr, &v);
+    } else {
+        cuuint64_t v = input_buffer->Get<cuuint64_t>();
+        exit_code = cudaMemPoolSetAttribute(memPool, attr, &v);
+    }
     LOG4CPLUS_DEBUG(pThis->GetLogger(),
                     LOG4CPLUS_TEXT("cudaMemPoolSetAttribute: ") << exit_code);
     return std::make_shared<Result>(exit_code);
