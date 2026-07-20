@@ -245,6 +245,12 @@ GVS_CUSOLVER_STUB(cusolverSpSetStream)
 GVS_CUSOLVER_STUB(cusolverSpZcsreigvsi)
 GVS_CUSOLVER_STUB(cusolverSpZcsrlsvchol)
 GVS_CUSOLVER_STUB(cusolverSpZcsrlsvqr)
+GVS_CUSOLVER_STUB(cusolverDnSsterfHost)
+GVS_CUSOLVER_STUB(cusolverDnDsterfHost)
+GVS_CUSOLVER_STUB(cusolverDnSsteqrHost)
+GVS_CUSOLVER_STUB(cusolverDnDsteqrHost)
+GVS_CUSOLVER_STUB(cusolverDnSgemmHost)
+GVS_CUSOLVER_STUB(cusolverDnDgemmHost)
 
 #ifdef __cplusplus
 }

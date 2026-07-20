@@ -173,7 +173,6 @@ __attribute__((visibility("default"))) cudaError_t_local cudaLaunchCooperativeKe
 __attribute__((visibility("default"))) cudaError_t_local cudaLaunchCooperativeKernel_ptsz() { STUB_LOG("cudaLaunchCooperativeKernel_ptsz"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaLaunchHostFunc_ptsz() { STUB_LOG("cudaLaunchHostFunc_ptsz"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaLaunchKernelExC_ptsz() { STUB_LOG("cudaLaunchKernelExC_ptsz"); return CUDART_STUB_NOT_SUPPORTED; }
-__attribute__((visibility("default"))) cudaError_t_local cudaLaunchKernel_ptsz() { STUB_LOG("cudaLaunchKernel_ptsz"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMallocAsync_ptsz() { STUB_LOG("cudaMallocAsync_ptsz"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMallocFromPoolAsync() { STUB_LOG("cudaMallocFromPoolAsync"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMallocFromPoolAsync_ptsz() { STUB_LOG("cudaMallocFromPoolAsync_ptsz"); return CUDART_STUB_NOT_SUPPORTED; }
@@ -205,7 +204,6 @@ __attribute__((visibility("default"))) cudaError_t_local cudaMemcpy3DPeerAsync_p
 __attribute__((visibility("default"))) cudaError_t_local cudaMemcpy3DPeer_ptds() { STUB_LOG("cudaMemcpy3DPeer_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMemcpy3D_ptds() { STUB_LOG("cudaMemcpy3D_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMemcpyArrayToArray_ptds() { STUB_LOG("cudaMemcpyArrayToArray_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
-__attribute__((visibility("default"))) cudaError_t_local cudaMemcpyAsync_ptsz() { STUB_LOG("cudaMemcpyAsync_ptsz"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMemcpyFromArrayAsync_ptsz() { STUB_LOG("cudaMemcpyFromArrayAsync_ptsz"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMemcpyFromArray_ptds() { STUB_LOG("cudaMemcpyFromArray_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMemcpyFromSymbolAsync_ptsz() { STUB_LOG("cudaMemcpyFromSymbolAsync_ptsz"); return CUDART_STUB_NOT_SUPPORTED; }
@@ -221,7 +219,6 @@ __attribute__((visibility("default"))) cudaError_t_local cudaMemset2D_ptds() { S
 __attribute__((visibility("default"))) cudaError_t_local cudaMemset3DAsync() { STUB_LOG("cudaMemset3DAsync"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMemset3DAsync_ptsz() { STUB_LOG("cudaMemset3DAsync_ptsz"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMemset3D_ptds() { STUB_LOG("cudaMemset3D_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
-__attribute__((visibility("default"))) cudaError_t_local cudaMemsetAsync_ptsz() { STUB_LOG("cudaMemsetAsync_ptsz"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMemset_ptds() { STUB_LOG("cudaMemset_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMipmappedArrayGetMemoryRequirements() { STUB_LOG("cudaMipmappedArrayGetMemoryRequirements"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMipmappedArrayGetSparseProperties() { STUB_LOG("cudaMipmappedArrayGetSparseProperties"); return CUDART_STUB_NOT_SUPPORTED; }
@@ -254,10 +251,8 @@ __attribute__((visibility("default"))) cudaError_t_local cudaStreamGetId() { STU
 __attribute__((visibility("default"))) cudaError_t_local cudaStreamGetId_ptsz() { STUB_LOG("cudaStreamGetId_ptsz"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaStreamGetPriority_ptsz() { STUB_LOG("cudaStreamGetPriority_ptsz"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaStreamIsCapturing_ptsz() { STUB_LOG("cudaStreamIsCapturing_ptsz"); return CUDART_STUB_NOT_SUPPORTED; }
-__attribute__((visibility("default"))) cudaError_t_local cudaStreamQuery_ptsz() { STUB_LOG("cudaStreamQuery_ptsz"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaStreamSetAttribute() { STUB_LOG("cudaStreamSetAttribute"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaStreamSetAttribute_ptsz() { STUB_LOG("cudaStreamSetAttribute_ptsz"); return CUDART_STUB_NOT_SUPPORTED; }
-__attribute__((visibility("default"))) int cudaStreamSynchronize_ptsz(void* stream) { return cudaStreamSynchronize(stream); }
 __attribute__((visibility("default"))) cudaError_t_local cudaStreamUpdateCaptureDependencies() { STUB_LOG("cudaStreamUpdateCaptureDependencies"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaStreamUpdateCaptureDependencies_ptsz() { STUB_LOG("cudaStreamUpdateCaptureDependencies_ptsz"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaStreamUpdateCaptureDependencies_v2() { STUB_LOG("cudaStreamUpdateCaptureDependencies_v2"); return CUDART_STUB_NOT_SUPPORTED; }

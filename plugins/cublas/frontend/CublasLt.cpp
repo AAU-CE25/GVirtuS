@@ -8,6 +8,18 @@
 
 using namespace std;
 
+// GVirtuS local stubs: resolve cublasLtCreate/Destroy (libcugraph NEEDs them @libcublasLt.so.12;
+// GVirtuS had Matmul/MatrixLayout but not Create/Destroy). Dummy non-null handle so eager
+// handle-creation succeeds; cublasLt GEMM (Matmul) is separately RPC'd, unused by cuGraph SpMV algos.
+extern "C" CUBLASAPI cublasStatus_t CUBLASWINAPI cublasLtCreate(cublasLtHandle_t *lightHandle) {
+    if (lightHandle) *lightHandle = reinterpret_cast<cublasLtHandle_t>(0x1);
+    return CUBLAS_STATUS_SUCCESS;
+}
+extern "C" CUBLASAPI cublasStatus_t CUBLASWINAPI cublasLtDestroy(cublasLtHandle_t lightHandle) {
+    (void)lightHandle;
+    return CUBLAS_STATUS_SUCCESS;
+}
+
 extern "C" CUBLASAPI cublasStatus_t CUBLASWINAPI cublasLtMatmulAlgoGetHeuristic(
     cublasLtHandle_t lightHandle, cublasLtMatmulDesc_t operationDesc, cublasLtMatrixLayout_t Adesc,
     cublasLtMatrixLayout_t Bdesc, cublasLtMatrixLayout_t Cdesc, cublasLtMatrixLayout_t Ddesc,

@@ -212,3 +212,7 @@ extern "C" __host__ cudaError_t cudaLaunchKernel(const void *func, dim3 gridDim,
     free(pArgsPayload);
     return CudaRtFrontend::GetExitCode();
 }
+
+extern "C" __host__ cudaError_t CUDARTAPI cudaLaunchKernel_ptsz(const void *func, dim3 gridDim, dim3 blockDim, void **args, size_t sharedMem, cudaStream_t stream) {
+    return cudaLaunchKernel(func, gridDim, blockDim, args, sharedMem, stream);
+}

@@ -221,3 +221,10 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaStreamGetPriority(cudaStream_t hSt
     if (CudaRtFrontend::Success()) *priority = CudaRtFrontend::GetOutputVariable<int>();
     return CudaRtFrontend::GetExitCode();
 }
+
+extern "C" __host__ cudaError_t CUDARTAPI cudaStreamSynchronize_ptsz(cudaStream_t stream) {
+    return cudaStreamSynchronize(stream);
+}
+extern "C" __host__ cudaError_t CUDARTAPI cudaStreamQuery_ptsz(cudaStream_t stream) {
+    return cudaStreamQuery(stream);
+}

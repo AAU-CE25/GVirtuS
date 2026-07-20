@@ -985,3 +985,11 @@ cudaPointerGetAttributes(cudaPointerAttributes *attributes, const void *ptr) {
     }
     return CudaRtFrontend::GetExitCode();
 }
+
+// GVirtuS PTDS forwarders (RAPIDS compiles libcugraph/raft with --default-stream per-thread).
+extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpyAsync_ptsz(void *dst, const void *src, size_t count, cudaMemcpyKind kind, cudaStream_t stream) {
+    return cudaMemcpyAsync(dst, src, count, kind, stream);
+}
+extern "C" __host__ cudaError_t CUDARTAPI cudaMemsetAsync_ptsz(void *devPtr, int value, size_t count, cudaStream_t stream) {
+    return cudaMemsetAsync(devPtr, value, count, stream);
+}
