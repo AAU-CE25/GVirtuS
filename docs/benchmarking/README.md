@@ -67,9 +67,10 @@ GPUDirect phases — a poisoned CUDA context silently invalidates later runs.
 ## 2. Data layout ([`../../benchmarks/`](../../benchmarks/))
 
 Per-benchmark × mode folders: `<bench>-async/` (dispatcher on), `<bench>-sync/` (optimized, async
-off — includes the older transport/optimization campaign), `<bench>-baseline/` (clean/stock GVirtuS,
-placeholders to run later). Plus `_summary/` (cross-benchmark) and `transport-characterization/`
-(per-RPC latency CDFs, raw transfer bandwidth). See `benchmarks/README.md`.
+off — includes the older transport/optimization campaign), `<bench>-baseline/` (GVirtuS over the
+**legacy TCP communicator**, `tcp/ip` suite / `properties.json` — i.e. without UCX; placeholders to
+run later). Plus `_summary/` (cross-benchmark) and `transport-characterization/` (per-RPC latency
+CDFs, raw transfer bandwidth). See `benchmarks/README.md`.
 
 ## 3. ⚠️ Verify GPUDirect — never assume
 

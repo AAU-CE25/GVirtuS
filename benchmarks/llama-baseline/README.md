@@ -1,19 +1,26 @@
-# llama — baseline (clean GVirtuS)
+# llama — baseline (GVirtuS TCP communicator)
 
 **Placeholder — to be run later.**
 
-`-baseline` = **clean/stock GVirtuS** (upstream, without this project's optimizations:
-no async dispatcher, no local push/pop config, no cached `cudaGetDevice`/`cudaGetLastError`).
-It is the *unoptimized remoting reference* used to quantify the full improvement stack.
+`-baseline` = GVirtuS over the **legacy TCP communicator** (`tcp/ip` suite, `etc/properties.json`,
+port 32222) — i.e. GVirtuS **without** the UCX communicator. It is the pre-UCX reference that isolates
+the **UCX communicator's** contribution:
 
-- `../llama-sync/`  — GVirtuS with the frontend RPC optimizations, `GVIRTUS_ASYNC_DISPATCH=0`.
-- `../llama-async/` — same build with `GVIRTUS_ASYNC_DISPATCH=1`.
-- `-baseline` (here) — stock GVirtuS, to measure the delta from zero.
+- `-baseline` (here) — TCP communicator (`properties.json`).
+- `../llama-sync/` — same optimized frontend over the **UCX** communicator, `GVIRTUS_ASYNC_DISPATCH=0`.
+- `../llama-async/` — UCX communicator, `GVIRTUS_ASYNC_DISPATCH=1`.
 
 ## How to run (later)
-Build a clean/stock GVirtuS (or check out a pre-optimization commit), then:
+Launch the backend with the **TCP** config and run the client over the TCP communicator (no `UCX_*`
+env, no UCX datapath):
 ```bash
-GVIRTUS_LOGLEVEL=40000 llama-bench -m tinyllama-1.1b-q4.gguf -ngl 99 -p 8 -n 16 -r 3
-# GGML_CUDA_DISABLE_GRAPHS=1 ; RDMA transport ; capture stdout CSV here.
+# backend (es-dpu-01):
+gvirtus-backend $GVIRTUS_HOME/etc/properties.json      # suite tcp/ip, port 32222
+
+# frontend (es-dpu-02):
+GVIRTUS_CONFIG=$GVIRTUS_HOME/etc/properties.json GVIRTUS_LOGLEVEL=40000 \
+  llama-bench -m tinyllama-1.1b-q4.gguf -ngl 99 -p 8 -n 16 -r 3
+# GGML_CUDA_DISABLE_GRAPHS=1 ; capture stdout CSV + backend docker logs here.
 ```
-Save the raw `llama-bench` output + backend `docker logs` evidence in this folder.
+> For reference, TCP over the **UCX** communicator gave tg16 ~3.6 t/s baseline (RESULTS.md §5);
+> the legacy TCP-communicator numbers go here.

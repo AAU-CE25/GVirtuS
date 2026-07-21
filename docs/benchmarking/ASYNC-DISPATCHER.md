@@ -134,5 +134,6 @@ deferred-D2H stream-ordering. All bit-identical with the gate on and off.
 - **#5 RMA registration cache** — `GVIRTUS_RMA_ZEROCOPY=1` OOMs because UCX can't build an rcache
   in-container; a working rcache or a GVirtuS-managed registration pool would make zero-copy usable
   at scale (see README known-issues).
-- **`-baseline` runs** — measure clean/stock GVirtuS (`benchmarks/*-baseline/`) to quantify the full
-  improvement stack from zero.
+- **`-baseline` runs** — measure GVirtuS over the legacy **TCP communicator** (`tcp/ip` /
+  `properties.json`, without UCX; `benchmarks/*-baseline/`) to isolate the UCX communicator's
+  contribution vs the pre-UCX TCP path.

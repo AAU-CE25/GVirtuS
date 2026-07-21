@@ -1,16 +1,20 @@
-# miniBUDE — baseline (clean GVirtuS)
+# miniBUDE — baseline (GVirtuS TCP communicator)
 
 **Placeholder — to be run later.**
 
-`-baseline` = **clean/stock GVirtuS** (upstream, no async dispatcher / RPC optimizations) —
-the unoptimized remoting reference. See `../miniBUDE-sync/` (optimized, async off) and
-`../miniBUDE-async/` (async on).
+`-baseline` = GVirtuS over the **legacy TCP communicator** (`tcp/ip` suite, `etc/properties.json`,
+port 32222) — GVirtuS **without** the UCX communicator. Isolates the UCX communicator's contribution
+vs `../miniBUDE-sync/` (UCX, async off) and `../miniBUDE-async/` (UCX, async on).
 
-> miniBUDE is compute-bound, so all three are expected to be ≈ native — this baseline mainly
-> confirms the async/opt work introduces no regression on compute-bound workloads.
+> miniBUDE is compute-bound, so the communicator choice mostly shows in the one-time setup transfer,
+> not throughput — this baseline quantifies the TCP-communicator setup cost vs UCX.
 
 ## How to run (later)
 ```bash
-GVIRTUS_LOGLEVEL=40000 cuda-bude-gvirtus --deck data/bm1 --iter 8
+# backend (es-dpu-01):
+gvirtus-backend $GVIRTUS_HOME/etc/properties.json      # suite tcp/ip, port 32222
+# frontend (es-dpu-02):
+GVIRTUS_CONFIG=$GVIRTUS_HOME/etc/properties.json GVIRTUS_LOGLEVEL=40000 \
+  cuda-bude-gvirtus --deck data/bm1 --iter 8
 ```
-Save the raw output (gflop/s, valid:) + backend evidence in this folder.
+Save the raw output (gflop/s, valid:, context_ms) + backend evidence here.

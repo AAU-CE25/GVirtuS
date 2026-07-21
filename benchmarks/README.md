@@ -16,8 +16,9 @@ this tree holds the reproducible artifacts (CSVs, logs, plots) behind those numb
 - **`-async`** — GVirtuS with the async dispatcher on (`GVIRTUS_ASYNC_DISPATCH=1`).
 - **`-sync`** — GVirtuS with the frontend RPC optimizations, async **off** (`=0`). Includes the older
   transport/optimization-progression campaign data (all measured on the synchronous path).
-- **`-baseline`** — **clean/stock GVirtuS** (no async dispatcher, no RPC opts). Placeholder READMEs;
-  to be measured later to quantify the full improvement stack from zero.
+- **`-baseline`** — GVirtuS over the **legacy TCP communicator** (`tcp/ip` suite, `etc/properties.json`,
+  port 32222), i.e. **without** the UCX communicator. Placeholder READMEs; to be measured later to
+  isolate the UCX communicator's contribution vs the pre-UCX TCP path.
 
 ## Other folders
 - **`_summary/`** — cross-benchmark summary CSVs + plots (async-vs-sync speedup by workload).
