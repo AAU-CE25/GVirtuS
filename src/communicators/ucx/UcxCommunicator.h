@@ -74,6 +74,11 @@ class UcxCommunicator : public Communicator {
         next_dev_frag_len_  = len;
     }
 
+    // See Communicator::drain_device_if_async_pending. Blocks on
+    // cudaDeviceSynchronize iff a fire-and-forget async H2D D2D is pending on
+    // this thread; called by Process.cpp before every response-bearing reply.
+    void drain_device_if_async_pending() override;
+
     // RMA flow-control introspection for the async dispatcher (Phase 2).
     size_t rma_slot_count() const override {
         return rma_setup_received_.load() ? remote_slots_.size() : 0;

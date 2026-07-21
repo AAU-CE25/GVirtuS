@@ -716,9 +716,42 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
                 result = std::make_shared<Result>(cudaSuccess);
                 break;
 
-            case cudaMemcpyHostToDevice:
+            case cudaMemcpyHostToDevice: {
                 try {
                     dst = input_buffer->GetFromMarshal<void *>();
+                } catch (const std::exception &e) {
+                    cerr << e.what() << endl;
+                    return std::make_shared<Result>(cudaErrorMemoryAllocation);
+                }
+
+                // GPUDirect Step B4 (async peer-DMA): if the peer routed the
+                // payload into the slot's GPU shadow (peer-DMA via peermem), copy
+                // D2D straight from it — no host staging (mirrors the synchronous
+                // Memcpy handler). This is the real peer-DMA path for
+                // cudaMemcpyAsync H2D.
+                void *gpu_src = input_buffer->GetGpuPayload();
+                size_t gpu_src_size = input_buffer->GetGpuPayloadSize();
+                if (gpu_src != nullptr && gpu_src_size >= count) {
+                    exit_code = cudaMemcpyAsync(dst, gpu_src, count,
+                                                cudaMemcpyDeviceToDevice, stream);
+                    // Phase 3 (true async): do NOT synchronize here — consecutive
+                    // fire-and-forget copies overlap. Flag that a GPU copy is in
+                    // flight still reading its shadow slot; the backend drains the
+                    // device (Communicator::drain_device_if_async_pending) before
+                    // the next response-bearing reply, which is the only point at
+                    // which the frontend's flow control may reuse a remote RMA
+                    // slot. This keeps the GPU-shadow source alive for the copy's
+                    // full lifetime without a per-copy stall.
+                    if (exit_code == cudaSuccess) {
+                        gvirtus::communicators::tls_async_gpu_pending = true;
+                    }
+                    result = std::make_shared<Result>(exit_code);
+                    break;
+                }
+
+                // Host fallback: GPUDirect off, small copy below the RMA
+                // threshold, or a non-RDMA transport. Stage from the host slot.
+                try {
                     src = input_buffer->AssignAll<char>();
                 } catch (const std::exception &e) {
                     cerr << e.what() << endl;
@@ -750,6 +783,7 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
 
                 result = std::make_shared<Result>(exit_code);
                 break;
+            }
 
             case cudaMemcpyDeviceToHost:
                 /*

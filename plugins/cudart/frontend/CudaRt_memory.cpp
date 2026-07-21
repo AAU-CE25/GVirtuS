@@ -667,8 +667,15 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpyAsync(void *dst, const void 
         case cudaMemcpyHostToDevice:
             // cout << "cudaMemcpyAsync HostToDevice" << endl;
             CudaRtFrontend::AddDevicePointerForArguments(dst);
-            CudaRtFrontend::AddHostPointerForArguments<char>(
-                static_cast<char *>(const_cast<void *>(src)), count);
+            // Fase 5 (peer-DMA): splice the user src straight into the WriteIov
+            // iov instead of staging a full copy into mpInputBuffer. Mirrors the
+            // synchronous cudaMemcpy H2D. With GPUDirect the big fragment is
+            // peer-DMA'd into the backend GPU shadow slot (no host bounce), and
+            // the backend copies D2D from there. Caller must not mutate src until
+            // Execute returns — guaranteed here (fire-and-forget waits for local
+            // send completion, i.e. the RDMA read of src has drained).
+            CudaRtFrontend::AddHostPointerForArgumentsDirect<char>(
+                static_cast<const char *>(src), count);
             CudaRtFrontend::AddVariableForArguments(count);
             CudaRtFrontend::AddVariableForArguments(kind);
             CudaRtFrontend::AddDevicePointerForArguments(stream);

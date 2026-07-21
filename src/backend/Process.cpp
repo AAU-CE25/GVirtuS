@@ -507,6 +507,15 @@ void Process::Start() {
                     }
                     deferred_async_error = 0;
 
+                    // Phase 3 async H2D drain: if fire-and-forget GPU copies are
+                    // still in flight reading their shadow slots, block until the
+                    // device drains BEFORE replying. The frontend treats every
+                    // synchronous reply as "all prior RMA slots are free" and may
+                    // reuse them; draining here keeps that contract correct. No-op
+                    // unless tls_async_gpu_pending was set by the MemcpyAsync
+                    // handler on this thread.
+                    client_comm->drain_device_if_async_pending();
+
                     std::string write_error;
                     bool response_ok = write_ucx_am_response(client_comm, request_header,
                                                              effective_exit, result->TimeTaken(),

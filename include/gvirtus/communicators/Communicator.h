@@ -153,6 +153,19 @@ class Communicator {
     // in this project's docker + native runs.
     virtual void SetNextDeviceFragment(const void * /*addr*/, size_t /*len*/) {}
 
+    // Async H2D (Phase 3): when a fire-and-forget cudaMemcpyAsync H2D peer-DMAs
+    // into a GPU shadow slot, the backend handler issues the D2D on the client
+    // stream WITHOUT synchronizing (it sets tls_async_gpu_pending) so consecutive
+    // copies overlap. Because the frontend's RMA-slot flow control treats ANY
+    // synchronous reply as "all prior slots drained" (Frontend.cpp resets
+    // mAsyncRmaInflight on every sync response), the backend must drain the
+    // device before writing a response-bearing reply, or a reused slot could be
+    // peer-DMA'd over while an in-flight D2D still reads it. Process.cpp calls
+    // this right before write_ucx_am_response; it is a no-op unless a fire-and-
+    // forget GPU copy is pending on this thread. Default no-op (non-CUDA
+    // transports never set the flag). Appended LAST to preserve vtable ABI.
+    virtual void drain_device_if_async_pending() {}
+
    private:
 };
 
@@ -167,5 +180,12 @@ using create_t = std::shared_ptr<Communicator>(std::shared_ptr<Endpoint>);
 // Definition lives in CommunicatorFactory.cpp (part of libgvirtus-
 // communicators which both backend and plugins link against).
 extern thread_local bool tls_connection_supports_cuda;
+
+// Per-thread flag set by libgvirtus-plugin-cudart's MemcpyAsync handler when it
+// issues a fire-and-forget async H2D D2D from a GPU shadow slot without
+// synchronizing. Consumed (drained + cleared) by drain_device_if_async_pending()
+// before the backend writes a response-bearing reply. Definition lives in
+// CommunicatorFactory.cpp alongside tls_connection_supports_cuda.
+extern thread_local bool tls_async_gpu_pending;
 
 }  // namespace gvirtus::communicators

@@ -133,6 +133,7 @@ using cudaMalloc_t = int (*)(void **, size_t);
 using cudaFree_t   = int (*)(void *);
 using cudaMemcpy_t = int (*)(void *, const void *, size_t, int /*cudaMemcpyKind*/);
 using cudaPointerGetAttributes_t = int (*)(void *, const void *);
+using cudaDeviceSynchronize_t = int (*)();
 
 // cudaMemcpyKind values (from cuda_runtime_api.h, stable across CUDA versions).
 constexpr int kCudaMemcpyHostToHost     = 0;
@@ -154,6 +155,7 @@ std::atomic<cudaMalloc_t> g_cuda_malloc{nullptr};
 std::atomic<cudaFree_t>   g_cuda_free{nullptr};
 std::atomic<cudaMemcpy_t> g_cuda_memcpy{nullptr};
 std::atomic<cudaPointerGetAttributes_t> g_cuda_pointer_attrs{nullptr};
+std::atomic<cudaDeviceSynchronize_t> g_cuda_device_sync{nullptr};
 std::once_flag            g_cuda_dev_once;
 
 void load_cuda_device_funcs() {
@@ -168,11 +170,14 @@ void load_cuda_device_funcs() {
         auto mc = reinterpret_cast<cudaMemcpy_t>(dlsym(h, "cudaMemcpy"));
         auto a  = reinterpret_cast<cudaPointerGetAttributes_t>(
                      dlsym(h, "cudaPointerGetAttributes"));
+        auto ds = reinterpret_cast<cudaDeviceSynchronize_t>(
+                     dlsym(h, "cudaDeviceSynchronize"));
         if (m && f) {
             g_cuda_malloc.store(m);
             g_cuda_free.store(f);
             g_cuda_memcpy.store(mc);          // may be nullptr
             g_cuda_pointer_attrs.store(a);    // may be nullptr; is_gpu_pointer handles that
+            g_cuda_device_sync.store(ds);     // may be nullptr; drain_device_if_async_pending checks
             ucx_debug_log("gpudirect: loaded cuda runtime symbols from %s "
                           "(memcpy=%s pointer_attrs=%s)",
                           candidates[i], mc ? "yes" : "no", a ? "yes" : "no");
@@ -1322,6 +1327,23 @@ void UcxCommunicator::release_rx_slot(size_t slot_idx) {
     std::lock_guard<std::mutex> lk(rx_pool_->mu);
     if (slot_idx >= rx_pool_->slots.size()) return;
     rx_pool_->slots[slot_idx].in_use = false;
+}
+
+// Async H2D Phase 3 drain point. The MemcpyAsync handler issues a fire-and-
+// forget D2D from a GPU shadow slot without synchronizing and sets
+// tls_async_gpu_pending. Consecutive such copies overlap; but before we send a
+// response-bearing reply (the frontend's flow control treats every sync reply as
+// "all prior RMA slots drained"), we must block until those in-flight D2Ds have
+// fully read their source slots — otherwise the frontend could reuse a remote
+// slot and the NIC would peer-DMA fresh data over a shadow still being read.
+// cudaDeviceSynchronize is the coarse-but-correct drain; it only runs at a sync
+// point AND only when a fire-and-forget GPU copy is actually pending, so its cost
+// is amortized across the whole in-flight batch (typically the ring depth).
+void UcxCommunicator::drain_device_if_async_pending() {
+    if (!gvirtus::communicators::tls_async_gpu_pending) return;
+    gvirtus::communicators::tls_async_gpu_pending = false;
+    auto fn = g_cuda_device_sync.load();
+    if (fn != nullptr) fn();
 }
 
 // Server-side: pack rkeys of every rx_slot, build an RmaSetup AM body, and
