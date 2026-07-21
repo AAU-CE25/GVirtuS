@@ -103,7 +103,10 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaGraphLaunch(cudaGraphExec_t graphE
     CudaRtFrontend::Prepare();
     CudaRtFrontend::AddDevicePointerForArguments(graphExec);
     CudaRtFrontend::AddDevicePointerForArguments(stream);
-    CudaRtFrontend::Execute("cudaGraphLaunch");
+    // Stream-ordered graph launch, no return data -> fire-and-forget under
+    // GVIRTUS_ASYNC_DISPATCH (like cudaLaunchKernel). Errors surface at the next
+    // synchronous call. Backend handles the no-response flag generically.
+    CudaRtFrontend::ExecuteMaybeAsync("cudaGraphLaunch");
     // cout << "Graph Launch" << endl;                                                        
     return CudaRtFrontend::GetExitCode();
 }
@@ -132,7 +135,10 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaGraphUpload(cudaGraphExec_t graphE
     CudaRtFrontend::Prepare();
     CudaRtFrontend::AddDevicePointerForArguments(graphExec);
     CudaRtFrontend::AddDevicePointerForArguments(stream);
-    CudaRtFrontend::Execute("cudaGraphLaunch");
+    // Fix: was mistakenly invoking the "cudaGraphLaunch" backend handler; the
+    // correct routine is "cudaGraphUpload" (a real handler exists). Also
+    // stream-ordered + no return data -> fire-and-forget under async dispatch.
+    CudaRtFrontend::ExecuteMaybeAsync("cudaGraphUpload");
     
     return CudaRtFrontend::GetExitCode();
 }

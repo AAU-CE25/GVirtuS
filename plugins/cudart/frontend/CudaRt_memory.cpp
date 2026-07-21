@@ -306,7 +306,9 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpyPeerAsync(void *dst, int dst
     CudaRtFrontend::AddVariableForArguments(count);
     CudaRtFrontend::AddDevicePointerForArguments(stream);
 
-    CudaRtFrontend::Execute("cudaMemcpyPeerAsync");
+    // Stream-ordered device-to-device peer copy carrying only pointers (no bulk
+    // payload, no return data) -> fire-and-forget under async dispatch.
+    CudaRtFrontend::ExecuteMaybeAsync("cudaMemcpyPeerAsync");
 
     //    if (CudaRtFrontend::Success()) {
     //        // *dst = CudaRtFrontend::GetOutputDevicePointer();
