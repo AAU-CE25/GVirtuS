@@ -134,6 +134,7 @@ using cudaFree_t   = int (*)(void *);
 using cudaMemcpy_t = int (*)(void *, const void *, size_t, int /*cudaMemcpyKind*/);
 using cudaPointerGetAttributes_t = int (*)(void *, const void *);
 using cudaDeviceSynchronize_t = int (*)();
+using cudaGetLastError_t = int (*)();
 
 // cudaMemcpyKind values (from cuda_runtime_api.h, stable across CUDA versions).
 constexpr int kCudaMemcpyHostToHost     = 0;
@@ -156,6 +157,7 @@ std::atomic<cudaFree_t>   g_cuda_free{nullptr};
 std::atomic<cudaMemcpy_t> g_cuda_memcpy{nullptr};
 std::atomic<cudaPointerGetAttributes_t> g_cuda_pointer_attrs{nullptr};
 std::atomic<cudaDeviceSynchronize_t> g_cuda_device_sync{nullptr};
+std::atomic<cudaGetLastError_t> g_cuda_get_last_error{nullptr};
 std::once_flag            g_cuda_dev_once;
 
 void load_cuda_device_funcs() {
@@ -172,12 +174,15 @@ void load_cuda_device_funcs() {
                      dlsym(h, "cudaPointerGetAttributes"));
         auto ds = reinterpret_cast<cudaDeviceSynchronize_t>(
                      dlsym(h, "cudaDeviceSynchronize"));
+        auto gle = reinterpret_cast<cudaGetLastError_t>(
+                     dlsym(h, "cudaGetLastError"));
         if (m && f) {
             g_cuda_malloc.store(m);
             g_cuda_free.store(f);
             g_cuda_memcpy.store(mc);          // may be nullptr
             g_cuda_pointer_attrs.store(a);    // may be nullptr; is_gpu_pointer handles that
             g_cuda_device_sync.store(ds);     // may be nullptr; drain_device_if_async_pending checks
+            g_cuda_get_last_error.store(gle); // may be nullptr; clears the probe's sticky last error
             ucx_debug_log("gpudirect: loaded cuda runtime symbols from %s "
                           "(memcpy=%s pointer_attrs=%s)",
                           candidates[i], mc ? "yes" : "no", a ? "yes" : "no");
@@ -524,6 +529,14 @@ void UcxCommunicator::init_ucx() {
     } else {
         std::string reason;
         const bool ok = probe_gpudirect(context_, reason);
+        // The probe's cudaMalloc(4K) runs through the frontend cudart shim
+        // during Connect (mpInitialized == false), so it returns the reentrancy-
+        // guard init error (cudaErrorInitializationError) and leaves it as the
+        // client-side sticky last error. That is an internal probe artifact, not
+        // an application error — clear it so a later cudaGetLastError() by the
+        // app doesn't spuriously observe it. On the backend this calls the real
+        // cudaGetLastError at init time (a harmless no-op before any app work).
+        if (auto gle = g_cuda_get_last_error.load()) gle();
         g_gpudirect_enabled.store(ok);
         setenv("GVIRTUS_GPUDIRECT_ACTIVE", ok ? "1" : "0", /*overwrite=*/1);
         if (ok) {
@@ -1344,6 +1357,19 @@ void UcxCommunicator::drain_device_if_async_pending() {
     gvirtus::communicators::tls_async_gpu_pending = false;
     auto fn = g_cuda_device_sync.load();
     if (fn != nullptr) fn();
+}
+
+// True iff the peer advertised RMA slots and at least one has a usable rkey.
+// When the peer's RmaSetup rkey failed to unpack (e.g. a native frontend whose
+// UCX exposes no RMA-unpackable md), every remote slot has rkey == null and we
+// cannot ucp_put into them — the backend must then NOT take the D2H GPU-scratch
+// path (its device fragment would fall through to the AM path and error).
+bool UcxCommunicator::rma_put_capable() const {
+    if (!rma_setup_received_.load()) return false;
+    std::lock_guard<std::mutex> lk(rma_state_mu_);
+    for (const auto &rs : remote_slots_)
+        if (rs.rkey != nullptr) return true;
+    return false;
 }
 
 // Server-side: pack rkeys of every rx_slot, build an RmaSetup AM body, and

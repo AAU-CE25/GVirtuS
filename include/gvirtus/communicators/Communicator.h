@@ -166,6 +166,13 @@ class Communicator {
     // transports never set the flag). Appended LAST to preserve vtable ABI.
     virtual void drain_device_if_async_pending() {}
 
+    // True iff this connection's peer advertised RMA slots whose rkey this side
+    // could unpack (so ucp_put into them will succeed). The backend reads it to
+    // decide whether the D2H GPUDirect response path (device fragment -> peer
+    // slot) is deliverable, or it must fall back to the host path. Default false
+    // (non-RMA transports). Appended LAST to preserve vtable ABI.
+    virtual bool rma_put_capable() const { return false; }
+
    private:
 };
 
@@ -187,5 +194,11 @@ extern thread_local bool tls_connection_supports_cuda;
 // before the backend writes a response-bearing reply. Definition lives in
 // CommunicatorFactory.cpp alongside tls_connection_supports_cuda.
 extern thread_local bool tls_async_gpu_pending;
+
+// Per-thread flag set by Process.cpp before each handler Execute() to
+// client_comm->rma_put_capable(). The cudart D2H handler reads it to gate the
+// GPU-scratch response path (deliverable only when the client can receive a
+// ucp_put). Definition in CommunicatorFactory.cpp.
+extern thread_local bool tls_client_rma_put_capable;
 
 }  // namespace gvirtus::communicators

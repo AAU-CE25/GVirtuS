@@ -463,6 +463,8 @@ void Process::Start() {
                         // identically anyway).
                         gvirtus::communicators::tls_connection_supports_cuda =
                             client_comm->current_connection_supports_cuda();
+                        gvirtus::communicators::tls_client_rma_put_capable =
+                            client_comm->rma_put_capable();
                         auto start = steady_clock::now();
                         result = h->Execute(am_routine, am_input);
                         result->TimeTaken(
@@ -471,6 +473,7 @@ void Process::Start() {
                                 .count() /
                             1000.0);
                         gvirtus::communicators::tls_connection_supports_cuda = false;
+                        gvirtus::communicators::tls_client_rma_put_capable = false;
                     }
 
                     const bool no_response =
