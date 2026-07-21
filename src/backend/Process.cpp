@@ -384,6 +384,17 @@ void Process::Start() {
 
     // inserisci i sym dei plugin in h
     std::function<void(Communicator *)> execute = [this](Communicator *client_comm) {
+        // Own the accepted per-connection Communicator. Every transport's Accept()
+        // returns a heap-allocated Communicator (new Ucx/Tcp/Rdma) stored nowhere
+        // else, so this detached thread is its sole owner. Deleting it when the
+        // thread ends runs ~Communicator -> Close -> destroy_ucx ->
+        // destroy_rx_pool, which frees the connection's RX pool INCLUDING its ~2 GB
+        // of GPU shadow slots. Without this the shadows leaked every connection (the
+        // removed fork() path used to free them via child exit; switching to
+        // std::thread().detach() dropped that cleanup), filling the backend GPU
+        // after ~20 connections and silently disabling GPUDirect (rx_pool logs
+        // "GPU shadows=0", H2D then falls back to the host path).
+        std::unique_ptr<Communicator> client_owner(client_comm);
         LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "]"
                                             << "Process::Start()'s \"execute\" lambda called");
         // carica i puntatori ai simboli dei moduli in mHandlers
