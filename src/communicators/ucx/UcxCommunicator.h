@@ -79,6 +79,10 @@ class UcxCommunicator : public Communicator {
     // this thread; called by Process.cpp before every response-bearing reply.
     void drain_device_if_async_pending() override;
 
+    // See Communicator::rma_put_capable. True iff RmaSetup was received AND at
+    // least one remote slot has a usable (non-null) rkey we can ucp_put into.
+    bool rma_put_capable() const override;
+
     // RMA flow-control introspection for the async dispatcher (Phase 2).
     size_t rma_slot_count() const override {
         return rma_setup_received_.load() ? remote_slots_.size() : 0;
@@ -233,7 +237,7 @@ class UcxCommunicator : public Communicator {
     };
 
     std::vector<RemoteSlot> remote_slots_;
-    std::mutex rma_state_mu_;
+    mutable std::mutex rma_state_mu_;
     std::condition_variable rma_setup_cv_;
     std::atomic<bool> rma_setup_received_{false};
     size_t next_remote_slot_idx_{0};

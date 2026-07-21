@@ -69,6 +69,25 @@ bool gvirtus_gpudirect_enabled() {
            gvirtus::communicators::tls_connection_supports_cuda;
 }
 
+// D2H GPUDirect gate — separate from the H2D one on purpose, and auto-detected.
+// The D2H "GPU scratch + attach device fragment to the Result" path needs the
+// backend to ucp_put that device fragment into the client's RX slot (backend GPU
+// -> client host slot). That only works when the client advertised RMA slots
+// whose rkey THIS backend's UCX could unpack. A native frontend whose UCX
+// exposes no RMA-unpackable memory domain fails that unpack -> the client's
+// remote-slot rkeys come back null -> WriteIovRma falls through and the device
+// fragment would be pushed through the eager AM path -> ucp_am_send of device
+// memory errors -> the connection resets. So gate the D2H scratch on whether the
+// client is actually RMA-put-capable (tls_client_rma_put_capable, set per
+// connection by Process.cpp from the communicator): Docker/all-RDMA frontends
+// keep the zero-copy D2H GPUDirect; CPU/native frontends transparently fall back
+// to the host path (correct everywhere, no crash). H2D GPUDirect (backend GPU
+// shadow receive) is UNAFFECTED — this gates only the D2H response.
+bool gvirtus_gpudirect_d2h_enabled() {
+    return gvirtus_gpudirect_enabled() &&
+           gvirtus::communicators::tls_client_rma_put_capable;
+}
+
 // Thread-local GPU scratch used by the D2H handler when GPUDirect is active.
 // Grows on demand (2× growth to amortize cudaMalloc cost). Each backend
 // worker thread has its own scratch so there's no cross-thread synchronization.
@@ -389,7 +408,11 @@ CUDA_ROUTINE_HANDLER(Memcpy) {
                 // host_ms regressed from ~0.7/1.1 ms (pre-GPUDirect) to ~1.5/1.9 ms
                 // with GPUDirect on. 4 MB matches Variant B and protects small RPCs.
                 constexpr size_t kGpuDirectD2HThreshold = 4u * 1024u * 1024u;
-                if (gvirtus_gpudirect_enabled() && count >= kGpuDirectD2HThreshold) {
+                // Auto-detected: take the GPU-scratch path only when the client
+                // is RMA-put-capable (its rkey unpacked), else fall through to
+                // the host path below (no device fragment on the wire, so no
+                // AM-path connection reset on native/CPU frontends).
+                if (gvirtus_gpudirect_d2h_enabled() && count >= kGpuDirectD2HThreshold) {
                     void *gpu_scratch = get_tls_gpu_scratch(count);
                     if (gpu_scratch != nullptr) {
                         exit_code = cudaMemcpy(gpu_scratch, src, count,

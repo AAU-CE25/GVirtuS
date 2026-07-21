@@ -20,4 +20,9 @@ thread_local bool tls_connection_supports_cuda = false;
 // Set by the cudart MemcpyAsync handler, drained + cleared before a response.
 thread_local bool tls_async_gpu_pending = false;
 
+// Per-thread: is the current connection's client RMA-put-capable (its rkey
+// unpacked)? Set by Process.cpp before each Execute; read by the D2H handler to
+// gate the GPU-scratch response path.
+thread_local bool tls_client_rma_put_capable = false;
+
 }  // namespace gvirtus::communicators
