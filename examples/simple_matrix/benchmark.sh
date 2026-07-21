@@ -29,7 +29,7 @@ run_sizes() {
     local out_file="${out_dir}/simple_matrix_${MODE_LABEL}_${VARIANT_LABEL}.csv"
 
     mkdir -p "${out_dir}"
-    echo "mode,variant,size,iters,gpu_ms,host_ms" > "${out_file}"
+    echo "mode,variant,size,iters,gpu_ms,host_ms,h2d_us,d2h_us,h2d_ms,d2h_ms,h2d_GBps,d2h_GBps" > "${out_file}"
     for n in ${MATRIX_SIZES}; do
         local line
         local output

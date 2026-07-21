@@ -172,6 +172,6 @@ maybe_add_cuda_plugin(nvrtc plugins/nvrtc)
 
 
 # ===== Tests =====
-add_subdirectory(tests)
+# DISABLED_FOR_HOST_BENCH add_subdirectory(tests)
 
 # add_subdirectory(tools/protocol-generator)

@@ -147,3 +147,30 @@ examples/simple_matrix/benchmark_results/
 
 #Opencv-DNN
 build_cudnn_patch/
+
+# --- session cleanup 2026-07-21: artifacts, results, models, backups (not source) ---
+**/benchmark_results/
+**/benchmark_results*/
+**/__pycache__/
+*.log
+*.bak
+*.bak_*
+*.bak-*
+*.static.bak
+*.zip
+*.tar.gz
+*.pth
+*.pt
+*.onnx
+*.safetensors
+*.gguf
+*.h5
+examples/opencv-dnn/dnn_test
+lib/frontend/*.so
+lib/frontend/*.so.*
+lib/*.so
+lib/*.so.*
+install_local/
+**/*.csv
+**/strace*.txt
+**/*_strace*.txt

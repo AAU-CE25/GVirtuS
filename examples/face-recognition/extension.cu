@@ -221,6 +221,7 @@
 //         int output_channels_conv1 = 32;
 //         int output_channels_conv2 = 64;
 //         int output_size_fc1 = 128;
+        int output_size_fc2 = 40;
         
 //         dim3 threadsPerBlockConv(16, 16);  
 //         dim3 numBlocksConv((input_width + threadsPerBlockConv.x - 1) / threadsPerBlockConv.x, 
@@ -499,7 +500,26 @@ extern "C" {
                             cublasHandle_t handle;
                             cublasCreate(&handle);
                          
-                            cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, M, N, K, &alpha, weights, K, input, K, &beta, output, M);
+                            std::cerr << "[FACE] before cublasSgemm M=" << M << " N=" << N << " K=" << K << std::endl;
+
+                            cublasStatus_t st = cublasSgemm(
+                                handle,
+                                CUBLAS_OP_T,
+                                CUBLAS_OP_N,
+                                M,
+                                N,
+                                K,
+                                &alpha,
+                                weights,
+                                K,
+                                input,
+                                K,
+                                &beta,
+                                output,
+                                M
+                            );
+
+                            std::cerr << "[FACE] after cublasSgemm status=" << st << std::endl;
                             // cublasSgemv(handle, CUBLAS_OP_T,K, M, &alpha, weights, K, input, 1, &beta, output, 1);
                             cublasSaxpy(handle, M, &alpha, bias, 1, output, 1);
                             
@@ -611,20 +631,42 @@ class Model {
         output_channels_conv2,16, 16);
         cudaDeviceSynchronize();
 
-        fully_connected_layer(reinterpret_cast<float*>(d_flattened), reinterpret_cast<float*>(d_weights_fc1), reinterpret_cast<float*>(d_bias_fc1), reinterpret_cast<float*>(d_output_fc1), 128,1,16384);
-        // kernel_fc<<<numBlocksFC, threadsPerBlockFC>>>(reinterpret_cast<float*>(d_flattened), reinterpret_cast<float*>(d_output_fc1), reinterpret_cast<float*>(d_weights_fc1), 
-        //                                                     reinterpret_cast<float*>(d_bias_fc1), 16384, 128); 
-        cudaDeviceSynchronize();
+        fprintf(stderr, "[FACE] before fc1 kernel_fc\\n");
+        kernel_fc<<<numBlocksFC, threadsPerBlockFC>>>(
+            reinterpret_cast<float*>(d_flattened),
+            reinterpret_cast<float*>(d_output_fc1),
+            reinterpret_cast<float*>(d_weights_fc1),
+            reinterpret_cast<float*>(d_bias_fc1),
+            16384,
+            128
+        );
+        cudaError_t err_fc1 = cudaDeviceSynchronize();
+        fprintf(stderr, "[FACE] after fc1 kernel_fc sync err=%d\\n", (int)err_fc1);
 
-        kernel_relu<<<numBlocksFC, threadsPerBlockFC>>>(reinterpret_cast<float*>(d_output_fc1), reinterpret_cast<float*>(d_output_fc1), output_size_fc1);
-        cudaDeviceSynchronize();
+        fprintf(stderr, "[FACE] before relu fc1\\n");
+        kernel_relu<<<numBlocksFC, threadsPerBlockFC>>>(
+            reinterpret_cast<float*>(d_output_fc1),
+            reinterpret_cast<float*>(d_output_fc1),
+            output_size_fc1
+        );
+        cudaError_t err_relu = cudaDeviceSynchronize();
+        fprintf(stderr, "[FACE] after relu fc1 sync err=%d\\n", (int)err_relu);
 
-        fully_connected_layer(reinterpret_cast<float*>(d_output_fc1), reinterpret_cast<float*>(d_weights_fc2), reinterpret_cast<float*>(d_bias_fc2), reinterpret_cast<float*>(d_output_fc2), 40,1,128);
-                // kernel_fc<<<numBlocksFC, threadsPerBlockFC>>>(reinterpret_cast<float*>(d_output_fc1), reinterpret_cast<float*>(d_output_fc2), reinterpret_cast<float*>(d_weights_fc2), 
-        //                                             reinterpret_cast<float*>(d_bias_fc2), output_size_fc1, output_size_fc2);
-        cudaDeviceSynchronize();
+        fprintf(stderr, "[FACE] before fc2 kernel_fc\\n");
+        kernel_fc<<<numBlocksFC, threadsPerBlockFC>>>(
+            reinterpret_cast<float*>(d_output_fc1),
+            reinterpret_cast<float*>(d_output_fc2),
+            reinterpret_cast<float*>(d_weights_fc2),
+            reinterpret_cast<float*>(d_bias_fc2),
+            output_size_fc1,
+            output_size_fc2
+        );
+        cudaError_t err_fc2 = cudaDeviceSynchronize();
+        fprintf(stderr, "[FACE] after fc2 kernel_fc sync err=%d\\n", (int)err_fc2);
 
-		cudaMemcpy(output, d_output_fc2, 40 * sizeof(float), cudaMemcpyDeviceToHost);
+        fprintf(stderr, "[FACE] before final D2H cudaMemcpy\\n");
+        cudaError_t err_d2h = cudaMemcpy(output, d_output_fc2, 40 * sizeof(float), cudaMemcpyDeviceToHost);
+        fprintf(stderr, "[FACE] after final D2H cudaMemcpy err=%d\\n", (int)err_d2h);
 
         cudaFree(input);
     }

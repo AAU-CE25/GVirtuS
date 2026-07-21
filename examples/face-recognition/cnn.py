@@ -1,6 +1,7 @@
  
 # nvcc -shared -Xcompiler -fPIC -o libextension.so extension.cu -L ${GVIRTUS_HOME}/lib/frontend -L ${GVIRTUS_HOME}/lib/ -lcudart -lcudnn -lcublas
 import time
+import sys
 import ctypes
 import numpy as np
 from PIL import Image
@@ -123,65 +124,119 @@ weights_dict = {
 #     print(f"Test Accuracy: {100 * correct / total}%")
 
 # Evaluate the model
-def test_model():
-    weights1=weights_dict["weights_conv1"].ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-    bias1=weights_dict["bias_conv1"].ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-    weights2=weights_dict["weights_conv2"].ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-    bias2=weights_dict["bias_conv2"].ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-    weightsfc1=weights_dict["weights_fc1"].ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-    biasfc1=weights_dict["bias_fc1"].ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-    weightsfc2=weights_dict["weights_fc2"].ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-    biasfc2=weights_dict["bias_fc2"].ctypes.data_as(ctypes.POINTER(ctypes.c_float))
 
-    
+def configure_extension():
+    weights1 = weights_dict["weights_conv1"].ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+    bias1 = weights_dict["bias_conv1"].ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+    weights2 = weights_dict["weights_conv2"].ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+    bias2 = weights_dict["bias_conv2"].ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+    weightsfc1 = weights_dict["weights_fc1"].ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+    biasfc1 = weights_dict["bias_fc1"].ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+    weightsfc2 = weights_dict["weights_fc2"].ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+    biasfc2 = weights_dict["bias_fc2"].ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+
     libextension.create_model.restype = ctypes.c_void_p
     libextension.create_model.argtypes = [
-        ctypes.POINTER(ctypes.c_float),  # weights_conv1
-        ctypes.POINTER(ctypes.c_float),  # bias_conv1
-        ctypes.POINTER(ctypes.c_float),  # weights_conv2
-        ctypes.POINTER(ctypes.c_float),  # bias_conv2
-        ctypes.POINTER(ctypes.c_float),  # weights_fc1
-        ctypes.POINTER(ctypes.c_float),  # bias_fc1
-        ctypes.POINTER(ctypes.c_float),  # weights_fc2
-        ctypes.POINTER(ctypes.c_float)   # bias_fc2
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.POINTER(ctypes.c_float),
     ]
+
     libextension.forward_pass.restype = None
     libextension.forward_pass.argtypes = [
-        ctypes.c_void_p,  
-        ctypes.POINTER(ctypes.c_float), 
-        ctypes.POINTER(ctypes.c_float),  
-        ]
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_float),
+        ctypes.POINTER(ctypes.c_float),
+    ]
 
-    Model=libextension.create_model(weights1, bias1, weights2, bias2,weightsfc1, biasfc1, weightsfc2, biasfc2)
+    model_handle = libextension.create_model(
+        weights1, bias1,
+        weights2, bias2,
+        weightsfc1, biasfc1,
+        weightsfc2, biasfc2,
+    )
 
+    return model_handle
+
+
+def run_dataset(model_handle, save_images=False):
     correct = 0
-    directory="images/"
-    if not os.path.exists(directory):
-        os.makedirs(directory)
-    total=10
+    total = int(os.environ.get("STEADY_IMAGES", "10"))
+
+    if save_images:
+        directory = "images/"
+        os.makedirs(directory, exist_ok=True)
+
     for i in range(total):
-        inputs=test_images[i].numpy().squeeze()
-        labels=test_labels[i].numpy().squeeze()
-        image = Image.fromarray((inputs*255).astype(np.uint8))
-        image.save(f"{directory}test_image_{i}.png",)
-        # image.show()
+        inputs = test_images[i].numpy().squeeze()
+        label = int(np.asarray(test_labels[i]).squeeze())
 
-        x_in=inputs.reshape(64,64).ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-        outputs=np.zeros((40,), dtype=np.float32)
-        libextension.forward_pass(Model,x_in, outputs.ctypes.data_as(ctypes.POINTER(ctypes.c_float)))
-        predicted = np.argmax(outputs)
-        # print(predicted,labels)
-        correct += (predicted == labels).sum().item()
+        if save_images:
+            image = Image.fromarray((inputs * 255).astype(np.uint8))
+            image.save(f"images/test_image_{i}.png")
 
-    print(f"Test Accuracy: {100 * correct / total}%")
-    # libextension.delete_model(Model)
+        x_in = inputs.reshape(64, 64).ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+        outputs = np.zeros((40,), dtype=np.float32)
+
+        libextension.forward_pass(
+            model_handle,
+            x_in,
+            outputs.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+        )
+
+        predicted = int(np.argmax(outputs))
+        correct += int(predicted == label)
+
+    return correct, total
+
 
 if __name__ == "__main__":
-    total=0
-    for i in range(1):
-        start = time.time()
-        test_model()
-        end = time.time()
-        print(f"Execution Time: {end - start:.6f} seconds")
-        total=total+end - start
-    print(f"Average Time: {total/10:.6f} seconds")
+    warmups = int(os.environ.get("STEADY_WARMUPS", "5"))
+    measured_iterations = int(os.environ.get("STEADY_ITERS", "100"))
+    save_images = os.environ.get("SAVE_IMAGES", "0") == "1"
+
+    model_handle = configure_extension()
+
+    for i in range(warmups):
+        run_dataset(model_handle, save_images=(save_images and i == 0))
+        print(f"Warmup Completed: {i + 1}/{warmups}", flush=True)
+
+    total_correct = 0
+    total_images = 0
+
+    measured_start = time.perf_counter()
+
+    for i in range(measured_iterations):
+        correct, count = run_dataset(model_handle, save_images=False)
+        total_correct += correct
+        total_images += count
+
+        if (i + 1) % 5 == 0 or (i + 1) == measured_iterations:
+            print(f"Measured Iteration Completed: {i + 1}/{measured_iterations}", flush=True)
+
+    measured_end = time.perf_counter()
+    measured_time = measured_end - measured_start
+
+    accuracy = 100.0 * total_correct / total_images if total_images else 0.0
+    avg_iter = measured_time / measured_iterations if measured_iterations else 0.0
+    avg_image = measured_time / total_images if total_images else 0.0
+
+    print(f"Warmup Iterations: {warmups}", flush=True)
+    print(f"Measured Iterations: {measured_iterations}", flush=True)
+    print(f"Images Per Iteration: {int(os.environ.get('STEADY_IMAGES', '10'))}", flush=True)
+    print(f"Total Measured Images: {total_images}", flush=True)
+    print(f"Test Accuracy: {accuracy}%", flush=True)
+    print(f"Execution Time: {measured_time:.6f} seconds", flush=True)
+    print(f"Average Iteration Time: {avg_iter:.6f} seconds", flush=True)
+    print(f"Average Time: {avg_image:.6f} seconds", flush=True)
+
+    sys.stdout.flush()
+    sys.stderr.flush()
+
+    # Avoid Python/C++ shared-library teardown affecting the benchmark result.
+    os._exit(0)

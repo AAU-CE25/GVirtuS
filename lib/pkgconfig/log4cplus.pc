@@ -1,13 +1,13 @@
-prefix=/home/darshan/GVirtuS/build/external
+prefix=/home/student.aau.dk/ll33pq/GVirtuS/build/external
 exec_prefix=${prefix}
 libdir=${exec_prefix}/lib
 includedir=${prefix}/include
 modules=
 
 Name: log4cplus
-Version: 2.0.5
+Version: 2.1.2
 Description: Simple to use, thread-safe C++ logging API
 Requires:
 Libs: -L${libdir} -llog4cplus
-Libs.private:  
+Libs.private: -latomic  
 Cflags: -I${includedir}
