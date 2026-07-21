@@ -18,12 +18,20 @@ Read it fully before running anything. It is written to survive across sessions.
 
 ---
 
-## 0. THE FIVE STANDING RULES (non-negotiable)
+## 0. THE SEVEN STANDING RULES (non-negotiable)
 
-1. **ALWAYS CLEAN UP after testing.** Kill stalled/zombie frontend processes, restart the backend
-   fresh between phases, verify GPU memory is freed on BOTH nodes. Leftover state silently corrupts
-   results and fakes "slowness"/"hangs". A multi-minute "hang" has repeatedly been *just* zombies +
-   a poisoned backend context; cleanup returned the same run to seconds. **Clean first, measure second.**
+1. **ALWAYS CLEAN UP — AFTER every test AND BETWEEN every test — THEN RE-RUN CLEANLY.** This is not
+   only an end-of-session step: clean up *between individual runs*, not just between phases. Before
+   **every** measurement: (a) kill stalled/zombie frontend processes (`kill -9`; if they go `Z`
+   defunct and are parented by PID 1, `docker restart` the frontend container to reap them — this
+   preserves the built GVirtuS install and `/tmp` runners, unlike `docker rm`), (b) **restart the
+   backend fresh** (`docker rm -f` + relaunch — a served/crashed CUDA context poisons the persistent
+   backend), (c) verify GPU memory is freed on BOTH nodes (`nvidia-smi`; map leaked MiB to a
+   container via `/proc/<pid>/cgroup` and only reap **your own** — never another user's container),
+   (d) remove stale `/tmp` artifacts. Leftover state silently corrupts results and fakes
+   "slowness"/"hangs" — a multi-minute "hang" has repeatedly been *just* zombies + a poisoned backend
+   context; cleanup returned the same run to seconds. **Clean first, measure second — and re-run from
+   a clean slate if anything was interrupted.**
 2. **BACK UP EVERYTHING WITH EVIDENCE.** Every number must be reproducible from a captured artifact
    (CSV, log, backend `docker logs`, profile line). Save raw data under `benchmarks/`,
    record the exact command + env, and log the run. No number without a source.
@@ -37,6 +45,24 @@ Read it fully before running anything. It is written to survive across sessions.
    the backend log says `GPUDirect=enabled`, the backend was launched with `GVIRTUS_GPUDIRECT=1`
    (+ `GVIRTUS_RMA_ZEROCOPY=1`), an RDMA TLS was negotiated (not tcp), and the data path actually
    ran (GPU-shadow slots advertised / bulk transfer profiled). Frontend probe is NOT proof.
+
+6. **GPUDIRECT ⇒ `GVIRTUS_RMA_ZEROCOPY=1`, ALWAYS.** Never measure or report a GPUDirect run without
+   zerocopy enabled — GPUDirect *requires* it (`GVIRTUS_GPUDIRECT=1 GVIRTUS_RMA_ZEROCOPY=1` together).
+   With `ZEROCOPY=0` the bulk path silently falls back to *staged* copies (host bounce buffer), which
+   is NOT GPUDirect and gives misleadingly slow transfer numbers (e.g. simple_matrix RDMA ~696 ms
+   staged vs ~635 ms zerocopy vs ~565 ms GPUDirect). For a **fair transport comparison the plain-RDMA
+   (GD=0) leg must also run `ZEROCOPY=1`** so only the GPUDirect NIC→GPU DMA differs, not the copy
+   strategy. Confirm the backend log shows the zerocopy/GPU-shadow slots before trusting the run.
+
+7. **ALWAYS WARM UP + AVERAGE OVER SEVERAL REPS — never report a single shot.** Every measured number
+   must be the aggregate of **≥5 measured repetitions after ≥1 discarded warm-up** (the warm-up
+   absorbs connection setup, UCX registration, GPUDirect cold-start, and clock ramp). Report
+   **mean ± 95% CI** (t-distribution) — or the tool's own multi-iteration stat when it warms up
+   internally (e.g. `llama-bench -r 5` already discards a warm-up and reports mean±sd; still use
+   `-r ≥5`). Emit **per-rep raw values** to a CSV and aggregate offline, so the spread is auditable.
+   A single run (or reps without a warm-up) is a draft data point, not a result — do not put it in a
+   plot or doc. BabelStream reports *peak* of its internal loop by design; note that explicitly rather
+   than mixing peak with mean elsewhere.
 
 **Bonus rule — KEEP LOGS LEAN.** Do not benchmark at verbose log levels. TRACE/DEBUG logging (and
 `UCX_LOG_LEVEL=debug`, `[GVS PROFILE]`/`[UCX DEBUG]` spew) emits a line per byte/RPC and produces
