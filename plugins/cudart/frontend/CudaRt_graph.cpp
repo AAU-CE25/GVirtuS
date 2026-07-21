@@ -142,3 +142,23 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaGraphUpload(cudaGraphExec_t graphE
     
     return CudaRtFrontend::GetExitCode();
 }
+
+
+// Real cudaGraphExecUpdate (CUDA 12 form). Forwards the two backend handles,
+// runs the real in-place update on the backend, and marshals the
+// cudaGraphExecUpdateResultInfo back. Returning cudaSuccess lets llama.cpp reuse
+// an instantiated graph across decode tokens WITHOUT re-instantiating; returning
+// cudaErrorGraphExecUpdateFailure makes it re-instantiate (its documented path).
+// This is the key to CUDA-graph token-generation running at ~baremetal over GVirtuS.
+extern "C" __host__ cudaError_t CUDARTAPI cudaGraphExecUpdate(cudaGraphExec_t hGraphExec,
+                                                             cudaGraph_t hGraph,
+                                                             cudaGraphExecUpdateResultInfo *resultInfo) {
+    CudaRtFrontend::Prepare();
+    CudaRtFrontend::AddDevicePointerForArguments(hGraphExec);
+    CudaRtFrontend::AddDevicePointerForArguments(hGraph);
+    CudaRtFrontend::Execute("cudaGraphExecUpdate");
+    if (resultInfo != NULL) {
+        *resultInfo = CudaRtFrontend::GetOutputVariable<cudaGraphExecUpdateResultInfo>();
+    }
+    return CudaRtFrontend::GetExitCode();
+}

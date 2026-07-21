@@ -117,7 +117,6 @@ __attribute__((visibility("default"))) cudaError_t_local cudaGraphExecMemcpyNode
 __attribute__((visibility("default"))) cudaError_t_local cudaGraphExecMemcpyNodeSetParamsToSymbol() { STUB_LOG("cudaGraphExecMemcpyNodeSetParamsToSymbol"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaGraphExecMemsetNodeSetParams() { STUB_LOG("cudaGraphExecMemsetNodeSetParams"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaGraphExecNodeSetParams() { STUB_LOG("cudaGraphExecNodeSetParams"); return CUDART_STUB_NOT_SUPPORTED; }
-__attribute__((visibility("default"))) cudaError_t_local cudaGraphExecUpdate() { STUB_LOG("cudaGraphExecUpdate"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaGraphExternalSemaphoresSignalNodeGetParams() { STUB_LOG("cudaGraphExternalSemaphoresSignalNodeGetParams"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaGraphExternalSemaphoresSignalNodeSetParams() { STUB_LOG("cudaGraphExternalSemaphoresSignalNodeSetParams"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaGraphExternalSemaphoresWaitNodeGetParams() { STUB_LOG("cudaGraphExternalSemaphoresWaitNodeGetParams"); return CUDART_STUB_NOT_SUPPORTED; }
