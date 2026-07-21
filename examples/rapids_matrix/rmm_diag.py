@@ -1,0 +1,25 @@
+import faulthandler; faulthandler.enable()
+import cudf; print("1 cudf imported", flush=True)
+import cupy; print("2 cupy", cupy.__version__, flush=True)
+from rmm import pylibrmm
+from rmm.pylibrmm.stream import Stream
+print("3 get_current_stream...", flush=True)
+s = cupy.cuda.get_current_stream(); print("   stream ok", flush=True)
+st = Stream(obj=s); print("4 rmm Stream ok", flush=True)
+print("5 DeviceBuffer(24) alloc...", flush=True)
+buf = pylibrmm.device_buffer.DeviceBuffer(size=24, stream=st)
+print("   DeviceBuffer ok ptr=", hex(buf.ptr), "size=", buf.size, flush=True)
+print("6 read buf.ptr truthiness...", flush=True)
+print("   buf.ptr truthy =", bool(buf.ptr), flush=True)
+print("7 get_device_id()...", flush=True)
+try:
+    print("   dev =", cupy.cuda.device.get_device_id(), flush=True)
+except Exception as e:
+    print("   get_device_id ERR", type(e).__name__, str(e)[:80], flush=True)
+print("8 UnownedMemory...", flush=True)
+mem = cupy.cuda.UnownedMemory(ptr=buf.ptr, size=buf.size, owner=buf, device_id=-1)
+print("   UnownedMemory ok", flush=True)
+mp = cupy.cuda.memory.MemoryPointer(mem, 0); print("9 MemoryPointer ok", flush=True)
+print("10 full asarray path...", flush=True)
+a = cupy.asarray([1,2,3]); print("   asarray ok sum=", int(a.sum()), flush=True)
+print("ALL DONE", flush=True)
