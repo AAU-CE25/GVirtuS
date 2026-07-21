@@ -1,72 +1,137 @@
-# GVirtuS Benchmarking (InfoComm 2027)
+# GVirtuS benchmarking
 
-> ## 🛠️ NEW HERE? START WITH THE SKILL: [`../benchmark-dev/SKILL.md`](../benchmark-dev/SKILL.md)
-> The **benchmark-dev skill** is the operating manual: testbed layout (es-dpu-01 backend / es-dpu-02
-> frontend), SSH access, how to run each test suite, known problems, where everything lives, and the
-> five standing rules (clean up, back up with evidence, don't overclaim, challenge assumptions,
-> verify GPUDirect). Read it before running anything.
-
-> # ⚠️ READ FIRST: [`00-CRITICAL-verify-gpudirect.md`](00-CRITICAL-verify-gpudirect.md)
-> **ALWAYS MAKE SURE GPUDIRECT IS ACTUALLY WORKING. NEVER ASSUME WITHOUT BACKING.**
-> Verify every transport-mode claim against backend logs / a known-good app before reporting.
-> We were burned twice by assuming instead of verifying.
-
-This folder documents the expanded benchmark suite for evaluating the UCX-based
-GVirtuS communicator (project **GUSTO**) across bare-metal and remote-virtualized
-configurations. It is the living record of the testing effort; each phase adds a
-numbered document here.
-
-> **Why this exists:** the paper's current evaluation (cuBLAS SimpleMatrix +
-> OpenCV-DNN/YOLO) is too narrow for an HPC venue. We add recognized HPC proxy
-> apps and an LLM inference workload, measured across all transport modes.
-
-## Document index
+Benchmark campaign for GVirtuS (project GUSTO) on the AAU two-node testbed, over the UCX communicator
+(TCP / RDMA / RDMA+GPUDirect). This folder is the **write-up**; the raw data + plots live under
+[`../../benchmarks/`](../../benchmarks/), and the operating manual is the **benchmark-dev skill**
+([`../benchmark-dev/SKILL.md`](../benchmark-dev/SKILL.md)).
 
 | Doc | Contents |
 |-----|----------|
-| [`00-CRITICAL-verify-gpudirect.md`](00-CRITICAL-verify-gpudirect.md) | **MANDATORY RULE + checklist: always verify GPUDirect/transport is actually engaged (backend log proof) before reporting any result. Never assume.** |
+| **[RESULTS.md](RESULTS.md)** | All workload results: miniBUDE, BabelStream, transfer bandwidth, simple_matrix, llama, per-RPC latency distributions. |
+| **[ASYNC-DISPATCHER.md](ASYNC-DISPATCHER.md)** | The optimization stack: frontend RPC reductions + the asynchronous dispatcher (incl. `cudaMemcpyAsync`), design + measured speedups. |
+| **README.md** (this file) | Testbed setup, standing rules, GPUDirect verification, known bugs/knobs, measurement roadmap. |
 
-| Doc | Contents |
-|-----|----------|
-| [`01-testbed-setup.md`](01-testbed-setup.md) | Two-node testbed: hardware, network, SSH access, branch, backend/frontend launch, transport presets, Phase 0 bring-up + smoke test results. |
-| [`02-babelstream.md`](02-babelstream.md) | BabelStream: what it measures, bare-metal L40S baseline, the diagnosis journey (stale-image red herring + real `cudaHostAlloc` zero-copy limitation), the fix, and confirmation it runs over GVirtuS. |
-| [`03-transport-sweep.md`](03-transport-sweep.md) | Full transport sweep (4 configs × 9 sizes × 5 kernels = **180 points**): methodology, findings (TCP < RDMA ≈ GPUDirect, control-path amortization toward bare metal), caveats. Data + plots under [`data/babelstream/`](data/babelstream/). |
-| [`04-transfer-bandwidth.md`](04-transfer-bandwidth.md) | H2D/D2H `cudaMemcpy` bandwidth sweep (the transport data path). **RDMA ~3× TCP**; **GPUDirect ~2.3× D2H speedup for bulk transfers** (≥4 MiB). Corrects an earlier benchmark artifact ("crash ≥8 MiB" was an oversized-reused-buffer bug, not GPUDirect). Data + plots under [`data/transfer/`](data/transfer/). |
-| [`05-gvirtus-bugs-and-knobs.md`](05-gvirtus-bugs-and-knobs.md) | GVirtuS-internal issues found during benchmarking: `RMA_ZEROCOPY` what/why/OOM, buffer-reuse RMA edge case, backend listener non-recovery, frontend GPUDirect probe, `cudaHostAlloc` zero-copy. Workarounds + future-work fixes. |
-| [`06-minibude.md`](06-minibude.md) | miniBUDE (compute-bound molecular-docking proxy): **GVirtuS overhead < 0.2 % vs bare metal across all transports** (216 GFLOP/s). Transport-insensitive throughput; transport only shows in one-time setup cost. Data + plots under [`data/minibude/`](data/minibude/). |
-| [`07-llama.md`](07-llama.md) | Llama LLM inference (llama.cpp, TinyLlama-1.1B): **runs over GVirtuS after fixing `cudaDeviceGetPCIBusId` + host-alloc alignment**; token gen **~79× slower** than native (RDMA) — the RPC-bound extreme, confirming the synchronous-dispatch bottleneck. **Transport DOES matter here: RDMA ~2.2× TCP** (latency-bound); GPUDirect == plain RDMA. Data + plots under [`data/llama/`](data/llama/). |
-| [`08-recommended-improvements.md`](08-recommended-improvements.md) | Prioritized GVirtuS improvements from the campaign. **Improvement #1 PROTOTYPED + KEPT + VALIDATED:** local `__cudaPush/PopCallConfiguration` (thread-local, no RPC) → **llama tg +1.45×, small BabelStream +1.64×, miniBUDE unchanged**, correctness preserved. Plus recommendations: cache `cudaGetDevice`/`cudaGetLastError`, async dispatch, launch batching / graph capture, RMA rcache fix. Data under [`data/prototype_pushpop_summary.csv`](data/prototype_pushpop_summary.csv). |
-| [`09-measurement-roadmap.md`](09-measurement-roadmap.md) | **What to measure next for an INFOCOM-grade paper.** Gap: we have means, not distributions. Roadmap: per-RPC **latency percentiles p50/p90/p99/p99.9 + CDFs / tails** (biggest gap), latency decomposition, throughput–latency saturation curves, small-message RPC/s ceiling, **multi-tenancy scaling + fairness (Jain) + isolation**, TTFT/ITL for LLM, CPU/registration efficiency, statistical rigor (CIs), external baseline, design ablations. Concrete first step: env-gated latency trace in `Frontend::Execute()`. |
-| [`10-latency-distributions.md`](10-latency-distributions.md) | **First distribution-level result (INFOCOM headline).** Per-RPC latency for 44k RPCs/transport via new `GVIRTUS_LATENCY_TRACE` instrumentation. Control-plane p99: **TCP 1328 µs vs RDMA 56 µs (24×)**; p99.9 44×; **tail ratio p99/p50: TCP 22.9× vs RDMA 1.33×**. RDMA's win is near-elimination of tail-latency variance, not lower median. Explains the llama TCP slowdown. GPUDirect ≈ RDMA on control plane. Data + CDF/percentile plots under [`data/latency/`](data/latency/). |
-| [`11-matrix-vs-paper.md`](11-matrix-vs-paper.md) | **SimpleMatrix (cuBLAS SGEMM, N=16000) vs the report (N=16384).** Reproduces the report within the size margin: GPUDirect **358 ms** (report 389), UCX RDMA zerocopy **497 ms** (report 548), GEMM ~157 ms (report ~168). **GPUDirect provably engages at ~1 GB/transfer → ~1.4× over RDMA** (the bulk-transfer workload, unlike llama). Win is D2H; requires `RMA_ZEROCOPY=1`. Also documents that early "multi-minute" runs were zombie/leak contamination, not a regression. Data under [`data/matrix/`](data/matrix/). |
-| [`12-async-dispatch-suite.md`](12-async-dispatch-suite.md) | **Async dispatcher (rec #3) A/B across the whole suite.** `GVIRTUS_ASYNC_DISPATCH=1` makes stream-ordered `cudaLaunchKernel` &c fire-and-forget. Benefit scales with launch-boundedness: **llama +117% (2.17×)**, **BabelStream small sizes +20…31%**, transitional +6%, and **~0% for bandwidth/compute/transfer-bound** (large BabelStream, miniBUDE, transfer_bw2, simple_matrix). No regressions. Also: the current build is ~5.6× faster on small BabelStream than the pre-opt tables, and two pre-existing bugs (BabelStream 2²² size, backend GPU leak). Data under [`data/_async_suite/`](data/_async_suite/). |
+**Headline:** GVirtuS is ~free for compute-bound work (miniBUDE <0.2%) and ~93–95% of native for
+bandwidth-bound work, but was catastrophic for launch-/RPC-bound LLM decode (~79× native). The
+optimization stack + async dispatcher close that to **~3.4×** (token gen 8 → ~187 t/s over RDMA),
+correctness preserved.
 
-**Runnable example:** [`examples/babelstream/`](../../examples/babelstream/) — first-class
-GVirtuS example (mirrors `simple_matrix`): `setup.sh` (clone + GVirtuS adaptation),
-`frontend.sh`, `backend.sh`, `nvml_shim.cpp`, `Dockerfile`, `README.md`. Run with
-`make run-babelstream-test`.
+---
 
-## Related top-level docs
-- [`../../BENCHMARK_PLAN.md`](../../BENCHMARK_PLAN.md) — full plan: capability audit,
-  per-app CUDA requirements, risk table, phased rollout, metrics, multitenancy.
-- [`../GPUDIRECT.md`](../GPUDIRECT.md) — GPUDirect design + quickstart transport launchers.
-- [`../UCX_GUIDE.md`](../UCX_GUIDE.md), [`../UCX_PROPERTIES_GUIDE.md`](../UCX_PROPERTIES_GUIDE.md),
-  [`../UCX_OPTIMIZATIONS.md`](../UCX_OPTIMIZATIONS.md) — UCX transport configuration.
+## 0. Standing rules (non-negotiable — see the skill for the full text)
 
-## Test matrix (target)
+1. **Clean up after testing.** Kill zombie frontend procs, restart the backend fresh between phases,
+   verify GPU freed on both nodes. Leftover state fakes "slowness"/"hangs".
+2. **Back up every number with evidence** (CSV, log, backend `docker logs`). Save under
+   `benchmarks/`. No number without a source.
+3. **Don't overclaim.** Distinguish "capable/configured" from "demonstrated".
+4. **Challenge surprising results** — re-derive against a second config / warmup-excluded subset.
+5. **Verify GPUDirect — never assume** (see §3).
+- **Keep logs lean:** measure at `GVIRTUS_LOGLEVEL=40000` (ERROR) and `UCX_LOG_LEVEL=error`. DEBUG
+  per-RPC logging ~halves throughput and produces GB-scale logs. Use the low-overhead
+  `GVIRTUS_LATENCY_TRACE` for latency work, not raw DEBUG.
 
-Each application is run in 5 configurations:
+## 1. Testbed
 
-1. **Bare metal** — native CUDA, no GVirtuS (baseline).
-2. **GVirtuS UCX / TCP** — `UCX_TLS=tcp,self` (transport baseline).
-3. **GVirtuS UCX / RDMA** — RoCEv2, no GPUDirect (host-staged).
-4. **GVirtuS UCX / RDMA + GPUDirect** — NIC ↔ GPU memory directly.
-5. _(optional)_ **Legacy plain TCP/RDMA connectors** for regression vs the paper.
+Two directly-wired nodes at AAU, each with an NVIDIA **L40S** (46 GB):
 
-Applications: **BabelStream, miniBUDE, XSBench, CloverLeaf** (HPC proxies) +
-**Llama** (LLM inference). Later: **multitenancy** (≥2 frontends → 1 backend).
+| Node | Role | RoCE IP (`mlx5_1`/`ens1f1np1`, GID idx 3) |
+|------|------|-------------------------------------------|
+| `es-dpu-01` | **Backend** (owns the GPU) | `25.25.25.2/24` |
+| `es-dpu-02` | **Frontend** (client) | `25.25.25.1/24` |
 
-## Status snapshot
+> ⚠️ IPs are **swapped vs older docs**: backend = `25.25.25.2` (set `server_address` to this).
+> Both nodes physically have a GPU (GPUDirect on the frontend needs the client NIC to DMA into client
+> GPU memory), but the remoted app uses the *remote* GPU.
 
-- **Phase 0 (testbed bring-up): DONE.** Backend builds & runs on es-dpu-01;
-  `simple_matrix` frontend from es-dpu-02 passes over UCX (`check=pass`, `max_abs_err=0`).
+Access from the Windows dev box: `ssh es-dpu-01` / `ssh es-dpu-02` (ProxyJump through the AAU gateway;
+key `~/.ssh/id_ed25519`). Each shell call is a fresh process — long-running services (the backend) run
+**detached**.
+
+**Config** (`etc/`): `properties_ucx.json` (UCX, main, port 32223), plus legacy `properties.json`
+(TCP) / `properties_plain_rdma.json` / `properties_hybrid.json`. Transport preset in `etc/ucx.env`
+(`UCX_TLS=rc_mlx5,ud_mlx5,tcp,self`, `UCX_NET_DEVICES=mlx5_1:1,ens1f1np1`, `UCX_IB_GID_INDEX=3`,
+`GVIRTUS_UCX_DATAPATH=am`).
+
+**Backend launch** (es-dpu-01): a detached container (`gvirtus-kz08ey`) whose entrypoint rebuilds from
+mounted source (`cmake && make -j && make install`) then runs `gvirtus-backend properties_ucx.json`.
+Env knobs: `GVIRTUS_GPUDIRECT={0|1}`, `GVIRTUS_RMA_ZEROCOPY={0|1}`, `GVIRTUS_RMA_SLOTS`,
+`GVIRTUS_RMA_SLOT_CAP_MB`, `GVIRTUS_LOGLEVEL`. Healthy log signature: `GPUDirect=enabled ...` →
+`rx_pool: initialized N slots ...` → `listener created`. Restart (`docker rm -f` + relaunch) between
+GPUDirect phases — a poisoned CUDA context silently invalidates later runs.
+
+**Examples** ([`../../examples/`](../../examples/)): first-class GVirtuS runs of the app benchmarks —
+`babelstream/`, `llama/`, `minibude/`, `simple_matrix/` — each with `setup.sh` / `frontend.sh` /
+`backend.sh` / `Dockerfile` / `README.md`.
+
+## 2. Data layout ([`../../benchmarks/`](../../benchmarks/))
+
+Per-benchmark × mode folders: `<bench>-async/` (dispatcher on), `<bench>-sync/` (optimized, async
+off — includes the older transport/optimization campaign), `<bench>-baseline/` (clean/stock GVirtuS,
+placeholders to run later). Plus `_summary/` (cross-benchmark) and `transport-characterization/`
+(per-RPC latency CDFs, raw transfer bandwidth). See `benchmarks/README.md`.
+
+## 3. ⚠️ Verify GPUDirect — never assume
+
+We were burned twice by *assuming* GPUDirect was engaged/broken. Before writing "GPUDirect" for a run:
+
+1. Backend log says `GPUDirect=enabled (cudaMalloc + ucp_mem_map(CUDA) probe OK ...)` — `disabled` ⇒
+   not GPUDirect.
+2. Backend launched with `GVIRTUS_GPUDIRECT=1` (`=0`/unset = plain RDMA).
+3. An **RDMA** TLS was negotiated (`rc_mlx5`, not `tcp,self`) — GPUDirect is impossible on TCP.
+4. Confirm the data path ran: `WriteIovRma(zerocopy) ... big=<bytes>` + `rx_pool: ... + N/N GPU
+   shadows`.
+5. Cross-check surprises against `simple_matrix` at large N (976 MB/transfer) before claiming a bug.
+6. Plain-RDMA vs GPUDirect configs must differ **only** in the backend `GVIRTUS_GPUDIRECT` flag;
+   restart the backend (fresh context) between phases.
+
+The **frontend** GPUDirect probe currently fails (it `dlopen`s the GVirtuS stub `libcudart`), so the
+client advertises `0 slots with gpu shadow` — fine for host-source transfers; **the backend flag +
+backend log is the source of truth.** If you can't point to a backend log line proving GPUDirect
+engaged for *this* run, write "unverified".
+
+## 4. Known bugs & knobs (candidates for hardening / paper "future work")
+
+- **Frontend `GVIRTUS_GPUDIRECT=1` can poison the app's CUDA context** — the frontend probe does a
+  real `cudaMalloc(4K)` that, on a degraded client GPU, fails and leaves CUDA state poisoned
+  (llama `initialization error`, exit 134). **Do not set `GVIRTUS_GPUDIRECT` on the frontend** — it's
+  the backend's concern. (The persistent "cold-start stall" was this crash in disguise.)
+- **`GVIRTUS_RMA_ZEROCOPY=1` OOM-kills the backend at ≥32 MiB** — UCX can't create a registration
+  cache in-container ("could not create UCP registration cache"), so every zero-copy `ucp_put`
+  re-registers and leaks pinned NIC registrations. Keep it `=0` for sweeps (GPUDirect *needs* `=1` for
+  device buffers — that path works for simple_matrix but watch memory). Fix: working rcache or a
+  GVirtuS-managed registration pool.
+- **Backend GPU memory leaks across client connections** — after many sequential runs the backend GPU
+  climbs (observed to 45/46 GB) and `cudaMalloc` starts failing ("malloc fail"). A fresh backend
+  restart clears it; restart between heavy sweeps.
+- **Backend listener non-recovery** — after a connection reset the next `ucp_listener_create` fails
+  ("Device is busy", port 32223 stuck) → `docker rm -f` + relaunch.
+- **Buffer-reuse RMA edge case (narrow)** — transferring growing sub-ranges of one large *reused*
+  registered device buffer resets the RDMA connection at ≥8–16 MiB. Normal exactly-sized allocations
+  are fine to ~976 MB.
+- **BabelStream at exactly 2²² (4,194,304) elements fails** on a fresh backend while 2²¹/2²³ succeed —
+  a size-specific bug worth a follow-up.
+- **`cudaHostAlloc` zero-copy in kernels unsupported** — GVirtuS `cudaHostAlloc` = frontend-local
+  `malloc`, so a kernel writing that pointer faults (CUDA 700). Needs a device-buffer + explicit copy
+  adaptation (see the BabelStream example's `setup.sh`).
+
+**Fixes landed (kept in tree):** `cudaDeviceGetPCIBusId` backend handler (llama CUDA-init crash);
+`cudaHostAlloc`/`cudaMallocHost` 256-byte `posix_memalign` (ggml alignment crash); the Stage-1 RPC
+reductions and the async dispatcher (see ASYNC-DISPATCHER.md); `GVIRTUS_LATENCY_TRACE` instrumentation.
+
+## 5. Measurement roadmap (for an INFOCOM-grade paper)
+
+INFOCOM judges GUSTO as a *transport system*, so means alone are insufficient. Priority order:
+
+1. **Latency distributions + CDFs** (done — RESULTS.md §6; `GVIRTUS_LATENCY_TRACE`). Extend to more
+   call-classes.
+2. **Latency decomposition** (marshal → wire → backend dispatch → exec → return) — timers already
+   exist in `Execute()`; aggregate them.
+3. **Throughput–latency saturation** curve (the "hockey stick") + small-message **RPC/s ceiling**
+   (the control-plane number that predicts LLM decode).
+4. **Multi-tenancy** — N frontends → 1 backend scaling, **Jain fairness**, and **isolation** (does a
+   bandwidth-heavy tenant inflate a latency-sensitive tenant's p99?).
+5. **LLM SLOs** — TTFT / inter-token latency p50/p99.
+6. **Statistical rigor** — ≥5 reps, 95% CIs / error bars, warmup discarded, on every plot.
+7. **External baseline** (e.g. rCUDA) + per-mechanism **ablation figures** (AM vs TCP control path;
+   RDMA vs staged; GPUDirect vs host-staged; Stage-1 opts on/off; async on/off).

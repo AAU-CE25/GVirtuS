@@ -25,7 +25,7 @@ Read it fully before running anything. It is written to survive across sessions.
    results and fakes "slowness"/"hangs". A multi-minute "hang" has repeatedly been *just* zombies +
    a poisoned backend context; cleanup returned the same run to seconds. **Clean first, measure second.**
 2. **BACK UP EVERYTHING WITH EVIDENCE.** Every number must be reproducible from a captured artifact
-   (CSV, log, backend `docker logs`, profile line). Save raw data under `docs/benchmarking/data/`,
+   (CSV, log, backend `docker logs`, profile line). Save raw data under `benchmarks/`,
    record the exact command + env, and log the run. No number without a source.
 3. **DON'T OVERCLAIM.** State only what the evidence supports. If GPUDirect was *enabled* but the
    data path wasn't exercised, say exactly that — do not claim "NIC→GPU DMA happened" without a
@@ -171,23 +171,24 @@ There are **three independent working trees** and nothing is committed, so they 
 
 ## 4. Where docs & results live
 
-- **Docs (committed):** `docs/benchmarking/` — numbered docs 00–11. Start at
-  `docs/benchmarking/README.md` (index). Highlights:
-  - `00-CRITICAL-verify-gpudirect.md` — the GPUDirect verification rule.
-  - `05-gvirtus-bugs-and-knobs.md` — living bug catalog + FIXED-bugs section.
-  - `07-llama.md`, `08-recommended-improvements.md`, `09-measurement-roadmap.md`,
-    `10-latency-distributions.md`, `11-matrix-vs-paper.md`.
-- **Result data (committed):** `docs/benchmarking/data/{babelstream,minibude,llama,transfer,latency,matrix}/`
-  — CSVs + plot scripts + PNGs.
+- **Docs (committed):** `docs/benchmarking/` — 3 consolidated files:
+  - `README.md` — testbed setup, standing rules, GPUDirect verification, known bugs/knobs, roadmap.
+  - `RESULTS.md` — all workload results (miniBUDE, BabelStream, transfer, simple_matrix, llama, latency).
+  - `ASYNC-DISPATCHER.md` — the optimization stack + async dispatcher design + speedups.
+- **Result data (committed):** `benchmarks/` — one folder per benchmark × mode:
+  `<bench>-{async,sync,baseline}/` for `{llama, miniBUDE, BabelStream, simple-matrix}`, plus
+  `_summary/` (cross-benchmark) and `transport-characterization/` (latency CDFs, transfer bandwidth).
+  CSVs + plot scripts + PNGs. See `benchmarks/README.md`.
+- **Runnable examples (committed):** `examples/{babelstream,llama,minibude,simple_matrix}/`
+  (`setup.sh`/`frontend.sh`/`backend.sh`/`Dockerfile`/`README.md`).
 - **Raw benchmark inputs/binaries (NOT in git):** on the nodes under `~/benchmarks/` and
   `/gvirtus/examples/`.
-- **Session plan / progress log:** `BENCHMARK_PLAN.md` (repo root) mirrors the session `plan.md`;
-  every milestone appends a dated `UPDATE #N` entry.
+- **Session plan / progress log:** `BENCHMARK_PLAN.md` (repo root); append-only historical log (its
+  references to the old numbered docs are kept as-is for provenance).
 - **The report (ground truth to compare against):** `_pdftxt/page_*.txt` (102-page project report;
   matrix tables 7.2/7.3/7.5/7.6 on pages 78–79, 84).
-- **Session SQLite tables:** `matrix_bench`, `llama_bench*`, `results`, `doc_index`, `todos`.
-- **Working branch:** `marcel/ucx-comm/testing` on all three trees (local + both nodes),
-  **uncommitted** — changes are deployed to nodes via `scp` + in-container rebuild.
+- **Working branch:** `marcel/ucx-comm/testing` (local + both nodes); changes deployed to nodes via
+  `scp` + in-container rebuild.
 
 ---
 
@@ -260,8 +261,9 @@ synthetic RPC ping-pong latency microbenchmark; throughput–latency saturation 
    `[GVS PROFILE]` lines for transfers, and — for latency work — `GVIRTUS_LATENCY_TRACE`.
 5. **Post-run cleanup:** kill the just-run procs; if switching GD phase, `docker rm -f` + relaunch backend.
 6. **Verify GPUDirect** per §0.5 before writing any GPUDirect claim.
-7. **Persist:** save raw data under `docs/benchmarking/data/<workload>/`, write/update the numbered doc,
-   append a dated `UPDATE #N` to `BENCHMARK_PLAN.md`/`plan.md`, record in the session SQL table.
+7. **Persist:** save raw data under `benchmarks/<bench>-<mode>/`, update the relevant consolidated doc
+   (`docs/benchmarking/{RESULTS,ASYNC-DISPATCHER,README}.md`), append a dated `UPDATE #N` to
+   `BENCHMARK_PLAN.md`, record in the session SQL table.
 8. **Compare to the report** (`_pdftxt/`) when a matching config exists; note the config/N differences.
 
 ---
@@ -271,4 +273,4 @@ Means alone are insufficient. Prefer: latency **distributions** (p50/p90/p99/p99
 ratio), latency **decomposition** (marshal→wire→dispatch→exec→return), **throughput–latency**
 saturation + small-message RPC/s ceiling, **multi-tenancy** scaling + fairness (Jain) + isolation,
 LLM TTFT/inter-token latency, CPU/registration efficiency, ≥5 reps with 95% CIs, an external baseline,
-and per-mechanism **ablations**. See `docs/benchmarking/09-measurement-roadmap.md`.
+and per-mechanism **ablations**. See `docs/benchmarking/README.md` §5 (measurement roadmap).
