@@ -81,7 +81,10 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaFreeAsync(void* devPtr, cudaStream
     CudaRtFrontend::Prepare();
     CudaRtFrontend::AddDevicePointerForArguments(devPtr);
     CudaRtFrontend::AddDevicePointerForArguments(hStream);
-    CudaRtFrontend::Execute("cudaFreeAsync");
+    // Stream-ordered free, no return data -> fire-and-forget under async dispatch.
+    // A bad-ptr / double-free error latches on the backend and surfaces at the
+    // next synchronous call (matches CUDA async error semantics).
+    CudaRtFrontend::ExecuteMaybeAsync("cudaFreeAsync");
     return CudaRtFrontend::GetExitCode();
 }
 
