@@ -237,7 +237,10 @@ class UcxCommunicator : public Communicator {
     };
 
     std::vector<RemoteSlot> remote_slots_;
-    mutable std::mutex rma_state_mu_;
+    std::mutex rma_state_mu_;
+    // Cached at RmaSetup time (handle_rma_setup_am): true iff a remote slot has
+    // a usable rkey. rma_put_capable() returns this with zero per-RPC cost.
+    std::atomic<bool> rma_put_capable_{false};
     std::condition_variable rma_setup_cv_;
     std::atomic<bool> rma_setup_received_{false};
     size_t next_remote_slot_idx_{0};

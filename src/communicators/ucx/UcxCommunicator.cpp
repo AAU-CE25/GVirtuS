@@ -1365,11 +1365,9 @@ void UcxCommunicator::drain_device_if_async_pending() {
 // cannot ucp_put into them — the backend must then NOT take the D2H GPU-scratch
 // path (its device fragment would fall through to the AM path and error).
 bool UcxCommunicator::rma_put_capable() const {
-    if (!rma_setup_received_.load()) return false;
-    std::lock_guard<std::mutex> lk(rma_state_mu_);
-    for (const auto &rs : remote_slots_)
-        if (rs.rkey != nullptr) return true;
-    return false;
+    // Cached at RmaSetup time (handle_rma_setup_am) so this is a single atomic
+    // load — Process.cpp queries it before every RPC, so keep it O(1).
+    return rma_put_capable_.load();
 }
 
 // Server-side: pack rkeys of every rx_slot, build an RmaSetup AM body, and
@@ -1618,12 +1616,19 @@ void UcxCommunicator::handle_rma_setup_am(const void *data, size_t length) {
         new_slots.push_back(rs);
     }
 
+    // Cache RMA-put capability once here (any slot with a usable rkey) so the
+    // per-RPC rma_put_capable() query is a single atomic load. Computed from
+    // new_slots before the move below.
+    bool put_capable = false;
+    for (const auto &rs : new_slots)
+        if (rs.rkey != nullptr) { put_capable = true; break; }
     {
         std::lock_guard<std::mutex> lk(rma_state_mu_);
         remote_slots_ = std::move(new_slots);
         next_remote_slot_idx_ = 0;
         rma_setup_received_.store(true);
     }
+    rma_put_capable_.store(put_capable);
     rma_setup_cv_.notify_all();
     ucx_debug_log("rma_setup: received %zu remote slots (%zu with gpu shadow)",
                   remote_slots_.size(), gpu_received);
@@ -1637,6 +1642,7 @@ void UcxCommunicator::destroy_rma_state() {
     }
     remote_slots_.clear();
     rma_setup_received_.store(false);
+    rma_put_capable_.store(false);
     next_remote_slot_idx_ = 0;
 }
 
