@@ -1,0 +1,28 @@
+Llama call-profile summary (evidence-based, from backend timestamped dispatch log)
+Model TinyLlama-1.1B Q4, GVirtuS RDMA+GPUDirect, 1 run (-n 24 --ignore-eos).
+
+TOTAL backend dispatches: 77,345
+Wall clock first->last dispatch: 498.2 s  (BUT 491.7 s of that is a single terminal hang)
+
+PHASE BREAKDOWN (active run, excluding the terminal hang):
+  registration (cudaRegisterFunction/Var/FatBinary): 8,736 calls in 0.96 s   <- NOT the bottleneck
+  compute (prompt-eval + ~22 token forward passes): 68,458 calls in 5.51 s   <- the real cost
+
+PER-KERNEL-LAUNCH COST = 6.2 RPCs. Each <<<grid,block>>> expands to:
+  cudaPushCallConfiguration   10960   (should be LOCAL - thread-local config push, needlessly remoted)
+  cudaLaunchKernel            10960
+  cudaPopCallConfiguration    10960   (should be LOCAL)
+  cudaGetLastError            14527   (~1.3/launch, cacheable)
+  cudaGetDevice               19358   (~1.8/launch, cacheable)
+  cudaStreamSynchronize         671
+  cudaMemcpyAsync               374
+~10,960 launches for ~22 forward passes => ~500 launches/token => ~3,100 synchronous RPCs/token.
+Median per-RPC gap: ~9 us (small AM msgs on RDMA are fast). ~250 ms/token => ~4 tok/s vs ~570 native.
+
+TWO SEPARATE PROBLEMS:
+ 1) Steady generation ~140x slower: dominated by RPC COUNT per token (~3,100), of which ~4 of the
+    6.2 RPCs/launch are needless overhead (Push/Pop config = local ops; GetLastError/GetDevice = cacheable).
+    Making Push/Pop local + caching GetDevice/GetLastError could cut ~5x the RPCs with NO async change.
+    Remaining fix = async dispatch for cudaLaunchKernel/cudaMemcpyAsync so launches don't block.
+ 2) Terminal HANG (491 s single stall -> 500 s timeout): a stability bug (intermittent decode-graph
+    alignment assert, doc 07). This - not steady slowness - is what made wall-clock ~8 min.

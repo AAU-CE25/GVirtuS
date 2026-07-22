@@ -1,0 +1,34 @@
+TOTAL RPCs: 44241   aggregate client wall time in RPCs: 2.32 s
+
+payload bucket           count   %cnt    sum_ms  %time  mean_us
+0 B (pure control)       25791  58.3%   1111.8  47.9%     43.1
+1 B�1 KiB                17072  38.6%    738.8  31.8%     43.3
+1�4 KiB                    170   0.4%     31.4   1.4%    184.6
+4�64 KiB                   809   1.8%     36.9   1.6%     45.6
+64 KiB�1 MiB               150   0.3%     28.4   1.2%    189.4
+>= 1 MiB (bulk)            249   0.6%    374.0  16.1%   1501.9
+
+CONTROL path (<4 KiB):   43033 RPCs (97.3%),  1.88 s (81.1% of RPC time)
+DATA    path (>=4 KiB):   1208 RPCs (2.7%),  0.44 s (18.9% of RPC time)
+
+Top routines by COUNT:
+  cudaGetDevice                  14624  33.1%  aggUS=   652.1ms  meanUS=  44.6
+  cudaGetLastError               11163  25.2%  aggUS=   457.1ms  meanUS=  40.9
+  cudaLaunchKernel                8266  18.7%  aggUS=   361.2ms  meanUS=  43.7
+  cudaRegisterFunction            6665  15.1%  aggUS=   247.5ms  meanUS=  37.1
+  cudaRegisterVar                 1789   4.0%  aggUS=    71.7ms  meanUS=  40.1
+  cudaStreamSynchronize            474   1.1%  aggUS=    38.1ms  meanUS=  80.4
+  cudaOccupancyMaxActiveBlocksPerMultiprocessorWithFlags     418   0.9%  aggUS=    17.7ms  meanUS=  42.3
+  cudaMemcpyAsync                  333   0.8%  aggUS=   158.8ms  meanUS= 477.0
+
+Top routines by AGGREGATE TIME:
+  cudaGetDevice                   652.1ms  (28.1%)  n= 14624  meanUS=  44.6  maxpay=0
+  cudaGetLastError                457.1ms  (19.7%)  n= 11163  meanUS=  40.9  maxpay=0
+  cudaLaunchKernel                361.2ms  (15.6%)  n=  8266  meanUS=  43.7  maxpay=272
+  cudaRegisterFunction            247.5ms  (10.7%)  n=  6665  meanUS=  37.1  maxpay=969
+  cudaRegisterFatBinary           235.4ms  (10.1%)  n=   141  meanUS=1669.7  maxpay=5932423
+  cudaMemcpyAsync                 158.8ms  ( 6.8%)  n=   333  meanUS= 477.0  maxpay=53760036
+  cudaRegisterVar                  71.7ms  ( 3.1%)  n=  1789  meanUS=  40.1  maxpay=17548
+  cudaStreamSynchronize            38.1ms  ( 1.6%)  n=   474  meanUS=  80.4  maxpay=8
+
+Bulk (>=1 MiB) transfers: 249 RPCs, 374.0 ms total, largest payload 54 MB � these are the ONE-TIME weight load, not per-token.
