@@ -1,5 +1,0 @@
-config,baseline_tg16,rec1_tg16,rec12_tg16,baseline_pp8,rec1_pp8,rec12_pp8,total_tg_speedup,note
-gvirtus-rdma,8.04,11.64,40.42,50.62,69.48,249.95,5.03,rec1=local Push/Pop; rec2=cache cudaGetDevice+cudaGetLastError; correctness OK (Paris)
-gvirtus-tcp,3.58,5.35,10.63,25.41,56.78,78.50,2.97,rec1+rec2; TCP
-gvirtus-rdma-gpudirect,7.96,11.53,42.77,49.10,69.75,300.98,5.37,rec1+rec2; backend GD=enabled but data path NOT meaningfully exercised (frontend host-staged/GVIRTUS_GPUDIRECT unset; peer advertised 0 gpu-shadow slots; 0 GPU-routing events); ~=RDMA because llama is control-plane-bound. NIC->GPU DMA proof is doc 04 bulk transfers, not llama.
-baremetal,634.87,634.87,634.87,2773.07,2773.07,2773.07,1.00,native reference
