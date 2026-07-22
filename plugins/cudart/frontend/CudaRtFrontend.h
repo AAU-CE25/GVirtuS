@@ -34,6 +34,7 @@
 #include <gvirtus/frontend/Frontend.h>
 
 #include <cstdlib>
+#include <cstring>
 #include <list>
 #include <map>
 #include <set>
@@ -89,11 +90,34 @@ class CudaRtFrontend {
         return enabled;
     }
 
+    // Sub-mode of the async dispatcher (GVIRTUS_ASYNC_LAUNCH_ONLY=1): restrict
+    // fire-and-forget to kernel/graph LAUNCHES only, keeping memcpy/free/memset/
+    // events synchronous. Kernel launches dominate the call count in kernel-heavy
+    // workloads (e.g. CUDASW++ Smith-Waterman = thousands of tiny SW kernels), so
+    // this captures most of the launch-pipelining win while eliminating the
+    // reordering races that full async introduces around the cudaMallocAsync
+    // (sync) / cudaFreeAsync / cudaMemcpyAsync ordering (which caused device
+    // illegal-memory-access faults). Read once. Independent of full async so
+    // launch-transparent workloads (llama) keep using GVIRTUS_ASYNC_DISPATCH.
+    static inline bool AsyncLaunchOnly() {
+        static const bool v = []() {
+            const char* e = std::getenv("GVIRTUS_ASYNC_LAUNCH_ONLY");
+            return e != nullptr && e[0] == '1' && e[1] == '\0';
+        }();
+        return v;
+    }
+
     // Dispatch a stream-ordered, output-less routine asynchronously when the
     // gate is on, otherwise synchronously. Only call this for routines on the
     // vetted async allowlist (no output parameters the caller consumes).
     static inline void ExecuteMaybeAsync(const char* routine, const Buffer* input_buffer = NULL) {
-        if (AsyncDispatchEnabled())
+        bool go_async = AsyncDispatchEnabled();
+        if (go_async && AsyncLaunchOnly()) {
+            go_async = (std::strcmp(routine, "cudaLaunchKernel") == 0 ||
+                        std::strcmp(routine, "cudaLaunchKernelExC") == 0 ||
+                        std::strcmp(routine, "cudaGraphLaunch") == 0);
+        }
+        if (go_async)
             ExecuteAsync(routine, input_buffer);
         else
             Execute(routine, input_buffer);

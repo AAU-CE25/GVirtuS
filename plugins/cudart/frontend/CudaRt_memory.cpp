@@ -699,7 +699,8 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpyAsync(void *dst, const void 
             // tracked pinned buffers, defer: the frontend writes dst at the next
             // sync point (Phase 3). Otherwise (gate off, or pageable dst) copy
             // synchronously as before.
-            if (CudaRtFrontend::AsyncDispatchEnabled() && gvirtus_is_pinned(dst, count)) {
+            if (CudaRtFrontend::AsyncDispatchEnabled() && !CudaRtFrontend::AsyncLaunchOnly() &&
+                gvirtus_is_pinned(dst, count)) {
                 CudaRtFrontend::ExecuteDeferredD2H("cudaMemcpyAsync", dst, count);
             } else {
                 CudaRtFrontend::Execute("cudaMemcpyAsync");
