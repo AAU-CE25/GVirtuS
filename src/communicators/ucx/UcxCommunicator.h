@@ -272,6 +272,15 @@ class UcxCommunicator : public Communicator {
     std::unordered_map<std::uint64_t, GpuGetReg> gpu_get_regs_;
     std::mutex gpu_get_mu_;
 
+    // === D2H-via-GET (client side) ===
+    // Cache of ucp_mem_map registrations for the client's D2H destination host
+    // buffers, keyed by address. Passed as a memh hint to ucp_get_nbx so UCX
+    // doesn't re-register the dst every call (the broken rcache can't cache it).
+    // D2H typically reuses the same dst, so this registers once. Guarded by
+    // client_dst_mu_. Not unmapped at teardown (process-lifetime).
+    std::unordered_map<std::uint64_t, GpuGetReg> client_dst_regs_;
+    std::mutex client_dst_mu_;
+
     // Client-side data path: stage iov fragments into tx_scratch_, RDMA-put
     // into the next remote slot, then send a small RmaPosted AM with the
     // slot index. Returns total bytes (== sum of iov lengths) on success.

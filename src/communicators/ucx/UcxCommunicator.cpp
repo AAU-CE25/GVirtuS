@@ -1719,8 +1719,50 @@ bool UcxCommunicator::GetFromRemoteGpu(void *dst_host, std::uint64_t remote_addr
                       ucs_status_string(st));
         return false;
     }
+
+    // Register the destination host buffer ourselves and cache the memh, keyed
+    // by address (grow-remap like the server scratch). Passed to ucp_get_nbx as
+    // a memh hint so UCX does NOT re-register the dst on every call/fragment —
+    // the broken rcache can't cache it (rcache=y errors "Bad address"), so
+    // without this the per-op registration dominates and D2H collapses at large
+    // sizes (64 MB fell to ~1 GB/s). D2H reuses the same dst, so this registers
+    // once and every subsequent GET is a pure line-rate RDMA READ.
+    ucp_mem_h dst_memh = nullptr;
+    if (context_ != nullptr) {
+        std::lock_guard<std::mutex> lk(client_dst_mu_);
+        const std::uint64_t key = reinterpret_cast<std::uint64_t>(dst_host);
+        auto it = client_dst_regs_.find(key);
+        if (it != client_dst_regs_.end() && it->second.len < count) {
+            ucp_mem_unmap(context_, it->second.memh);
+            client_dst_regs_.erase(it);
+            it = client_dst_regs_.end();
+        }
+        if (it == client_dst_regs_.end()) {
+            ucp_mem_map_params_t mp{};
+            mp.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS |
+                            UCP_MEM_MAP_PARAM_FIELD_LENGTH;
+            mp.address = dst_host;
+            mp.length = count;
+            ucp_mem_h m = nullptr;
+            ucs_status_t mst = ucp_mem_map(context_, &mp, &m);
+            if (mst == UCS_OK) {
+                it = client_dst_regs_.emplace(key, GpuGetReg{count, m}).first;
+            } else {
+                ucx_debug_log("GetFromRemoteGpu: dst ucp_mem_map failed: %s "
+                              "(falling back to on-the-fly reg)",
+                              ucs_status_string(mst));
+            }
+        }
+        if (it != client_dst_regs_.end()) dst_memh = it->second.memh;
+    }
+
     ucp_request_param_t param{};
-    param.op_attr_mask = 0;
+    if (dst_memh != nullptr) {
+        param.op_attr_mask = UCP_OP_ATTR_FIELD_MEMH;
+        param.memh = dst_memh;
+    } else {
+        param.op_attr_mask = 0;
+    }
     void *req = ucp_get_nbx(endpoint_, dst_host, count, remote_addr, rkey, &param);
     try {
         wait_request_completion(req, "d2h_get");
