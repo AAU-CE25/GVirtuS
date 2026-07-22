@@ -216,18 +216,57 @@ bool write_ucx_am_response(Communicator *client_comm,
                            const std::shared_ptr<Buffer> &output_buffer,
                            void *gpu_payload, size_t gpu_payload_size,
                            std::string &error) {
-    // Host-side portion of the response. With GPUDirect, this is just the
-    // protocol prefix (size_t count); without, it's [size_t count][count bytes].
+    // D2H-via-GET: when the handler produced a GPU-resident payload (large
+    // synchronous cudaMemcpy D2H), don't ucp_put it from cuda on the server —
+    // UCX can't build that active send-from-cuda proto under the forced
+    // rcache-off config ("cannot copy host<->cuda"). Instead register the GPU
+    // scratch and hand the client a descriptor so IT issues an RDMA GET; the
+    // backend is then just a passive RDMA-READ responder (its HCA serves the
+    // read from the peermem-registered GPU MR). Falls back to the legacy
+    // put/host path if registration is unsupported.
+    std::vector<char> get_desc;   // [size_t count][u64 addr][u32 rksz][rkey]
+    bool use_get = false;
+    // Only invert to GET on a connection that actually negotiated an RDMA lane
+    // AND passed the global GPUDirect probe (current_connection_supports_cuda()).
+    // This excludes ucx_tcp and plain-RDMA-without-GPUDirect: there gpu_payload
+    // is normally never set anyway, but the guard makes it airtight — those
+    // connections keep the exact legacy host response path, byte for byte.
+    if (gpu_payload != nullptr && gpu_payload_size > 0 &&
+        client_comm != nullptr && client_comm->current_connection_supports_cuda()) {
+        std::uint64_t remote_addr = 0;
+        std::vector<char> rkey;
+        if (client_comm->PrepareGpuGet(gpu_payload, gpu_payload_size,
+                                       remote_addr, rkey)) {
+            const std::uint32_t rksz = static_cast<std::uint32_t>(rkey.size());
+            const size_t count = gpu_payload_size;
+            get_desc.resize(sizeof(size_t) + sizeof(std::uint64_t) +
+                            sizeof(std::uint32_t) + rkey.size());
+            char *q = get_desc.data();
+            std::memcpy(q, &count, sizeof(size_t));              q += sizeof(size_t);
+            std::memcpy(q, &remote_addr, sizeof(std::uint64_t)); q += sizeof(std::uint64_t);
+            std::memcpy(q, &rksz, sizeof(std::uint32_t));        q += sizeof(std::uint32_t);
+            std::memcpy(q, rkey.data(), rkey.size());
+            use_get = true;
+        }
+    }
+
+    // Host-side portion of the response. GPUDirect-PUT: just the protocol prefix
+    // (size_t count); no GPUDirect: [size_t count][count bytes]; GPUDirect-GET:
+    // the GET descriptor above (and no GPU bytes on the wire).
     size_t host_out_size = 0;
     const char *out_data = nullptr;
-    if (output_buffer != nullptr) {
+    if (use_get) {
+        host_out_size = get_desc.size();
+        out_data = get_desc.data();
+    } else if (output_buffer != nullptr) {
         host_out_size = output_buffer->GetBufferSize();
         out_data = output_buffer->GetBuffer();
     }
 
-    // Wire out_size = host prefix + (optional) GPU payload. Frontend reads
-    // this many bytes contiguously, regardless of split origin.
-    const size_t wire_out_size = host_out_size + gpu_payload_size;
+    // Wire out_size = host prefix + (optional) GPU payload. GET mode puts no GPU
+    // bytes on the wire (the client pulls them). Frontend reads this many bytes.
+    const size_t gpu_wire_size  = use_get ? 0 : gpu_payload_size;
+    const size_t wire_out_size = host_out_size + gpu_wire_size;
     const size_t payload_size  = sizeof(double) + sizeof(size_t) + wire_out_size;
 
     gvirtus::communicators::ucxam::EnvelopeHeader response_header{};
@@ -235,7 +274,8 @@ bool write_ucx_am_response(Communicator *client_comm,
     response_header.version = gvirtus::communicators::ucxam::kEnvelopeVersion;
     response_header.message_type = static_cast<uint16_t>(gvirtus::communicators::ucxam::MessageType::Response);
     response_header.header_size = static_cast<uint16_t>(sizeof(gvirtus::communicators::ucxam::EnvelopeHeader));
-    response_header.reserved0 = 0;
+    response_header.reserved0 =
+        use_get ? gvirtus::communicators::ucxam::kEnvelopeFlagD2HGet : 0;
     response_header.status_code = static_cast<uint32_t>(exit_code);
     response_header.request_id = request_header.request_id;
     response_header.routine_size = 0;
@@ -269,7 +309,7 @@ bool write_ucx_am_response(Communicator *client_comm,
         iov[n].iov_len  = host_out_size;
         ++n;
     }
-    if (gpu_payload != nullptr && gpu_payload_size > 0) {
+    if (!use_get && gpu_payload != nullptr && gpu_payload_size > 0) {
         iov[n].iov_base = gpu_payload;
         iov[n].iov_len  = gpu_payload_size;
         ++n;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <memory>
 #include <vector>
@@ -172,6 +173,29 @@ class Communicator {
     // slot) is deliverable, or it must fall back to the host path. Default false
     // (non-RMA transports). Appended LAST to preserve vtable ABI.
     virtual bool rma_put_capable() const { return false; }
+
+    // D2H-via-GET (see UcxAmProtocol kEnvelopeFlagD2HGet). Server side: register
+    // `gpu_addr[0..len)` for remote RDMA-READ and pack its rkey into `out_rkey`,
+    // returning the device address in `out_remote_addr`. Lets the client issue an
+    // RDMA GET instead of the server ucp_put-ing from cuda (which UCX can't build
+    // under the forced rcache-off config). Returns false when unsupported (non-UCX
+    // transport, GPUDirect off, or registration fails) — caller keeps the legacy
+    // put/host path. Appended LAST to preserve vtable ABI.
+    virtual bool PrepareGpuGet(void * /*gpu_addr*/, size_t /*len*/,
+                               std::uint64_t & /*out_remote_addr*/,
+                               std::vector<char> & /*out_rkey*/) {
+        return false;
+    }
+
+    // Client side of D2H-via-GET: RDMA-GET `count` bytes from the server's
+    // registered GPU scratch (`remote_addr` + packed rkey blob) straight into the
+    // caller's host buffer `dst_host`. Returns false on failure. Appended LAST to
+    // preserve vtable ABI.
+    virtual bool GetFromRemoteGpu(void * /*dst_host*/, std::uint64_t /*remote_addr*/,
+                                  const void * /*rkey_blob*/, size_t /*rkey_len*/,
+                                  size_t /*count*/) {
+        return false;
+    }
 
    private:
 };

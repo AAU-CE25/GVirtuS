@@ -1646,6 +1646,93 @@ void UcxCommunicator::destroy_rma_state() {
     next_remote_slot_idx_ = 0;
 }
 
+// D2H-via-GET, server side. Register the backend's GPU scratch [gpu_addr,len)
+// for remote RDMA-READ (ucp_mem_map CUDA) and pack its rkey so the client can
+// ucp_get_nbx from it directly. The registration is cached per device address
+// (the TLS gpu scratch is reused / grows monotonically), so steady state pays
+// only a cheap ucp_rkey_pack. Passive-responder side: no active send-from-cuda
+// proto is constructed here, so this works under the forced rcache-off config
+// that blocks the server ucp_put-from-cuda path. Returns false on any failure;
+// the caller then keeps the legacy (host-staged / put) response path.
+bool UcxCommunicator::PrepareGpuGet(void *gpu_addr, size_t len,
+                                    std::uint64_t &out_remote_addr,
+                                    std::vector<char> &out_rkey) {
+    if (context_ == nullptr || gpu_addr == nullptr || len == 0) return false;
+
+    std::lock_guard<std::mutex> lk(gpu_get_mu_);
+    const std::uint64_t key = reinterpret_cast<std::uint64_t>(gpu_addr);
+    auto it = gpu_get_regs_.find(key);
+    if (it != gpu_get_regs_.end() && it->second.len < len) {
+        // Same base address but a larger transfer than we registered: remap.
+        ucp_mem_unmap(context_, it->second.memh);
+        gpu_get_regs_.erase(it);
+        it = gpu_get_regs_.end();
+    }
+    if (it == gpu_get_regs_.end()) {
+        ucp_mem_map_params_t p{};
+        p.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS |
+                       UCP_MEM_MAP_PARAM_FIELD_LENGTH |
+                       UCP_MEM_MAP_PARAM_FIELD_MEMORY_TYPE;
+        p.address = gpu_addr;
+        p.length = len;
+        p.memory_type = UCS_MEMORY_TYPE_CUDA;
+        ucp_mem_h memh = nullptr;
+        ucs_status_t st = ucp_mem_map(context_, &p, &memh);
+        if (st != UCS_OK) {
+            ucx_debug_log("PrepareGpuGet: ucp_mem_map(CUDA) failed: %s",
+                          ucs_status_string(st));
+            return false;
+        }
+        it = gpu_get_regs_.emplace(key, GpuGetReg{len, memh}).first;
+    }
+
+    void *rkey_buf = nullptr;
+    size_t rkey_size = 0;
+    ucs_status_t st = ucp_rkey_pack(context_, it->second.memh, &rkey_buf, &rkey_size);
+    if (st != UCS_OK || rkey_buf == nullptr) {
+        ucx_debug_log("PrepareGpuGet: ucp_rkey_pack failed: %s", ucs_status_string(st));
+        return false;
+    }
+    out_rkey.assign(reinterpret_cast<char *>(rkey_buf),
+                    reinterpret_cast<char *>(rkey_buf) + rkey_size);
+    ucp_rkey_buffer_release(rkey_buf);
+    out_remote_addr = key;
+    return true;
+}
+
+// D2H-via-GET, client side. Unpack the server-supplied rkey against our
+// endpoint and RDMA-GET `count` bytes from the server's GPU scratch straight
+// into `dst_host` (the caller's pinned host buffer — UCX registers it on the
+// fly; the client-side rcache works). Single-threaded per connection (same
+// contract as WriteIovRma), so no worker_mutex_ needed. Returns false on error.
+bool UcxCommunicator::GetFromRemoteGpu(void *dst_host, std::uint64_t remote_addr,
+                                       const void *rkey_blob, size_t rkey_len,
+                                       size_t count) {
+    if (endpoint_ == nullptr || dst_host == nullptr || rkey_blob == nullptr ||
+        rkey_len == 0 || count == 0) {
+        return false;
+    }
+    ucp_rkey_h rkey = nullptr;
+    ucs_status_t st = ucp_ep_rkey_unpack(endpoint_, rkey_blob, &rkey);
+    if (st != UCS_OK) {
+        ucx_debug_log("GetFromRemoteGpu: ucp_ep_rkey_unpack failed: %s",
+                      ucs_status_string(st));
+        return false;
+    }
+    ucp_request_param_t param{};
+    param.op_attr_mask = 0;
+    void *req = ucp_get_nbx(endpoint_, dst_host, count, remote_addr, rkey, &param);
+    try {
+        wait_request_completion(req, "d2h_get");
+    } catch (const std::exception &e) {
+        ucx_debug_log("GetFromRemoteGpu: %s", e.what());
+        ucp_rkey_destroy(rkey);
+        return false;
+    }
+    ucp_rkey_destroy(rkey);
+    return true;
+}
+
 // RMA-mode send. Two paths, selected by env var GVIRTUS_RMA_ZEROCOPY:
 //
 //  * "staged" (GVIRTUS_RMA_ZEROCOPY=0): copy ALL iov fragments into the
