@@ -342,6 +342,12 @@ void Frontend::ExecuteDeferredD2H(const char *routine, void *dst, size_t count,
     ExecuteInternal(routine, input_buffer, DispatchMode::DeferredD2H, dst, count);
 }
 
+// In-flight cap for async (deferred) D2H — MUST equal the backend's GPU-scratch
+// pool size (get_d2h_get_scratch, kD2HGetPoolSize in CudaRtHandler_memory.cpp).
+// The frontend never lets more than this many deferred D2H be un-drained, so the
+// backend never reuses a pooled scratch before the client has GET'd it.
+static constexpr size_t kD2HGetPoolSize = 4;
+
 // Complete one deferred D2H reply: locate the pending entry by request_id and
 // copy the payload ([size_t inner_count][inner_count bytes]) into its dst.
 void Frontend::DrainPendingD2H() {
@@ -349,18 +355,39 @@ void Frontend::DrainPendingD2H() {
     auto *comm = _communicator->obj_ptr().get();
     const size_t fixed = sizeof(double) + sizeof(size_t);  // exec_sec + out_size
 
-    auto complete = [this](std::uint64_t request_id, int status,
+    auto complete = [this](std::uint64_t request_id, int status, std::uint16_t flags,
                            const unsigned char *out_data, size_t out_size) {
         auto it = mPendingD2H.find(request_id);
         if (it == mPendingD2H.end()) {
             throw std::runtime_error("DrainPendingD2H: reply for unknown request_id");
         }
-        if (status == 0 && out_data != nullptr && out_size >= sizeof(size_t)) {
-            size_t inner = 0;
-            std::memcpy(&inner, out_data, sizeof(size_t));
-            const size_t n = std::min(inner, it->second.count);
-            if (n > 0 && it->second.dst != nullptr && out_size >= sizeof(size_t) + n) {
-                std::memcpy(it->second.dst, out_data + sizeof(size_t), n);
+        if (status == 0 && out_data != nullptr) {
+            if ((flags & am::kEnvelopeFlagD2HGet) != 0) {
+                // GPUDirect GET path: the reply is a descriptor
+                //   [size_t count][u64 remote_gpu_addr][u32 rkey_size][rkey]
+                // Issue the RDMA GET straight into the recorded dst (24 GB/s,
+                // symmetric with H2D), same as the synchronous D2H GET but at the
+                // stream-sync drain point (so the async call stayed non-blocking).
+                const size_t hdr = sizeof(size_t) + sizeof(std::uint64_t) + sizeof(std::uint32_t);
+                if (out_size >= hdr) {
+                    const unsigned char *p = out_data;
+                    size_t gcount = 0; std::uint64_t addr = 0; std::uint32_t rksz = 0;
+                    std::memcpy(&gcount, p, sizeof(size_t));          p += sizeof(size_t);
+                    std::memcpy(&addr, p, sizeof(std::uint64_t));     p += sizeof(std::uint64_t);
+                    std::memcpy(&rksz, p, sizeof(std::uint32_t));     p += sizeof(std::uint32_t);
+                    const size_t n = std::min(gcount, it->second.count);
+                    if (n > 0 && it->second.dst != nullptr) {
+                        _communicator->obj_ptr()->GetFromRemoteGpu(it->second.dst, addr, p, rksz, n);
+                    }
+                }
+            } else if (out_size >= sizeof(size_t)) {
+                // Legacy staged reply: [size_t inner][inner bytes].
+                size_t inner = 0;
+                std::memcpy(&inner, out_data, sizeof(size_t));
+                const size_t n = std::min(inner, it->second.count);
+                if (n > 0 && it->second.dst != nullptr && out_size >= sizeof(size_t) + n) {
+                    std::memcpy(it->second.dst, out_data + sizeof(size_t), n);
+                }
             }
         }
         mPendingD2H.erase(it);
@@ -388,7 +415,7 @@ void Frontend::DrainPendingD2H() {
                 std::memcpy(&out_size, frame + sizeof(h) + sizeof(double), sizeof(size_t));
                 out_data = frame + sizeof(h) + fixed;
             }
-            complete(h.request_id, static_cast<int>(h.status_code), out_data, out_size);
+            complete(h.request_id, static_cast<int>(h.status_code), h.reserved0, out_data, out_size);
             comm->ReleaseFrame();
         } else {
             if (!read_exact(comm, reinterpret_cast<char *>(&h), sizeof(h))) {
@@ -409,7 +436,7 @@ void Frontend::DrainPendingD2H() {
                 std::memcpy(&out_size, payload.data() + sizeof(double), sizeof(size_t));
                 out_data = payload.data() + fixed;
             }
-            complete(h.request_id, static_cast<int>(h.status_code), out_data, out_size);
+            complete(h.request_id, static_cast<int>(h.status_code), h.reserved0, out_data, out_size);
         }
     }
 }
@@ -481,6 +508,14 @@ void Frontend::ExecuteInternal(const char *routine, const Buffer *input_buffer,
                 frontend->mAsyncRmaInflight++;
             }
         }
+    }
+
+    // Async D2H flow control: cap in-flight deferred D2H at the backend GPU-scratch
+    // pool size. Draining here (BEFORE this request is sent) issues the GET for the
+    // oldest batch, so the backend never reuses a pooled scratch the client has not
+    // GET'd yet. Only fires when a new deferred D2H would exceed the pool.
+    if (deferred_d2h && frontend->mPendingD2H.size() >= kD2HGetPoolSize) {
+        frontend->DrainPendingD2H();
     }
 
     if (ucx_am_mode) {
