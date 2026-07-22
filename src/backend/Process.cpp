@@ -476,6 +476,13 @@ void Process::Start() {
                         break;
                     }
 
+                    // Backend per-request profiling (GVIRTUS_BE_PROFILE): splits the
+                    // frontend's read_hdr into backend-software vs wire. t_recv is
+                    // AFTER read_ucx_am_request returns (frame acquired+parsed), so
+                    // it excludes the busy-poll idle wait for the next request.
+                    static const bool be_profile = std::getenv("GVIRTUS_BE_PROFILE") != nullptr;
+                    auto t_recv = steady_clock::now();
+
                     std::shared_ptr<Buffer> am_input = std::make_shared<Buffer>();
                     if (am_payload_size > 0 && am_payload_data != nullptr) {
                         // Non-owning Buffer wrap — the bytes live either in
@@ -499,6 +506,8 @@ void Process::Start() {
                             break;
                         }
                     }
+
+                    auto t_disp = steady_clock::now();
 
                     std::shared_ptr<communicators::Result> result;
                     if (h == nullptr) {
@@ -529,6 +538,8 @@ void Process::Start() {
                         gvirtus::communicators::tls_connection_supports_cuda = false;
                         gvirtus::communicators::tls_client_rma_put_capable = false;
                     }
+
+                    auto t_exec = steady_clock::now();
 
                     const bool no_response =
                         (request_header.reserved0 &
@@ -580,6 +591,18 @@ void Process::Start() {
                                                              result->GetGpuPayload(),
                                                              result->GetGpuPayloadSize(),
                                                              write_error);
+
+                    if (be_profile) {
+                        auto t_sent = steady_clock::now();
+                        auto beus = [](auto a, auto b) {
+                            return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count();
+                        };
+                        fprintf(stderr,
+                                "[GVS BE] %s recv->disp=%ldus exec=%ldus build+send=%ldus | total_be=%ldus\n",
+                                am_routine.c_str(), beus(t_recv, t_disp), beus(t_disp, t_exec),
+                                beus(t_exec, t_sent), beus(t_recv, t_sent));
+                        fflush(stderr);
+                    }
 
                     // Release the pinned RX-pool slot now that the handler is
                     // done with it and the response has been sent. Must happen
