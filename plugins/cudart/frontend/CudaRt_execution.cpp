@@ -158,15 +158,22 @@ extern "C" __host__ cudaError_t cudaLaunchKernelExC(const cudaLaunchConfig_t *co
     return cudaError;
 }
 
-// TODO: needs testing
+// GVirtuS: the host callback `fn` is a FRONTEND function pointer — it lives in
+// the client's address space, so the backend cannot invoke it (forwarding it
+// makes the backend reject 'cudaLaunchHostFunc' as an unknown routine and return
+// a garbage error code). Handle it entirely frontend-side: synchronize the
+// stream so every preceding operation has completed on the backend GPU (this
+// preserves cudaLaunchHostFunc's contract that the callback runs only after all
+// prior stream work), then invoke the callback locally. Semantically stronger
+// than the async driver behaviour (it blocks the caller), but correct — used by
+// e.g. CUDASW++ for stream-ordered host bookkeeping between DB batches.
 extern "C" __host__ cudaError_t cudaLaunchHostFunc(cudaStream_t stream, cudaHostFn_t fn,
                                                    void *userData) {
-    CudaRtFrontend::Prepare();
-    CudaRtFrontend::AddDevicePointerForArguments(stream);
-    CudaRtFrontend::AddVariableForArguments((gvirtus::common::pointer_t)fn);
-    CudaRtFrontend::AddHostPointerForArguments(userData);
-    CudaRtFrontend::Execute("cudaLaunchHostFunc");
-    return CudaRtFrontend::GetExitCode();
+    if (fn == nullptr) return cudaErrorInvalidValue;
+    cudaError_t st = cudaStreamSynchronize(stream);
+    if (st != cudaSuccess) return st;
+    fn(userData);
+    return cudaSuccess;
 }
 
 extern "C" __host__ cudaError_t cudaLaunchKernel(const void *func, dim3 gridDim, dim3 blockDim,
