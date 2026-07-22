@@ -114,6 +114,40 @@ void *get_tls_gpu_scratch(size_t needed) {
     return tls_gpu_scratch;
 }
 
+// Pool of thread-local GPU scratches for ASYNC (deferred) D2H via client-GET.
+// The synchronous D2H (get_tls_gpu_scratch, single buffer) is GET'd immediately,
+// so one buffer suffices. An async/deferred D2H is GET'd by the client LATER (at
+// the next stream sync), so its scratch must survive until then — a single
+// buffer would be overwritten by the next async D2H. With N buffers round-
+// robined, up to N async D2H can be in flight concurrently; the frontend's flow
+// control caps in-flight at N (draining+GET-ing the oldest before a slot is
+// reused), so a scratch is never overwritten before its client GET completes.
+static constexpr int kD2HGetPoolSize = 4;
+thread_local void *tls_d2h_get_pool[kD2HGetPoolSize]       = {nullptr};
+thread_local size_t tls_d2h_get_pool_size[kD2HGetPoolSize] = {0};
+thread_local int tls_d2h_get_pool_next                     = 0;
+
+void *get_d2h_get_scratch(size_t needed) {
+    const int i = tls_d2h_get_pool_next;
+    tls_d2h_get_pool_next = (tls_d2h_get_pool_next + 1) % kD2HGetPoolSize;
+    if (tls_d2h_get_pool[i] != nullptr && tls_d2h_get_pool_size[i] >= needed) {
+        return tls_d2h_get_pool[i];
+    }
+    if (tls_d2h_get_pool[i] != nullptr) {
+        cudaFree(tls_d2h_get_pool[i]);
+        tls_d2h_get_pool[i] = nullptr;
+        tls_d2h_get_pool_size[i] = 0;
+    }
+    const size_t new_size = std::max(needed, tls_d2h_get_pool_size[i] * 2);
+    if (cudaMalloc(&tls_d2h_get_pool[i], new_size) != cudaSuccess) {
+        tls_d2h_get_pool[i] = nullptr;
+        tls_d2h_get_pool_size[i] = 0;
+        return nullptr;
+    }
+    tls_d2h_get_pool_size[i] = new_size;
+    return tls_d2h_get_pool[i];
+}
+
 // Fase 1+2 TLS host slot for the D2H legacy path. Replaces the per-call
 // `new char[count]` allocation: first call faults all pages via memset(0),
 // subsequent calls reuse the warm slot. Combined with the non-owning
@@ -808,54 +842,63 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
                 break;
             }
 
-            case cudaMemcpyDeviceToHost:
-                /*
-                 * Allocate temporary host output buffer.
-                 * This buffer must NOT be copied into the Result or freed until
-                 * cudaMemcpyAsync has actually completed.
-                 */
-                dst = new char[count];
-
+            case cudaMemcpyDeviceToHost: {
                 try {
-                    /*
-                     * Skipping a char for fake host pointer.
-                     */
-                    input_buffer->Assign<char>();
+                    input_buffer->Assign<char>();  // skip fake host ptr
                     src = input_buffer->GetFromMarshal<void *>();
                 } catch (const std::exception &e) {
                     cerr << e.what() << endl;
-                    delete[] (char *)dst;
                     return std::make_shared<Result>(cudaErrorMemoryAllocation);
                 }
 
+                // ASYNC D2H via client-GET (24 GB/s, symmetric with H2D) — mirrors
+                // the synchronous Memcpy D2H handler. For a large copy on a
+                // GPUDirect-capable client: D2D into a POOLED GPU scratch (several
+                // async D2H may be in flight, each GET'd later by the client at its
+                // stream sync — get_d2h_get_scratch + the frontend flow control cap
+                // in-flight so a scratch is never overwritten pre-GET), synchronize
+                // so the scratch holds the data, then hand it to the client via
+                // SetGpuPayload: the deferred reply carries the GET descriptor and
+                // the frontend's DrainPendingD2H issues the RDMA GET into dst.
+                constexpr size_t kGpuDirectD2HThreshold = 4u * 1024u * 1024u;
+                if (gvirtus_gpudirect_d2h_enabled() && count >= kGpuDirectD2HThreshold) {
+                    void *gpu_scratch = get_d2h_get_scratch(count);
+                    if (gpu_scratch != nullptr) {
+                        exit_code = cudaMemcpyAsync(gpu_scratch, src, count,
+                                                    cudaMemcpyDeviceToDevice, stream);
+                        if (exit_code == cudaSuccess)
+                            exit_code = cudaStreamSynchronize(stream);
+                        if (exit_code == cudaSuccess) {
+                            try {
+                                out = std::make_shared<Buffer>();
+                                out->Add<size_t>(count);
+                            } catch (const std::exception &e) {
+                                cerr << e.what() << endl;
+                                return std::make_shared<Result>(cudaErrorMemoryAllocation);
+                            }
+                            result = std::make_shared<Result>(exit_code, out);
+                            result->SetGpuPayload(gpu_scratch, count);
+                            break;
+                        }
+                        // D2D failed → fall through to the host-staged path.
+                    }
+                }
+
+                // Legacy host-staged path (GPUDirect off / small copy / D2D failed).
+                dst = new char[count];
                 LOG4CPLUS_DEBUG(Logger::getInstance(LOG4CPLUS_TEXT("GVirtuS")),
                                 "cudaMemcpyAsync DeviceToHost: dst: "
                                     << dst << ", src: " << src << ", count: " << count
                                     << ", kind: " << kind << ", stream: " << stream);
-
                 exit_code = cudaMemcpyAsync(dst, src, count, kind, stream);
-
-                /*
-                 * We must wait before:
-                 *   1. serializing dst into the output Buffer
-                 *   2. deleting dst
-                 *
-                 * Otherwise the GPU may still be writing into freed or stale memory.
-                 */
                 if (exit_code == cudaSuccess) {
                     cudaError_t sync_err = cudaStreamSynchronize(stream);
                     if (sync_err != cudaSuccess) {
                         exit_code = sync_err;
                     }
                 }
-
                 try {
                     out = std::make_shared<Buffer>();
-
-                    /*
-                     * Only add output payload if the CUDA copy completed correctly.
-                     * If it failed, return just the CUDA error.
-                     */
                     if (exit_code == cudaSuccess) {
                         out->Add<char>((char *)dst, count);
                         result = std::make_shared<Result>(exit_code, out);
@@ -867,9 +910,9 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
                     delete[] (char *)dst;
                     return std::make_shared<Result>(cudaErrorMemoryAllocation);
                 }
-
                 delete[] (char *)dst;
                 break;
+            }
 
             case cudaMemcpyDeviceToDevice:
                 try {

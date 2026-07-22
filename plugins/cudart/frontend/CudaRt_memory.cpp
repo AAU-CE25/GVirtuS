@@ -699,8 +699,12 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpyAsync(void *dst, const void 
             // tracked pinned buffers, defer: the frontend writes dst at the next
             // sync point (Phase 3). Otherwise (gate off, or pageable dst) copy
             // synchronously as before.
-            if (CudaRtFrontend::AsyncDispatchEnabled() && !CudaRtFrontend::AsyncLaunchOnly() &&
-                gvirtus_is_pinned(dst, count)) {
+            if (CudaRtFrontend::AsyncDispatchEnabled() && gvirtus_is_pinned(dst, count)) {
+                // TRUE async: non-blocking. The backend delivers via the client-GET
+                // (GPUDirect, 24 GB/s) — the GET is issued at the next stream sync
+                // (DrainPendingD2H), not here, so the call returns immediately and
+                // overlaps with subsequent stream work. Race-safety = the drain runs
+                // at every synchronization point before the caller observes dst.
                 CudaRtFrontend::ExecuteDeferredD2H("cudaMemcpyAsync", dst, count);
             } else {
                 CudaRtFrontend::Execute("cudaMemcpyAsync");
