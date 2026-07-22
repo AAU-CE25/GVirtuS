@@ -317,7 +317,10 @@ bool write_ucx_am_response(Communicator *client_comm,
 
     try {
         client_comm->WriteIov(iov, static_cast<size_t>(n));
-        client_comm->Sync();
+        // Redundant flush removed: WriteIov already waited for local send
+        // completion; the reliable transport delivers the response, and the
+        // backend's next busy-poll read (ucp_worker_progress) drives it onto the
+        // wire. An explicit ucp_worker_flush per response added latency for nothing.
     } catch (const std::exception &e) {
         error = e.what();
         return false;

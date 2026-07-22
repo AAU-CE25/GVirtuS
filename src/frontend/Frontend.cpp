@@ -549,7 +549,9 @@ void Frontend::ExecuteInternal(const char *routine, const Buffer *input_buffer,
         const std::size_t effective_payload =
             payload_size + frontend->mDirectInputBytes
                          + frontend->mDirectOutputCount;
-        const bool profile = effective_payload >= (1u << 20);
+        static const bool profile_all =
+            std::getenv("GVIRTUS_PROFILE_ALL") != nullptr;
+        const bool profile = profile_all || effective_payload >= (1u << 20);
         auto tA = steady_clock::now();
 
         // Gather-send via Communicator::WriteIov - UCX backend maps this to
@@ -655,7 +657,12 @@ void Frontend::ExecuteInternal(const char *routine, const Buffer *input_buffer,
             return;
         }
 
-        frontend->_communicator->obj_ptr()->Sync();
+        // Redundant flush removed: WriteIov already waited for LOCAL send
+        // completion, and over the reliable (RC) transport the request is
+        // guaranteed delivered — the response we block on below is itself proof
+        // of delivery, and the response-wait spin (wait_request_completion ->
+        // ucp_worker_progress) drives the request onto the wire. An explicit
+        // ucp_worker_flush here added ~2us/RPC for nothing.
         auto tD = steady_clock::now();
 
         send_sec = duration_cast<milliseconds>(steady_clock::now() - start_send).count() / 1000.0;
@@ -876,11 +883,13 @@ void Frontend::ExecuteInternal(const char *routine, const Buffer *input_buffer,
                 return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count();
             };
             fprintf(stderr,
-                    "[GVS PROFILE] %s payload=%zuMB | marshal=%ldus write=%ldus sync=%ldus "
-                    "read_hdr=%ldus read_payload=%ldus append=%ldus | total_send=%ldus total_recv=%ldus\n",
-                    routine, effective_payload >> 20,
+                    "[GVS PROFILE] %s payload=%zuB | marshal=%ldus write=%ldus sync=%ldus "
+                    "read_hdr=%ldus read_payload=%ldus append=%ldus srv_exec=%ldus | "
+                    "total_send=%ldus total_recv=%ldus\n",
+                    routine, effective_payload,
                     us(tA, tB), us(tB, tC), us(tC, tD),
                     us(tE, tF), us(tF, tG), us(tG, tH),
+                    static_cast<long>(server_exec_sec * 1e6),
                     us(tA, tD), us(tE, tH));
             fflush(stderr);
         }
