@@ -694,29 +694,59 @@ void Frontend::ExecuteInternal(const char *routine, const Buffer *input_buffer,
                     throw std::runtime_error("Frontend UCX AM: output payload size mismatch");
                 }
                 tG = steady_clock::now();
-                frontend->mDataReceived += out_buffer_size;
-                // Fase 4 zero-copy: when the caller pre-registered a dst via
-                // SetOutputDestination() AND the response Buffer layout is
-                // exactly [size_t prefix == count][count bytes payload],
-                // memcpy the payload straight into the caller's buffer.
-                // Eliminates one of the two 64MB memcpys in the D2H path.
-                bool direct_ok = false;
-                if (frontend->mDirectOutputDst != nullptr &&
-                    out_buffer_size == sizeof(size_t) + frontend->mDirectOutputCount) {
-                    size_t payload_prefix = 0;
-                    std::memcpy(&payload_prefix, p, sizeof(size_t));
-                    if (payload_prefix == frontend->mDirectOutputCount) {
-                        std::memcpy(frontend->mDirectOutputDst,
-                                    p + sizeof(size_t),
-                                    frontend->mDirectOutputCount);
-                        frontend->mDirectOutputConsumed = true;
-                        direct_ok = true;
+                // D2H-via-GET: the host payload is a descriptor
+                //   [size_t count][u64 remote_gpu_addr][u32 rkey_size][rkey],
+                // not the data. Issue an RDMA GET to pull the bytes from the
+                // server's GPU scratch straight into the caller's dst. Backend is
+                // a passive RDMA-READ responder, so this works without the
+                // cuda->host active proto that the forced rcache-off config blocks.
+                if ((resp_header.reserved0 &
+                     gvirtus::communicators::ucxam::kEnvelopeFlagD2HGet) != 0) {
+                    const unsigned char *dp = p;
+                    size_t d2h_count = 0;
+                    std::uint64_t remote_addr = 0;
+                    std::uint32_t rksz = 0;
+                    std::memcpy(&d2h_count, dp, sizeof(size_t));         dp += sizeof(size_t);
+                    std::memcpy(&remote_addr, dp, sizeof(std::uint64_t)); dp += sizeof(std::uint64_t);
+                    std::memcpy(&rksz, dp, sizeof(std::uint32_t));       dp += sizeof(std::uint32_t);
+                    if (frontend->mDirectOutputDst == nullptr) {
+                        frontend->_communicator->obj_ptr()->ReleaseFrame();
+                        throw std::runtime_error(
+                            "Frontend UCX AM: D2H-GET response without output destination");
                     }
-                }
-                if (!direct_ok) {
-                    // Single bulk memcpy (~3ms for 64MB) replacing 67M Add<char> calls.
-                    frontend->mpOutputBuffer->AppendBytes(
-                        reinterpret_cast<const char *>(p), out_buffer_size);
+                    bool got = frontend->_communicator->obj_ptr()->GetFromRemoteGpu(
+                        frontend->mDirectOutputDst, remote_addr, dp, rksz, d2h_count);
+                    if (!got) {
+                        frontend->_communicator->obj_ptr()->ReleaseFrame();
+                        throw std::runtime_error("Frontend UCX AM: D2H-GET failed");
+                    }
+                    frontend->mDirectOutputConsumed = true;
+                    frontend->mDataReceived += d2h_count;
+                } else {
+                    frontend->mDataReceived += out_buffer_size;
+                    // Fase 4 zero-copy: when the caller pre-registered a dst via
+                    // SetOutputDestination() AND the response Buffer layout is
+                    // exactly [size_t prefix == count][count bytes payload],
+                    // memcpy the payload straight into the caller's buffer.
+                    // Eliminates one of the two 64MB memcpys in the D2H path.
+                    bool direct_ok = false;
+                    if (frontend->mDirectOutputDst != nullptr &&
+                        out_buffer_size == sizeof(size_t) + frontend->mDirectOutputCount) {
+                        size_t payload_prefix = 0;
+                        std::memcpy(&payload_prefix, p, sizeof(size_t));
+                        if (payload_prefix == frontend->mDirectOutputCount) {
+                            std::memcpy(frontend->mDirectOutputDst,
+                                        p + sizeof(size_t),
+                                        frontend->mDirectOutputCount);
+                            frontend->mDirectOutputConsumed = true;
+                            direct_ok = true;
+                        }
+                    }
+                    if (!direct_ok) {
+                        // Single bulk memcpy (~3ms for 64MB) replacing 67M Add<char> calls.
+                        frontend->mpOutputBuffer->AppendBytes(
+                            reinterpret_cast<const char *>(p), out_buffer_size);
+                    }
                 }
                 tH = steady_clock::now();
             } else {

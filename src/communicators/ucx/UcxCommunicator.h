@@ -9,6 +9,7 @@
 #include <mutex>
 #include <queue>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "gvirtus/communicators/Communicator.h"
@@ -82,6 +83,13 @@ class UcxCommunicator : public Communicator {
     // See Communicator::rma_put_capable. True iff RmaSetup was received AND at
     // least one remote slot has a usable (non-null) rkey we can ucp_put into.
     bool rma_put_capable() const override;
+
+    // See Communicator::PrepareGpuGet / GetFromRemoteGpu — D2H-via-GET.
+    bool PrepareGpuGet(void *gpu_addr, size_t len, std::uint64_t &out_remote_addr,
+                       std::vector<char> &out_rkey) override;
+    bool GetFromRemoteGpu(void *dst_host, std::uint64_t remote_addr,
+                          const void *rkey_blob, size_t rkey_len,
+                          size_t count) override;
 
     // RMA flow-control introspection for the async dispatcher (Phase 2).
     size_t rma_slot_count() const override {
@@ -250,6 +258,19 @@ class UcxCommunicator : public Communicator {
     void send_rma_setup();                                   // server side
     void handle_rma_setup_am(const void *data, size_t length); // client side
     void destroy_rma_state();                                 // teardown
+
+    // === D2H-via-GET (server side) ===
+    // Cache of ucp_mem_map(CUDA) registrations for the backend's D2H GPU scratch,
+    // keyed by device address. The TLS gpu scratch is reused and grows
+    // monotonically, so we register once per distinct buffer and repack the
+    // (cheap) rkey per call. Guarded by gpu_get_mu_. Not unmapped explicitly at
+    // teardown (process-lifetime; avoids destabilizing the fragile UCX teardown).
+    struct GpuGetReg {
+        size_t len{0};
+        ucp_mem_h memh{nullptr};
+    };
+    std::unordered_map<std::uint64_t, GpuGetReg> gpu_get_regs_;
+    std::mutex gpu_get_mu_;
 
     // Client-side data path: stage iov fragments into tx_scratch_, RDMA-put
     // into the next remote slot, then send a small RmaPosted AM with the

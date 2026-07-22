@@ -18,6 +18,21 @@ constexpr std::uint16_t kEnvelopeVersion = 1;
 // matching CUDA's "async errors surface at the next synchronization" semantics.
 constexpr std::uint16_t kEnvelopeFlagNoResponse = 1u << 0;
 
+// Response-header flag (EnvelopeHeader::reserved0, bit 1) for D2H-via-GET.
+// When set on a Response, the host payload is NOT the D2H data but a descriptor
+//   [size_t count][uint64 remote_gpu_addr][uint32 rkey_size][rkey bytes]
+// and the client issues an RDMA GET (ucp_get_nbx) to pull `count` bytes from the
+// server's registered GPU scratch directly into the caller's host buffer. This
+// inverts the failing server-active "put-from-cuda" (which needs a cuda->host
+// RMA proto UCX can't build under the forced rcache-off config) into a
+// client-active "get-from-cuda": the backend is a passive RDMA-READ responder
+// (its HCA serves the read from the peermem-registered GPU MR, same as it serves
+// the H2D write), and the client's active side is host-local (proven by H2D).
+// Only ever set on synchronous cudaMemcpy D2H responses over a UCX RMA
+// connection. Reuses reserved0 (0 on all other Response headers); distinct from
+// RmaPosted, which is a different MessageType.
+constexpr std::uint16_t kEnvelopeFlagD2HGet = 1u << 1;
+
 enum class MessageType : std::uint16_t {
     Request = 1,
     Response = 2,
