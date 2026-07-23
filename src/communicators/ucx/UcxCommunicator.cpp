@@ -2147,9 +2147,19 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
         // host-slot path and MUST go to the GPU shadow (device->device peer-DMA,
         // which works) at ANY size that fits the shadow. Keep only the capacity
         // upper bound; drop the 4 MB lower bound.
+        // Lower bound is env-tunable (was a hardcoded 4 MB). Default 0 = route ALL
+        // device-source data to the shadow (correctness: the host-slot device path
+        // fails under concurrency). Set GVIRTUS_RMA_GPUDIRECT_MIN_BYTES=4194304 to
+        // restore the old size-adaptive behavior (host slot below the bound) for
+        // A/B measurement of the shadow-vs-host cost curve.
+        static const size_t gpudirect_min_bytes = []() {
+            const char *v = std::getenv("GVIRTUS_RMA_GPUDIRECT_MIN_BYTES");
+            return v ? static_cast<size_t>(std::strtoull(v, nullptr, 10)) : 0u;
+        }();
         const bool route_big_to_gpu = (rs.gpu_rkey != nullptr) &&
                                       (rs.gpu_addr != 0) &&
                                       big_is_device_data &&
+                                      (big_size >= gpudirect_min_bytes) &&
                                       (big_size <= rs.gpu_capacity) &&
                                       current_connection_supports_cuda();
         std::uint64_t big_target_addr = route_big_to_gpu
