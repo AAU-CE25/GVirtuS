@@ -131,6 +131,14 @@ class UcxCommunicator : public Communicator {
         bool is_cuda_host{false};
         ucp_mem_h memh{nullptr};
 
+        // Explicit-ownership bookkeeping for RMA-origin slots (filled by a
+        // remote ucp_put + RmaPosted). When this slot is released (fully
+        // consumed by the backend), we send a SlotConsumed ack back to the
+        // client carrying rma_generation so it can free the matching remote
+        // slot only if the generation still matches (ABA guard).
+        bool rma_origin{false};
+        std::uint64_t rma_generation{0};
+
         // Optional GPU shadow region for GPUDirect (Variant B, Step B1).
         // Allocated only when GVIRTUS_GPUDIRECT=1 and probe passed. Lives
         // alongside the host `addr`. Frontend will eventually be told the
@@ -242,10 +250,29 @@ class UcxCommunicator : public Communicator {
         std::uint64_t gpu_addr{0};
         std::uint64_t gpu_capacity{0};
         ucp_rkey_h gpu_rkey{nullptr};
+
+        // Explicit ownership state machine (client side), placed AFTER the wire
+        // fields so the positional aggregate-init in handle_rma_setup_am still
+        // maps 1:1 (state/generation take their defaults there). A slot is Free
+        // until WriteIovRma ACQUIRES it (Free->InFlight, generation bumped) and
+        // returns to Free only on the backend's SlotConsumed ack — NOT on the
+        // local UCX put completion.
+        enum class State : std::uint8_t { Free, InFlight };
+        State state{State::Free};
+        std::uint64_t generation{0};
     };
 
     std::vector<RemoteSlot> remote_slots_;
     std::mutex rma_state_mu_;
+    // Backpressure: WriteIovRma waits here when every remote slot is InFlight,
+    // and release_remote_slot (driven by the backend's SlotConsumed ack) wakes
+    // a waiter. Guards against slot reuse-before-consumption (the old
+    // round-robin race that crashed under concurrent prefill).
+    std::condition_variable rma_slot_cv_;
+    // Client side: free a remote slot on backend SlotConsumed ack (ABA-guarded
+    // by generation). Server side: notify the client a consumed RMA slot is free.
+    void release_remote_slot(size_t slot_idx, std::uint64_t generation);
+    void send_slot_consumed(size_t slot_idx, std::uint64_t generation);
     // Cached at RmaSetup time (handle_rma_setup_am): true iff a remote slot has
     // a usable rkey. rma_put_capable() returns this with zero per-RPC cost.
     std::atomic<bool> rma_put_capable_{false};

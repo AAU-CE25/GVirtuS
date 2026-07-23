@@ -361,6 +361,11 @@ ucs_status_t UcxCommunicator::am_recv_handler(void *arg, const void *header,
                 }
                 auto &slot = self->rx_pool_->slots[slot_idx];
                 slot.in_use = true;
+                // Remember this slot was filled by a client RMA put so that
+                // release_rx_slot sends a SlotConsumed ack (with this
+                // generation) back to the client for ABA-safe reuse.
+                slot.rma_origin = true;
+                slot.rma_generation = peek.request_id;
 
                 PooledMsg msg{slot.addr, total, slot_idx};
 
@@ -392,6 +397,17 @@ ucs_status_t UcxCommunicator::am_recv_handler(void *arg, const void *header,
                 }
 
                 self->enqueue_am_message(msg);
+                return UCS_OK;
+            }
+            if (peek.message_type ==
+                static_cast<std::uint16_t>(MessageType::SlotConsumed)) {
+                // Client side: the backend has finished consuming the remote RX
+                // slot reserved0 that we filled via ucp_put. Return it to Free
+                // (ABA-guarded by request_id = generation) so a WriteIovRma
+                // waiter can reuse it. This is the explicit backend-consumption
+                // confirmation the slot lifecycle is tied to.
+                self->release_remote_slot(static_cast<size_t>(peek.reserved0),
+                                          peek.request_id);
                 return UCS_OK;
             }
         }
@@ -1337,9 +1353,67 @@ size_t UcxCommunicator::acquire_rx_slot(size_t needed) {
 }
 
 void UcxCommunicator::release_rx_slot(size_t slot_idx) {
-    std::lock_guard<std::mutex> lk(rx_pool_->mu);
-    if (slot_idx >= rx_pool_->slots.size()) return;
-    rx_pool_->slots[slot_idx].in_use = false;
+    bool send_ack = false;
+    std::uint64_t gen = 0;
+    {
+        std::lock_guard<std::mutex> lk(rx_pool_->mu);
+        if (slot_idx >= rx_pool_->slots.size()) return;
+        auto &s = rx_pool_->slots[slot_idx];
+        s.in_use = false;
+        // If this slot was filled by a client RMA put, the client is waiting
+        // (or will wait) for an explicit consumption ack before reusing it.
+        if (s.rma_origin) {
+            send_ack = true;
+            gen = s.rma_generation;
+            s.rma_origin = false;
+        }
+    }
+    // Sent OUTSIDE rx_pool_->mu: send_slot_consumed takes worker_mutex_, and no
+    // release_rx_slot caller holds it, so there is no lock-order inversion.
+    if (send_ack) send_slot_consumed(slot_idx, gen);
+}
+
+// Client side. The backend confirmed (SlotConsumed) that it finished consuming
+// the data we RMA-put into remote slot `slot_idx`. Return the slot to Free so a
+// WriteIovRma waiter can reuse it — but ONLY if the generation still matches.
+// A stale/duplicate ack (ABA: the slot was already freed and re-acquired for a
+// newer op) must be ignored, or it would corrupt an unrelated in-flight write.
+void UcxCommunicator::release_remote_slot(size_t slot_idx,
+                                          std::uint64_t generation) {
+    std::lock_guard<std::mutex> lk(rma_state_mu_);
+    if (slot_idx >= remote_slots_.size()) return;
+    auto &s = remote_slots_[slot_idx];
+    if (s.state == RemoteSlot::State::InFlight && s.generation == generation) {
+        s.state = RemoteSlot::State::Free;
+        rma_slot_cv_.notify_one();
+    }
+    // else: stale ack — ignore (ABA guard).
+}
+
+// Server side. Notify the client that RMA-origin slot `slot_idx` (at the given
+// generation) has been fully consumed and may be reused.
+void UcxCommunicator::send_slot_consumed(size_t slot_idx,
+                                         std::uint64_t generation) {
+    if (endpoint_ == nullptr || worker_ == nullptr) return;
+    gvirtus::communicators::ucxam::EnvelopeHeader ack{};
+    ack.magic = gvirtus::communicators::ucxam::kEnvelopeMagic;
+    ack.version = gvirtus::communicators::ucxam::kEnvelopeVersion;
+    ack.message_type = static_cast<std::uint16_t>(
+        gvirtus::communicators::ucxam::MessageType::SlotConsumed);
+    ack.header_size = sizeof(ack);
+    ack.reserved0 = static_cast<std::uint16_t>(slot_idx);
+    ack.request_id = generation;
+    ucp_request_param_t sp{};
+    sp.op_attr_mask = UCP_OP_ATTR_FIELD_DATATYPE;
+    sp.datatype = ucp_dt_make_contig(1);
+    std::lock_guard<std::mutex> wl(*worker_mutex_);
+    void *req = ucp_am_send_nbx(endpoint_, am_id_, nullptr, 0,
+                                &ack, sizeof(ack), &sp);
+    try {
+        wait_request_completion(req, "slot_consumed_ack");
+    } catch (const std::exception &e) {
+        ucx_debug_log("send_slot_consumed: %s", e.what());
+    }
 }
 
 // Async H2D Phase 3 drain point. The MemcpyAsync handler issues a fire-and-
@@ -1793,21 +1867,53 @@ bool UcxCommunicator::GetFromRemoteGpu(void *dst_host, std::uint64_t remote_addr
 // Both paths end with a tiny RmaPosted AM carrying the slot index.
 size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
                                     size_t total) {
-    // Pick a remote slot. Round-robin keeps things simple; the synchronous
-    // request/response pattern guarantees the previous slot has already
-    // been consumed by the server before we get here for the next message.
+    // Acquire a remote slot with EXPLICIT ownership. The old round-robin assumed
+    // a strictly synchronous request/response so the slot was already consumed
+    // by the time we wrapped back to it; that invariant breaks under concurrent
+    // / async-dispatched prefill (multiple RMA writes in flight), reusing a slot
+    // the backend hasn't finished with -> QP error (rma_put_pre EIO crash). Now:
+    // wait for a Free slot (backpressure), flip it InFlight, bump its generation.
+    // It returns to Free only on the backend's SlotConsumed ack — a local UCX
+    // put completion does NOT imply the remote app released the buffer.
     size_t slot_idx;
+    std::uint64_t slot_gen;
     RemoteSlot rs;
     {
-        std::lock_guard<std::mutex> lk(rma_state_mu_);
+        std::unique_lock<std::mutex> lk(rma_state_mu_);
         if (remote_slots_.empty()) return 0;
-        slot_idx = next_remote_slot_idx_;
-        next_remote_slot_idx_ = (next_remote_slot_idx_ + 1) % remote_slots_.size();
+        size_t found = static_cast<size_t>(-1);
+        const bool got = rma_slot_cv_.wait_for(
+            lk, std::chrono::seconds(30), [&] {
+                if (endpoint_failed_.load()) return true;
+                for (size_t i = 0; i < remote_slots_.size(); ++i) {
+                    if (remote_slots_[i].state == RemoteSlot::State::Free) {
+                        found = i;
+                        return true;
+                    }
+                }
+                return false;
+            });
+        if (!got || endpoint_failed_.load() || found == static_cast<size_t>(-1)) {
+            return 0;  // backpressure timeout / endpoint failure -> IOV fallback
+        }
+        slot_idx = found;
+        remote_slots_[slot_idx].state = RemoteSlot::State::InFlight;
+        slot_gen = ++remote_slots_[slot_idx].generation;
         rs = remote_slots_[slot_idx];
     }
 
+    // RAII: if we bail before success (capacity fallback, or ANY throw during
+    // the puts) return the slot to Free so it never leaks (a leak would
+    // eventually wedge backpressure). Disarmed on the success path, where the
+    // slot is instead freed later by the backend's SlotConsumed ack.
+    bool rma_committed = false;
+    struct SlotReleaser {
+        UcxCommunicator *self; size_t idx; std::uint64_t gen; bool *committed;
+        ~SlotReleaser() { if (!*committed) self->release_remote_slot(idx, gen); }
+    } slot_releaser{this, slot_idx, slot_gen, &rma_committed};
+
     if (rs.rkey == nullptr || total > rs.capacity) {
-        // Caller will fall back to the IOV path.
+        // Caller will fall back to the IOV path. (slot freed by SlotReleaser)
         return 0;
     }
 
@@ -2097,7 +2203,7 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
         // GPUDirect Step B3: status_code carries the gpu_split_offset (=
         // pre_size, the position in the host slot where the GPU data folds in).
         notif.status_code = gpu_split_offset;
-        notif.request_id = 0;
+        notif.request_id = slot_gen;  // echoed back in SlotConsumed for ABA-safe release
         // GPUDirect Step B3: non-zero routine_size = bytes that landed in
         // slot.gpu_addr (vs slot.host_addr). The receiver uses this together
         // with status_code (offset) to build a dual PooledMsg. Zero = legacy
@@ -2113,7 +2219,9 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
         wait_request_completion(send_req, "rma_posted_notify");
     }
 
-    ucx_debug_log("WriteIovRma done slot=%zu total=%zu", slot_idx, total);
+    rma_committed = true;  // success: slot stays InFlight until backend SlotConsumed ack
+    ucx_debug_log("WriteIovRma done slot=%zu total=%zu gen=%lu", slot_idx, total,
+                  (unsigned long)slot_gen);
     return total;
 }
 
