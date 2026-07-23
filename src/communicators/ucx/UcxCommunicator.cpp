@@ -2136,10 +2136,21 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
         // probe, so a single backend with UCX_TLS=rc_mlx5,ud_mlx5,tcp,self
         // serves mixed RDMA + TCP frontends correctly — GPUDirect activates
         // only on connections that actually negotiated an RDMA lane.
+        // CORRECTNESS (2026-07-23): the 4 MB lower bound was a perf heuristic, but
+        // this condition is only ever true for DEVICE-source fragments
+        // (big_is_device_data). Routing a device-source fragment to the HOST slot
+        // (the else branch) asks UCX for a cuda->host RMA put, which cannot be
+        // built under the forced rcache-off / memtype-cache-off config -> the
+        // ucp_put fails and the RC QP goes fatal (observed: RDMA_WRITE len ~2 MB
+        // -> "QP was flushed" -> every subsequent am_send EIO, crashing the
+        // frontend under CONC>=8 real prefill). Device data therefore has NO valid
+        // host-slot path and MUST go to the GPU shadow (device->device peer-DMA,
+        // which works) at ANY size that fits the shadow. Keep only the capacity
+        // upper bound; drop the 4 MB lower bound.
         const bool route_big_to_gpu = (rs.gpu_rkey != nullptr) &&
                                       (rs.gpu_addr != 0) &&
-                                      (big_size >= (4u * 1024u * 1024u)) &&
                                       big_is_device_data &&
+                                      (big_size <= rs.gpu_capacity) &&
                                       current_connection_supports_cuda();
         std::uint64_t big_target_addr = route_big_to_gpu
                                         ? rs.gpu_addr
