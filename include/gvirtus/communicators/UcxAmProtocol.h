@@ -52,6 +52,15 @@ enum class MessageType : std::uint16_t {
     // parser works unchanged.
     RmaSetup = 4,
     RmaPosted = 5,
+    // SlotConsumed: server -> client. Sent when the backend has finished
+    // consuming a remote RX slot that the client filled via ucp_put + RmaPosted
+    // (i.e. release_rx_slot on an RMA-origin slot). Explicit backend-consumption
+    // confirmation — a local UCX put completion only means the transport
+    // finished, NOT that the remote application released the buffer, so slot
+    // reuse MUST wait for this ack. reserved0 = slot_idx, request_id =
+    // generation (ABA guard: a stale ack must not free a slot already reassigned
+    // to a newer operation).
+    SlotConsumed = 6,
 };
 
 struct EnvelopeHeader {
