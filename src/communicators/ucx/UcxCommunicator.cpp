@@ -2052,8 +2052,25 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
         // small buffers (typical of inference frameworks) we skip the cache
         // and pay ucp_mem_map+unmap per call (~ms penalty). Large stable
         // buffers (simple_matrix-style 4 MB+) still cache for big wins.
-        static constexpr size_t kCacheThreshold = 2u * 1024u * 1024u;  // 2 MB
-        const bool use_memh_cache = (big_size >= kCacheThreshold);
+        //
+        // CONC>=8 CRASH FIX (2026-07-23): the 2 MB HOST threshold was too low.
+        // llama.cpp's compute pool frees+reallocs a ~2.06 MB host buffer at a
+        // fixed virtual address under 8-way concurrent prefill; being >= 2 MB it
+        // was cached, and with rcache disabled (UCX_RCACHE_ENABLE=n) the cached
+        // addr-keyed memh went stale on the realloc -> ib_mlx5 "Local protection
+        // error (synd 0x4)" on the next RDMA_WRITE (observed: identical va+lkey
+        // across 48 crash episodes, len 2162688) -> RC QP fatal -> am_send EIO
+        // storm -> frontend dies (the intermittent CONC>=8 UNIQUE crash).
+        // Registering such a buffer fresh per put (~1 ms/2 MB) always matches the
+        // current pages, so it cannot go stale. DEVICE registrations (the GPU
+        // shadow / a real device pointer) are STABLE allocations and stay cached
+        // at >= 2 MB. HOST buffers are only cached when large enough that the
+        // per-put re-registration would actually hurt (>= 16 MB, e.g. the
+        // transfer-bench arrays, which are allocated once and do not churn).
+        static constexpr size_t kCacheThreshold  = 2u  * 1024u * 1024u;  // 2 MB (device)
+        static constexpr size_t kHostCacheMin    = 16u * 1024u * 1024u;  // 16 MB (host)
+        const bool use_memh_cache = big_is_gpu ? (big_size >= kCacheThreshold)
+                                               : (big_size >= kHostCacheMin);
 
         static thread_local std::unordered_map<const void *, ucp_mem_h>
             user_memh_cache;
@@ -2167,6 +2184,24 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
                                         : (rs.addr + pre_size);
         ucp_rkey_h    big_target_rkey = route_big_to_gpu ? rs.gpu_rkey : rs.rkey;
 
+        // GUARD DIAGNOSTIC (2026-07-23, unconditional + flushed): a REAL device
+        // pointer (big_is_gpu) that did NOT get routed to the GPU shadow is about
+        // to be ucp_put into a HOST slot -> cuda->host RMA -> RC QP fatal. This
+        // must never happen post-fix; if it fires, print which sub-condition
+        // blocked the GPU route. (big_is_device_data alone is NOT a hazard: on
+        // the frontend the H2D data-path source is host memory, and host->host-
+        // slot is a normal, safe put.)
+        if (big_is_gpu && !route_big_to_gpu) {
+            std::fprintf(stderr,
+                "GVCRASHDIAG dev->host-slot HAZARD big=%zu dev_data=%d is_gpu=%d "
+                "gpu_rkey=%d gpu_addr=%d cap=%zu ge_min=%d le_cap=%d supports_cuda=%d\n",
+                big_size, (int)big_is_device_data, (int)big_is_gpu,
+                (int)(rs.gpu_rkey != nullptr), (int)(rs.gpu_addr != 0), rs.gpu_capacity,
+                (int)(big_size >= gpudirect_min_bytes), (int)(big_size <= rs.gpu_capacity),
+                (int)current_connection_supports_cuda());
+            std::fflush(stderr);
+        }
+
         if (route_big_to_gpu) {
             gpu_split_bytes  = big_size;
             gpu_split_offset = static_cast<std::uint32_t>(pre_size);
@@ -2190,6 +2225,20 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
         }
     } else {
         // Staged path: copy everything into the scratch, single put.
+        // CRASH-HUNT DIAGNOSTIC: this path CPU-memcpies every fragment. A device
+        // pointer here (use_zerocopy was false despite GPU memory: big_size<16KB
+        // OR small_size==0 OR iov_count<2) is an imminent SIGSEGV. Flag it first.
+        for (size_t i = 0; i < iov_count; ++i) {
+            if (is_gpu_pointer(iov[i].iov_base)) {
+                std::fprintf(stderr,
+                    "GVCRASHDIAG staged-path DEVICE FRAG idx=%zu len=%zu "
+                    "big_is_gpu=%d big_is_device_data=%d big_size=%zu small_size=%zu iov_count=%zu "
+                    "-> SIGSEGV imminent\n",
+                    i, iov[i].iov_len, (int)big_is_gpu, (int)big_is_device_data,
+                    big_size, small_size, iov_count);
+                std::fflush(stderr);
+            }
+        }
         ensure_tx_scratch_locked(total);
         {
             char *dst = static_cast<char *>(tx_scratch_.addr);
