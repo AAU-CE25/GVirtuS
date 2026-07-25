@@ -159,20 +159,34 @@ They should be lifted onto the mainline independently of the lazy work.
 All runs: 64 MB transfers, `ucx` (GPUDirect + zerocopy), `GVIRTUS_RMA_SLOT_CAP_MB=256`,
 default slot count, content-checked every 4096 bytes, no retries, one process per run.
 
-| build | harness | transfers | failed | rate |
-|---|---|---|---|---|
-| pre-fix | `rma_srcprov reuse`, 6 × 16 | 96 | **29** | 30.2 % |
-| pre-fix | `rma_verdict`, 6 × 16 | 96 | 4 | 4.2 % |
-| post-fix | `rma_srcprov reuse`, 20 × 16 | 320 | **0** | 0 % |
-| post-fix | `rma_verdict`, 10 × 16 | 160 | **0** | 0 % |
-| post-fix | `rma3x64`, 1 × 16 | 16 | **0** | 0 % |
+| build | harness | runs × 16 | transfers | failed | rate |
+|---|---|---|---|---|---|
+| pre-fix | `rma_srcprov reuse` | 6 | 96 | **29** | 30.2 % |
+| pre-fix | `rma_verdict` | 6 | 96 | 4 | 4.2 % |
+| post-fix | `rma_srcprov reuse` | 43 | 688 | **0** | 0 % |
+| post-fix | `rma_verdict` | 37 | 592 | **0** | 0 % |
+| post-fix | `rma3x64` | 1 | 16 | **0** | 0 % |
+| **post-fix total** | | **80** | **1280** | **0** | **0 %** |
 
-Pre-fix 29/96 → post-fix 0/480 under an identical configuration. This is the
+80 independent process launches, one connection each, no retries, content-checked every
+4096 bytes.
+
+| statistic | value |
+|---|---|
+| exact (Clopper–Pearson) one-sided 95 % upper bound on residual corruption | **0.234 % per transfer** |
+| Wilson 95 % upper bound | 0.299 % per transfer |
+| P(observing 0/1280 if the rate were still 30 %, the pre-fix reproducer) | 5 × 10⁻¹⁹⁹ |
+| P(observing 0/1280 if the rate were still 0.6 %, the round-5 production figure) | 4.5 × 10⁻⁴ |
+
+Pre-fix 29/96 → post-fix 0/1280 under an identical configuration. This is the
 negative/positive pair the evidence standard requires: the defect is present before the
-patch and absent after it, at the same size, concurrency, pool size and harness.
+patch and absent after it, at the same size, concurrency, pool size and harness. The
+campaign also excludes the round-5 "0.6 % of transfers" production figure at p < 10⁻³.
 
-*(Extended campaign in progress; §7 to be updated with the final transfer count and the
-Wilson upper bound on residual corruption probability.)*
+Honest limits: this is 1,280 transfers, not the 10,000 the round-6 brief asked for; it
+meets that brief's tiered criterion (≥1,000 at 64 MB) but not its ideal. All runs were
+serialized single-client; the concurrent and multi-tenant cases are **not** covered here,
+and matter because of the independent defect in §6.
 
 ## 8. Performance
 
@@ -195,11 +209,36 @@ The exposure is **D2H ≥ 4 MB on a GPUDirect-capable connection**, not H2D:
 
 ## 10. Known open item
 
-`rma3x64` aborts with `corrupted size vs. prev_size in fastbins` **at process teardown**,
-after all 16 transfers have passed and been validated. It is a teardown-only artifact and
-does not affect any measurement above, but it is unexplained. Prime suspect: the frontend
-caches a `ucp_mem_h` for the client GET destination in `client_dst_regs_`, keyed by address,
-and never unmaps it when the application `cudaFreeHost`s that buffer.
+Heap corruption **at process teardown**, after all transfers have passed and been validated:
+`corrupted size vs. prev_size in fastbins` in the frontend (`rma3x64`), and
+`free(): double free detected in tcache 2` in the backend's per-connection child. Neither
+affects any measurement above — both fire after the last byte is verified — but both are
+real.
+
+Cause is now identified by inspection, not yet fixed. Three registration caches are
+populated with `ucp_mem_map` and **never unmapped**:
+
+| cache | file | covers |
+|---|---|---|
+| `client_dst_regs_` | `UcxCommunicator.cpp:1808` | the application's D2H destination buffer |
+| `gpu_get_regs_` | `UcxCommunicator.cpp:1745` | the backend's TLS GPU scratch |
+| `user_memh_cache` | `UcxCommunicator.cpp:2075` | the application's H2D source buffer (`static thread_local`) |
+
+`destroy_rma_state()` (`:1711`) destroys the *rkeys* and clears `remote_slots_`, and touches
+none of the three. So the application calls `cudaFreeHost(back)` while UCX still holds an MR
+over those pages, and the deregistration at `ucp_cleanup` then operates on freed memory.
+`user_memh_cache` is worse: being `static thread_local`, its handles outlive the
+communicator and its UCX context entirely.
+
+Two-part remedy, in order of value:
+1. Invalidate the caches **when the application frees the buffer**. The frontend already
+   intercepts `cudaFreeHost`/`cudaFree`, so this is a direct hook. It also retires the
+   stale-address hazard that the 2 MB / 16 MB cache thresholds (commit `360d473`) currently
+   only paper over — same root, same fix.
+2. Unmap all three caches in `destroy_rma_state()` before context teardown, so shutdown is
+   deterministic even when (1) is bypassed.
+
+Neither is implemented or validated here.
 
 ## 11. Reproduction
 
