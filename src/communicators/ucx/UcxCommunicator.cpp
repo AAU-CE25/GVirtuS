@@ -2394,7 +2394,34 @@ size_t UcxCommunicator::WriteIov(const struct iovec *iov, size_t iov_count) {
     // the staging memcpy, push the bytes via ucp_put_nbx directly into the
     // remote slot and notify with a tiny AM. Avoids UCX's per-message
     // rendezvous handshake (which doesn't amortise in our sync pattern).
-    if (total >= (64u * 1024u) && rma_setup_received_.load()) {
+    // The 64 KB floor was chosen before we could measure the two paths against
+    // each other. A H2D bandwidth sweep (2026-07-25, dpu-01<->dpu-02, CX-7 200G)
+    // shows the RMA/GPUDirect route only wins ABOVE a few MB, because its
+    // RmaSetup/RmaPosted handshake costs a round trip that a small eager AM
+    // does not pay:
+    //     size    RMA+GPUDirect   eager AM (staged)
+    //      64 KB       1.03 GB/s        2.32 GB/s   <- RMA loses 2.2x
+    //     256 KB       2.78 GB/s        4.86 GB/s   <- RMA loses 1.7x
+    //       1 MB       6.65 GB/s        7.44 GB/s
+    //       4 MB       8.64 GB/s        8.52 GB/s   <- crossover
+    //      16 MB      20.53 GB/s        8.87 GB/s   <- RMA wins 2.3x
+    //      64 MB      22.96 GB/s        8.97 GB/s   <- RMA wins 2.6x
+    // Below the crossover the handshake dominates; above it, peer-DMA straight
+    // into the GPU shadow is the only way to reach line rate. Defaulting the
+    // floor to the measured crossover makes the RMA path a strict improvement
+    // at every size instead of a regression for small transfers (which is what
+    // made GPUDirect measure ~0.5% SLOWER than staged RDMA on miniBUDE, whose
+    // payloads are 256 KB-1.5 MB). Tunable so the crossover can be re-measured
+    // on other fabrics.
+    static const size_t kRmaMinBytes = []() -> size_t {
+        const char *v = std::getenv("GVIRTUS_RMA_MIN_BYTES");
+        if (v == nullptr || v[0] == 0) return 4u * 1024u * 1024u;  // 4 MB
+        char *end = nullptr;
+        unsigned long long parsed = std::strtoull(v, &end, 10);
+        return (end != v) ? static_cast<size_t>(parsed) : 4u * 1024u * 1024u;
+    }();
+
+    if (total >= kRmaMinBytes && rma_setup_received_.load()) {
         size_t put = WriteIovRma(iov, iov_count, total);
         if (put == total) return put;  // RMA path completed
         // else: fall through to the IOV/AM path (slot too small or no rkey)
