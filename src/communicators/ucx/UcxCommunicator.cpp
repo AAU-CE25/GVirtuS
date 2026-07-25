@@ -2170,33 +2170,47 @@ bool UcxCommunicator::GetFromRemoteGpu(void *dst_host, std::uint64_t remote_addr
     // without this the per-op registration dominates and D2H collapses at large
     // sizes (64 MB fell to ~1 GB/s). D2H reuses the same dst, so this registers
     // once and every subsequent GET is a pure line-rate RDMA READ.
+    // CORRECTNESS FIX (2026-07-25): register PER CALL, do not cache by address.
+    //
+    // This used to keep a client_dst_regs_ cache keyed by dst_host, invalidated only
+    // when a later call asked for MORE bytes at the same address. Nothing invalidated it
+    // when the application FREED that buffer -- and an allocator will happily hand the
+    // same address back for the next allocation. The cached ucp_mem_h then still
+    // described the OLD mapping, so the RDMA GET landed on pages the new buffer no
+    // longer maps and the caller silently read whatever its fresh allocation contained.
+    //
+    // Reproduced by examples/rmatest/dst_realloc.cu: allocate a destination, D2H into
+    // it, free it, repeat. Iterations 1 and 2 get distinct addresses and pass; from
+    // iteration 3 the allocator recycles one address and every transfer after it fails
+    // (16320 of 16385 samples wrong). Identical for pinned (cudaHostAlloc/cudaFreeHost)
+    // and pageable (malloc/free) destinations -- it is address recycling, not
+    // pinned-ness.
+    //
+    // An address-keyed registration cache cannot be made safe without invalidation on
+    // free. UCX's own rcache would do it via UCM memory hooks, but this deployment
+    // forces UCX_RCACHE_ENABLE=n (the CUDA memtype workaround), so there is nothing
+    // underneath us either. Registering per call is the only option that is correct for
+    // an address we do not control the lifetime of. The cost is measured in the commit
+    // message; if it matters, the way back to caching is an explicit invalidation hook
+    // driven by cudaFreeHost -- which still would not cover pageable destinations.
     ucp_mem_h dst_memh = nullptr;
+    bool dst_memh_owned = false;
     if (context_ != nullptr) {
-        std::lock_guard<std::mutex> lk(client_dst_mu_);
-        const std::uint64_t key = reinterpret_cast<std::uint64_t>(dst_host);
-        auto it = client_dst_regs_.find(key);
-        if (it != client_dst_regs_.end() && it->second.len < count) {
-            ucp_mem_unmap(context_, it->second.memh);
-            client_dst_regs_.erase(it);
-            it = client_dst_regs_.end();
+        ucp_mem_map_params_t mp{};
+        mp.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS |
+                        UCP_MEM_MAP_PARAM_FIELD_LENGTH;
+        mp.address = dst_host;
+        mp.length = count;
+        ucp_mem_h m = nullptr;
+        ucs_status_t mst = ucp_mem_map(context_, &mp, &m);
+        if (mst == UCS_OK) {
+            dst_memh = m;
+            dst_memh_owned = true;
+        } else {
+            ucx_debug_log("GetFromRemoteGpu: dst ucp_mem_map failed: %s "
+                          "(falling back to on-the-fly reg)",
+                          ucs_status_string(mst));
         }
-        if (it == client_dst_regs_.end()) {
-            ucp_mem_map_params_t mp{};
-            mp.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS |
-                            UCP_MEM_MAP_PARAM_FIELD_LENGTH;
-            mp.address = dst_host;
-            mp.length = count;
-            ucp_mem_h m = nullptr;
-            ucs_status_t mst = ucp_mem_map(context_, &mp, &m);
-            if (mst == UCS_OK) {
-                it = client_dst_regs_.emplace(key, GpuGetReg{count, m}).first;
-            } else {
-                ucx_debug_log("GetFromRemoteGpu: dst ucp_mem_map failed: %s "
-                              "(falling back to on-the-fly reg)",
-                              ucs_status_string(mst));
-            }
-        }
-        if (it != client_dst_regs_.end()) dst_memh = it->second.memh;
     }
 
     ucp_request_param_t param{};
@@ -2211,9 +2225,15 @@ bool UcxCommunicator::GetFromRemoteGpu(void *dst_host, std::uint64_t remote_addr
         wait_request_completion(req, "d2h_get");
     } catch (const std::exception &e) {
         ucx_debug_log("GetFromRemoteGpu: %s", e.what());
+        if (dst_memh_owned) ucp_mem_unmap(context_, dst_memh);
         ucp_rkey_destroy(rkey);
         return false;
     }
+    // Release the registration with the transfer it was made for. Keeping it would
+    // reintroduce exactly the stale-address hazard this call was changed to avoid, and
+    // it also stops the process accumulating registrations for buffers it has freed
+    // (which is what made teardown corrupt the heap).
+    if (dst_memh_owned) ucp_mem_unmap(context_, dst_memh);
     ucp_rkey_destroy(rkey);
     return true;
 }

@@ -122,14 +122,38 @@ int main(int argc, char **argv) {
         auto t1 = steady_clock::now();
 
         // Verify every destination.
+        // PINNED readback buffer. A pageable std::vector here would confound the
+        // experiment: the D2H fast path is gated on the destination being pinned
+        // (gvirtus_is_pinned), so a pageable destination exercises a different path
+        // than the one every other harness in examples/rmatest uses.
+        char *back = nullptr;
+        CK(cudaHostAlloc((void **)&back, (big > small ? big : small), cudaHostAllocDefault));
+
         long round_bad = 0;
         for (auto &x : xs) {
-            std::vector<char> back(x.bytes, 0);
-            CK(cudaMemcpy(back.data(), x.dev, x.bytes, cudaMemcpyDeviceToHost));
-            long bad = check(back.data(), x.bytes, x.tag);
-            if (bad)
-                fprintf(stderr, "MISMATCH round=%d tag=%d bytes=%zu bad_samples=%ld\n",
-                        r, x.tag, x.bytes, bad);
+            std::memset(back, 0, x.bytes);
+            CK(cudaMemcpy(back, x.dev, x.bytes, cudaMemcpyDeviceToHost));
+            long bad = check(back, x.bytes, x.tag);
+            if (bad) {
+                // Decode WHOSE data is actually here. byte[k] = tag*31 + (k>>12), so
+                // (got - (k>>12)) / 31 recovers the writing transfer's tag when the
+                // buffer holds another transfer's payload. Report the raw bytes too so
+                // "all zeros / never written" is distinguishable from "wrong transfer".
+                size_t first = (size_t)-1;
+                for (size_t k = 0; k < x.bytes; k += 4096)
+                    if (back[k] != (char)(x.tag * 31 + (int)(k >> 12))) { first = k; break; }
+                int got = (first == (size_t)-1) ? 0 : (unsigned char)back[first];
+                int want = (first == (size_t)-1) ? 0
+                         : (unsigned char)(char)(x.tag * 31 + (int)(first >> 12));
+                int delta = got - want;
+                int guess_tag = -1;
+                for (int t = 1; t <= 64; ++t)
+                    if ((unsigned char)(char)(t * 31 + (int)(first >> 12)) == got) { guess_tag = t; break; }
+                fprintf(stderr,
+                        "MISMATCH round=%d tag=%d bytes=%zu bad_samples=%ld "
+                        "first_off=%zu got=%d want=%d delta=%d looks_like_tag=%d\n",
+                        r, x.tag, x.bytes, bad, first, got, want, delta, guess_tag);
+            }
             round_bad += bad;
         }
 
@@ -143,6 +167,7 @@ int main(int argc, char **argv) {
         total_bad += round_bad;
         total_xfers += (int)xs.size();
 
+        CK(cudaFreeHost(back));
         for (auto &x : xs) { CK(cudaFree(x.dev)); CK(cudaFreeHost(x.src)); }
     }
 
