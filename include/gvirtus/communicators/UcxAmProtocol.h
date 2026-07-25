@@ -63,6 +63,39 @@ enum class MessageType : std::uint16_t {
     SlotConsumed = 6,
 };
 
+// ---------------------------------------------------------------------------
+// Slot-pool epoch
+// ---------------------------------------------------------------------------
+// The server may re-advertise its slot pool during a connection's life: the pool
+// is built on demand (first message at or above the RMA floor) and grown again if
+// a later message does not fit. Each published layout carries an epoch, bumped by
+// send_rma_setup() and delivered in RmaSetup's EnvelopeHeader::status_code.
+//
+// Every RmaPosted then tags itself with the epoch of the layout it was addressed
+// against, packed with the per-slot generation into the 64-bit request_id:
+//
+//     request_id = (epoch << 32) | (generation & 0xffffffff)
+//
+// The server echoes request_id verbatim in the matching SlotConsumed, so the
+// client can reject an ack minted against a layout it has already replaced.
+// Without this, a SlotConsumed from the old layout would be matched by slot index
+// alone and could mark a slot of the NEW layout free while the backend is still
+// reading it -- the client would then ucp_put on top of a live transfer.
+//
+// Epoch 0 means "no epoch" and is what a peer that predates this scheme sends;
+// both sides treat 0 as "always matches" so a mixed pair still interoperates at
+// the previous (single-advertisement) safety level.
+constexpr std::uint64_t make_slot_tag(std::uint32_t epoch, std::uint64_t generation) {
+    return (static_cast<std::uint64_t>(epoch) << 32) |
+           (generation & 0xffffffffULL);
+}
+constexpr std::uint32_t slot_tag_epoch(std::uint64_t tag) {
+    return static_cast<std::uint32_t>(tag >> 32);
+}
+constexpr std::uint64_t slot_tag_generation(std::uint64_t tag) {
+    return tag & 0xffffffffULL;
+}
+
 struct EnvelopeHeader {
     std::uint32_t magic;
     std::uint16_t version;

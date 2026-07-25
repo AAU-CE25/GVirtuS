@@ -91,6 +91,14 @@ class Communicator {
     }
     virtual void ReleaseFrame() {}
 
+    // A backend plugin may leave device work in flight when it finishes consuming a
+    // frame (the GPUDirect shadow -> destination copy). The transport must not tell
+    // the peer that the frame's slot is free until that work completes, or the peer
+    // overwrites the slot while the copy engine is still reading it. The plugin
+    // registers a drain function here and the transport calls it immediately before
+    // releasing a frame -- which is *after* the response has been sent, so the wait
+    // is off the client's critical path.
+
     // GPUDirect (Variant B Step B4): after a successful TryAcquireFrame, a
     // transport that supports GPU-resident payload landing (UCX with
     // GPUDirect) may have an additional GPU pointer + size associated with
@@ -226,3 +234,11 @@ extern thread_local bool tls_async_gpu_pending;
 extern thread_local bool tls_client_rma_put_capable;
 
 }  // namespace gvirtus::communicators
+
+namespace gvirtus {
+namespace communicators {
+using FrameDrainFn = void (*)();
+void SetFrameDrainHook(FrameDrainFn fn);
+void RunFrameDrainHook();
+}  // namespace communicators
+}  // namespace gvirtus

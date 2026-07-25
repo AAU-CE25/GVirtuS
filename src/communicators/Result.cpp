@@ -42,3 +42,24 @@ void Result::SetGpuPayload(void *gpu_addr, std::size_t size) {
 void *Result::GetGpuPayload() const { return mGpuPayload; }
 
 std::size_t Result::GetGpuPayloadSize() const { return mGpuPayloadSize; }
+
+
+// ---------------------------------------------------------------------------
+// Frame drain hook. Defined here so it lives in libgvirtus-communicators, which
+// the cudart backend plugin already resolves symbols from. See Communicator.h.
+#include <atomic>
+
+namespace gvirtus {
+namespace communicators {
+
+static std::atomic<FrameDrainFn> g_frame_drain_hook{nullptr};
+
+void SetFrameDrainHook(FrameDrainFn fn) { g_frame_drain_hook.store(fn, std::memory_order_release); }
+
+void RunFrameDrainHook() {
+    FrameDrainFn fn = g_frame_drain_hook.load(std::memory_order_acquire);
+    if (fn != nullptr) fn();
+}
+
+}  // namespace communicators
+}  // namespace gvirtus

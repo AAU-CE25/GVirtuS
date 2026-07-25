@@ -118,6 +118,38 @@ void free_pinned_host(unsigned char *p, bool is_cuda) {
 // Defined LATER in the file so it can see g_cuda_malloc; here we forward-
 // declare both to avoid reordering the whole anonymous-namespace section.
 unsigned char *alloc_gpu_slot(size_t n);
+
+// The payload size at or above which the RMA path is worth its RmaSetup/RmaPosted
+// handshake (measured crossover, see WriteIov). Shared by the sender, which decides
+// whether to use RMA, and the receiver, which uses it to decide when a connection has
+// proved it needs a slot pool at all.
+// Configured full slot capacity. Slots smaller than this exist too (the AM receive
+// path appends one per message, sized to that message) but they are not usable for the
+// RMA path and must never be advertised as if they were.
+size_t ucx_slot_cap_bytes() {
+    static const size_t v = []() -> size_t {
+        const char *e = std::getenv("GVIRTUS_RMA_SLOT_CAP_MB");
+        size_t mb = 1025;
+        if (e != nullptr && e[0] != 0) {
+            char *end = nullptr;
+            unsigned long long parsed = std::strtoull(e, &end, 10);
+            if (end != e && parsed > 0) mb = static_cast<size_t>(parsed);
+        }
+        return mb * 1024u * 1024u + 64u * 1024u;  // + framing slack, see P1b
+    }();
+    return v;
+}
+
+size_t ucx_rma_min_bytes() {
+    static const size_t v = []() -> size_t {
+        const char *e = std::getenv("GVIRTUS_RMA_MIN_BYTES");
+        if (e == nullptr || e[0] == 0) return 4u * 1024u * 1024u;
+        char *end = nullptr;
+        unsigned long long parsed = std::strtoull(e, &end, 10);
+        return (end != e) ? static_cast<size_t>(parsed) : 4u * 1024u * 1024u;
+    }();
+    return v;
+}
 void           free_gpu_slot(unsigned char *p);
 
 // ---------------------------------------------------------------------------
@@ -360,12 +392,27 @@ ucs_status_t UcxCommunicator::am_recv_handler(void *arg, const void *header,
                     return UCS_OK;
                 }
                 auto &slot = self->rx_pool_->slots[slot_idx];
+                // The client should only ever post into a live persistent slot it was
+                // advertised. Anything else means it is working from a layout we have
+                // replaced -- which the epoch in the tag is there to make survivable,
+                // but it should never happen, so say so rather than consume blindly.
+                if (!slot.rma_persistent || slot.rma_retired) {
+                    std::fprintf(stderr,
+                                 "RmaPosted: slot %zu is %s (epoch tag %llu) -- the peer "
+                                 "is using a superseded layout\n",
+                                 slot_idx,
+                                 slot.rma_retired ? "retired" : "not an RMA slot",
+                                 (unsigned long long)peek.request_id);
+                }
                 slot.in_use = true;
                 // Remember this slot was filled by a client RMA put so that
                 // release_rx_slot sends a SlotConsumed ack (with this
                 // generation) back to the client for ABA-safe reuse.
                 slot.rma_origin = true;
                 slot.rma_generation = peek.request_id;
+                // The peer's data is already in this slot. Mark it busy so the server's
+                // own view matches reality; release_rx_slot clears it.
+                slot.in_use = true;
 
                 PooledMsg msg{slot.addr, total, slot_idx};
 
@@ -415,6 +462,34 @@ ucs_status_t UcxCommunicator::am_recv_handler(void *arg, const void *header,
 
     // Acquire a pinned slot from the RX pool — slot capacity is pre-allocated,
     // no per-message std::vector zero-init.
+    // Demand-driven pool: a message at or above the RMA floor proves this connection
+    // moves payloads big enough for the RMA path to pay off, so ask for the pool to be
+    // built. Deferred rather than done here -- this callback runs under worker_mutex_
+    // (ucp_worker_progress holds it) and both the allocation and the advertisement
+    // would deadlock or stall progress. Read() picks it up.
+    if (length >= ucx_rma_min_bytes()) {
+        // Record the largest payload this connection has actually moved. The pool is
+        // sized from this rather than from GVIRTUS_RMA_SLOT_CAP_MB, which becomes a
+        // ceiling instead of a target.
+        size_t prev = self->rma_pool_hint_bytes_.load(std::memory_order_relaxed);
+        while (length > prev &&
+               !self->rma_pool_hint_bytes_.compare_exchange_weak(
+                   prev, length, std::memory_order_relaxed)) {
+        }
+        // A message at or above the RMA floor arriving EAGERLY means one of two
+        // things, and both are answered the same way. Either the pool has not been
+        // built yet, or it has been built too small and the sender's WriteIovRma
+        // declined the fast path for capacity -- in which case the payload came down
+        // this path precisely because no slot could hold it. Ask for (re)build at a
+        // capacity derived from the size just observed. No extra control message is
+        // needed: the decline is self-reporting.
+        if (!self->rma_pool_ready_.load(std::memory_order_acquire) ||
+            rma_slot_cap_for(length) >
+                self->rma_pool_cap_.load(std::memory_order_acquire)) {
+            self->rma_pool_requested_.store(true, std::memory_order_release);
+        }
+    }
+
     size_t slot_idx = self->acquire_rx_slot(length);
     PinnedSlot &slot = self->rx_pool_->slots[slot_idx];
     PooledMsg msg{slot.addr, length, slot_idx};
@@ -910,8 +985,11 @@ const gvirtus::communicators::Communicator *const UcxCommunicator::Accept() cons
     //   parallel:   ~max(setup_i) wall time (cudaHostAlloc/ucp_mem_map
     //               serialise at the CUDA/UCX driver level, so ~1.5-2x
     //               speedup rather than perfect N×, but still big).
+    // Advertise immediately (with no slots yet) so the client's Connect() does not sit
+    // waiting for us to allocate a pool it may never use. The pool is built the first
+    // time a message large enough to need it actually arrives.
     std::thread([accepted]() {
-        accepted->init_rx_pool();
+        accepted->init_rx_pool();   // no-op unless GVIRTUS_RMA_PREALLOC=1
         accepted->send_rma_setup();
     }).detach();
 
@@ -985,6 +1063,13 @@ size_t UcxCommunicator::Read(char *buffer, size_t size) {
         return 0;
     }
 
+    // Safe point for the deferred pool build: no worker_mutex_ is held here.
+    // Also fires for a REGROW, not just the first build: rma_pool_requested_ is set
+    // again whenever a message arrives eagerly that the current slots cannot hold.
+    if (rma_pool_requested_.load(std::memory_order_acquire)) {
+        materialise_rma_pool();
+    }
+
     // Drain AM queue into the caller buffer, preserving stream semantics.
     // Busy-poll to keep ucp_worker_progress() running continuously.
     size_t copied = 0;
@@ -1038,6 +1123,15 @@ size_t UcxCommunicator::Read(char *buffer, size_t size) {
 bool UcxCommunicator::TryAcquireFrame(const unsigned char *&data, size_t &size) {
     if (endpoint_ == nullptr || worker_ == nullptr) return false;
 
+    // Safe point for the deferred pool build (no worker_mutex_ held yet). The backend
+    // takes requests through this path, not Read(), so without this the pool would
+    // never materialise on the side that receives the large payloads.
+    // Also fires for a REGROW, not just the first build: rma_pool_requested_ is set
+    // again whenever a message arrives eagerly that the current slots cannot hold.
+    if (rma_pool_requested_.load(std::memory_order_acquire)) {
+        materialise_rma_pool();
+    }
+
     // If we already hold a partially-consumed message, give up — the caller
     // mixed stream Read() with frame mode. Conservative: refuse the handoff.
     if (pending_msg_.data != nullptr && pending_read_offset_ > 0) {
@@ -1082,6 +1176,12 @@ bool UcxCommunicator::TryAcquireFrame(const unsigned char *&data, size_t &size) 
 
 void UcxCommunicator::ReleaseFrame() {
     if (current_frame_.slot_idx != static_cast<size_t>(-1)) {
+        // Wait for any device work the handler left in flight against this frame
+        // (the GPUDirect shadow -> destination copy) BEFORE the slot is declared
+        // free. The response has already been sent by now, so this costs the client
+        // nothing; skipping it would let the peer's next peer-DMA land on top of a
+        // buffer the copy engine is still reading.
+        RunFrameDrainHook();
         release_rx_slot(current_frame_.slot_idx);
     }
     current_frame_ = PooledMsg{};
@@ -1209,6 +1309,66 @@ void UcxCommunicator::unmap_slot_from_ucp(ucp_context_h ctx, PinnedSlot &slot) {
 
 // Pre-allocate N RX slots of an initial size. Slots grow on demand later if
 // a message arrives that's bigger than the current capacity.
+// Slot capacity to build for the largest payload observed on this connection.
+// GVIRTUS_RMA_SLOT_CAP_MB stops being the size we allocate and becomes the most we
+// are ever willing to allocate; GVIRTUS_RMA_SLOT_MIN_MB is the least. The payload is
+// rounded up to a power of two so a workload whose sizes creep upward regrows a
+// bounded number of times rather than once per distinct size, and the framing slack
+// is added on top so a transfer of exactly a power of two still fits (the slot has to
+// carry the request header, routine name and marshalled argument Buffer alongside the
+// payload; without the slack it overshoots by ~90 bytes and silently falls back to
+// eager AM at a 3.2x cost).
+size_t UcxCommunicator::rma_slot_cap_for(size_t hint_bytes) {
+    static constexpr size_t kSlotFramingSlack = 64u * 1024u;
+    auto env_mb = [](const char *k, size_t dflt) -> size_t {
+        const char *v = std::getenv(k);
+        if (v == nullptr || v[0] == '\0') return dflt;
+        char *end = nullptr;
+        unsigned long long parsed = std::strtoull(v, &end, 10);
+        return (parsed > 0) ? static_cast<size_t>(parsed) : dflt;
+    };
+    const size_t ceiling = env_mb("GVIRTUS_RMA_SLOT_CAP_MB", 1025) * 1024u * 1024u +
+                           kSlotFramingSlack;
+    const size_t floor_bytes = env_mb("GVIRTUS_RMA_SLOT_MIN_MB", 16) * 1024u * 1024u +
+                               kSlotFramingSlack;
+    if (hint_bytes == 0) return ceiling;  // no evidence yet (eager prealloc)
+
+    // Round the PAYLOAD to a power of two, then add the slack -- not the other way
+    // round. hint_bytes is a whole wire message, i.e. payload plus ~80 bytes of
+    // framing, so rounding it directly would push a 64 MiB transfer (67108942 B) to
+    // the next power of two and allocate 128 MiB for a 64 MiB payload. Taking the
+    // framing off first lands exactly on 64 MiB + slack, which is what actually has
+    // to fit.
+    const size_t payload = (hint_bytes > kSlotFramingSlack)
+                               ? (hint_bytes - kSlotFramingSlack)
+                               : hint_bytes;
+    size_t pow2 = 1;
+    while (pow2 < payload && pow2 < ceiling) pow2 <<= 1;
+    size_t cap = pow2 + kSlotFramingSlack;
+    if (cap < floor_bytes) cap = floor_bytes;
+    if (cap > ceiling) cap = ceiling;
+    return cap;
+}
+
+// Free persistent slots retired at least one full epoch ago. Retirement is NOT
+// immediate release: when the pool grows, a client that has not yet processed the new
+// advertisement may still have a ucp_put in flight to the old address, and the NIC
+// would write into freed, unregistered memory. Holding them for one extra epoch means
+// every put has by then been addressed against a layout the client demonstrably has
+// (it used it). Caller must hold rx_pool_->mu.
+void UcxCommunicator::retire_and_free_locked(std::uint32_t now_epoch) {
+    for (auto &sl : rx_pool_->slots) {
+        if (!sl.rma_retired || sl.in_use) continue;
+        if (now_epoch <= sl.rma_epoch + 1) continue;  // still within the grace epoch
+        unmap_slot_from_ucp(context_, sl);
+        free_pinned_host(sl.addr, sl.is_cuda_host);
+        free_gpu_slot(sl.gpu_addr);
+        ucx_debug_log("rx_pool: freed retired slot (%zu bytes, retired at epoch %u)",
+                      sl.capacity, sl.rma_epoch);
+        sl = PinnedSlot{};  // capacity 0, not persistent, not retired: reusable entry
+    }
+}
+
 void UcxCommunicator::init_rx_pool() {
     // 2 slots is enough for the current synchronous request/response pattern
     // (the request occupies slot 0 while the response is in flight; once the
@@ -1230,11 +1390,53 @@ void UcxCommunicator::init_rx_pool() {
         return (parsed > 0) ? static_cast<size_t>(parsed) : dflt;
     };
     const size_t kInitialSlotCount = env_size("GVIRTUS_RMA_SLOTS", 2);
-    const size_t kInitialSlotCap =
-        env_size("GVIRTUS_RMA_SLOT_CAP_MB", 1025) * 1024u * 1024u;  // default 1025MB
+
+    // Lazy by default: a connection that never sends anything at or above the RMA
+    // floor can never use these buffers, so it should not pay for them (2.2 s of
+    // connect at the stock capacity) nor hold their GPU shadow away from other
+    // tenants. materialise_rma_pool() calls this once a large message proves the
+    // connection needs it. GVIRTUS_RMA_PREALLOC=1 restores eager provisioning.
+    static const bool prealloc = []() {
+        const char *e = std::getenv("GVIRTUS_RMA_PREALLOC");
+        return e != nullptr && e[0] != '0';
+    }();
+    if (!prealloc && !rma_pool_requested_.load(std::memory_order_acquire)) return;
+
+    // Size to the evidence, not to the knob. With no evidence (eager prealloc) this
+    // returns the ceiling, i.e. the historical behaviour.
+    const size_t kInitialSlotCap = rma_slot_cap_for(
+        prealloc ? 0 : rma_pool_hint_bytes_.load(std::memory_order_acquire));
 
     std::lock_guard<std::mutex> lk(rx_pool_->mu);
-    if (!rx_pool_->slots.empty()) return;  // already initialized
+
+    const std::uint32_t new_epoch = rma_pool_epoch_.load(std::memory_order_acquire) + 1;
+    // Reclaim anything retired two epochs ago before allocating more.
+    retire_and_free_locked(new_epoch);
+
+    // NOT "is the pool empty": the AM receive path appends a message-sized slot for
+    // every message that arrives, so by the time a large transfer asks for the pool
+    // there are already several tiny slots here. Count the LIVE persistent slots that
+    // are actually big enough to serve the RMA path at the capacity we now want.
+    size_t full_slots = 0;
+    for (const auto &sl : rx_pool_->slots)
+        if (sl.rma_persistent && !sl.rma_retired && sl.capacity >= kInitialSlotCap)
+            ++full_slots;
+    if (full_slots >= kInitialSlotCount) {
+        rma_pool_cap_.store(kInitialSlotCap, std::memory_order_release);
+        return;  // already provisioned at (at least) this capacity
+    }
+
+    // Growing: the live persistent slots are too small for what this connection has
+    // turned out to move. Retire them -- stop advertising them and stop handing them
+    // out -- but do not free them yet (see retire_and_free_locked).
+    for (auto &sl : rx_pool_->slots) {
+        if (!sl.rma_persistent || sl.rma_retired) continue;
+        if (sl.capacity >= kInitialSlotCap) continue;
+        sl.rma_retired = true;
+        sl.rma_epoch = new_epoch;
+        ucx_debug_log("rx_pool: retiring persistent slot (%zu B) for regrow to %zu B",
+                      sl.capacity, kInitialSlotCap);
+    }
 
     // GPUDirect (Step B1): when active, each slot ALSO gets a GPU shadow
     // region of the same capacity, mem_map'd as CUDA. The shadow is unused
@@ -1243,14 +1445,18 @@ void UcxCommunicator::init_rx_pool() {
     const bool gpudirect_active = g_gpudirect_enabled.load();
     size_t gpu_allocated_count = 0;
 
-    rx_pool_->slots.resize(kInitialSlotCount);
-    for (size_t i = 0; i < kInitialSlotCount; ++i) {
+    // Append: resize() would destroy the small on-demand slots, which may be in use.
+    const size_t base = rx_pool_->slots.size();
+    rx_pool_->slots.resize(base + (kInitialSlotCount - full_slots));
+    for (size_t i = base; i < rx_pool_->slots.size(); ++i) {
         bool is_cuda = false;
         unsigned char *p = alloc_pinned_host(kInitialSlotCap, is_cuda);
         if (p == nullptr) {
             throw std::runtime_error("UcxCommunicator: failed to allocate RX pool slot");
         }
         rx_pool_->slots[i] = PinnedSlot{p, kInitialSlotCap, /*in_use*/false, is_cuda, nullptr};
+        rx_pool_->slots[i].rma_persistent = true;  // only these may be ucp_put into
+        rx_pool_->slots[i].rma_epoch = new_epoch;
 
         if (gpudirect_active) {
             unsigned char *gp = alloc_gpu_slot(kInitialSlotCap);
@@ -1273,6 +1479,32 @@ void UcxCommunicator::init_rx_pool() {
     }
     ucx_debug_log("rx_pool: initialized %zu slots x %zu bytes (gpu_shadows=%zu)",
                   kInitialSlotCount, kInitialSlotCap, gpu_allocated_count);
+    rma_pool_cap_.store(kInitialSlotCap, std::memory_order_release);
+}
+
+// Build the slot pool and advertise it to the peer. MUST be called from a context that
+// does not hold worker_mutex_: send_rma_setup() takes it, and the allocation itself
+// would stall ucp_worker_progress for ~150 ms if it ran in the AM callback.
+void UcxCommunicator::materialise_rma_pool() {
+    // Re-entrant by design: the pool is built the first time a large message arrives
+    // and REBUILT, larger, if a later message turns out not to fit. The build and the
+    // advertisement must be atomic with respect to a second grow request, or two
+    // threads could interleave and publish a layout that does not match the pool.
+    std::lock_guard<std::mutex> lk(rma_build_mu_);
+
+    const size_t want = rma_slot_cap_for(
+        rma_pool_hint_bytes_.load(std::memory_order_acquire));
+    if (rma_pool_ready_.load(std::memory_order_acquire) &&
+        rma_pool_cap_.load(std::memory_order_acquire) >= want) {
+        // Another thread already grew it to at least what we need.
+        rma_pool_requested_.store(false, std::memory_order_release);
+        return;
+    }
+
+    init_rx_pool();
+    send_rma_setup();  // bumps the epoch; only live (non-retired) slots are published
+    rma_pool_ready_.store(true, std::memory_order_release);
+    rma_pool_requested_.store(false, std::memory_order_release);
 }
 
 void UcxCommunicator::destroy_rx_pool() {
@@ -1293,8 +1525,11 @@ void UcxCommunicator::destroy_rx_pool() {
 size_t UcxCommunicator::acquire_rx_slot(size_t needed) {
     std::lock_guard<std::mutex> lk(rx_pool_->mu);
 
-    // Try to find a free slot big enough.
+    // Try to find a free slot big enough. Persistent RMA slots are excluded: a peer
+    // can be mid-put into one without the server knowing, so handing it to an incoming
+    // eager AM would overwrite the transfer.
     for (size_t i = 0; i < rx_pool_->slots.size(); ++i) {
+        if (rx_pool_->slots[i].rma_persistent) continue;
         if (!rx_pool_->slots[i].in_use && rx_pool_->slots[i].capacity >= needed) {
             rx_pool_->slots[i].in_use = true;
             return i;
@@ -1305,6 +1540,7 @@ size_t UcxCommunicator::acquire_rx_slot(size_t needed) {
 
     // No free slot big enough — grow the first free one (or append if none free).
     for (size_t i = 0; i < rx_pool_->slots.size(); ++i) {
+        if (rx_pool_->slots[i].rma_persistent) continue;  // never repurpose an RMA slot
         if (!rx_pool_->slots[i].in_use) {
             unmap_slot_from_ucp(context_, rx_pool_->slots[i]);
             free_pinned_host(rx_pool_->slots[i].addr, rx_pool_->slots[i].is_cuda_host);
@@ -1378,16 +1614,47 @@ void UcxCommunicator::release_rx_slot(size_t slot_idx) {
 // WriteIovRma waiter can reuse it — but ONLY if the generation still matches.
 // A stale/duplicate ack (ABA: the slot was already freed and re-acquired for a
 // newer op) must be ignored, or it would corrupt an unrelated in-flight write.
-void UcxCommunicator::release_remote_slot(size_t slot_idx,
-                                          std::uint64_t generation) {
+void UcxCommunicator::release_remote_slot(size_t server_idx,
+                                          std::uint64_t tag) {
+    using gvirtus::communicators::ucxam::slot_tag_epoch;
+    using gvirtus::communicators::ucxam::slot_tag_generation;
+
     std::lock_guard<std::mutex> lk(rma_state_mu_);
-    if (slot_idx >= remote_slots_.size()) return;
-    auto &s = remote_slots_[slot_idx];
-    if (s.state == RemoteSlot::State::InFlight && s.generation == generation) {
-        s.state = RemoteSlot::State::Free;
-        rma_slot_cv_.notify_one();
+
+    const std::uint32_t ack_epoch = slot_tag_epoch(tag);
+    const std::uint64_t generation = slot_tag_generation(tag);
+
+    // Epoch guard. An ack minted against a layout we have already replaced must not
+    // touch the current one: slot ids are not stable across a regrow, so matching by
+    // id alone could mark a NEW slot free while the backend is still consuming it.
+    // Epoch 0 means the peer predates this scheme -- accept it, matching the old
+    // generation-only behaviour.
+    if (ack_epoch != 0 && remote_epoch_ != 0 && ack_epoch != remote_epoch_) {
+        ucx_debug_log("SlotConsumed: dropping ack from epoch %u (current %u)",
+                      ack_epoch, remote_epoch_);
+        return;
     }
-    // else: stale ack — ignore (ABA guard).
+
+    // Slots are addressed by the SERVER's index, not our position in the vector.
+    for (auto &s : remote_slots_) {
+        if (s.server_idx != static_cast<std::uint16_t>(server_idx)) continue;
+        if (s.state == RemoteSlot::State::InFlight && s.generation == generation) {
+            s.state = RemoteSlot::State::Free;
+        }
+        // else: stale/duplicate ack — ignore (ABA guard).
+        break;
+    }
+
+    // A layout parked by handle_rma_setup_am is installed as soon as the last
+    // in-flight transfer drains. Doing it here, rather than making the advertisement
+    // wait, keeps the AM callback non-blocking.
+    if (rma_swap_pending_) {
+        bool any_inflight = false;
+        for (const auto &rs : remote_slots_)
+            if (rs.state == RemoteSlot::State::InFlight) { any_inflight = true; break; }
+        if (!any_inflight) apply_pending_slots_locked();
+    }
+    rma_slot_cv_.notify_all();
 }
 
 // Server side. Notify the client that RMA-origin slot `slot_idx` (at the given
@@ -1462,6 +1729,8 @@ void UcxCommunicator::send_rma_setup() {
         // advertises host only — matches the pre-B2 wire format byte for byte.
         std::uint64_t gpu_addr{0};
         std::uint64_t gpu_capacity{0};
+        bool persistent{false};
+        std::uint16_t server_idx{0};
         void *gpu_rkey_buf{nullptr};
         size_t gpu_rkey_len{0};
     };
@@ -1469,11 +1738,25 @@ void UcxCommunicator::send_rma_setup() {
     {
         std::lock_guard<std::mutex> lk(rx_pool_->mu);
         packed.reserve(rx_pool_->slots.size());
-        for (auto &slot : rx_pool_->slots) {
-            if (slot.memh == nullptr) continue;  // skip slots that failed mem_map
+        for (size_t si = 0; si < rx_pool_->slots.size(); ++si) {
+            auto &slot = rx_pool_->slots[si];
+            if (slot.memh == nullptr) continue;  // never mapped, or reclaimed
+            // Advertise only slots the peer may actually use: the live persistent
+            // pool. The message-sized slots the eager AM path appends are ours alone,
+            // and a RETIRED slot must not be advertised at all -- a larger pool has
+            // superseded it and it is waiting out its grace epoch before being freed.
+            //
+            // Skipping entries is safe now only because slot identity is explicit:
+            // each descriptor carries the server's own index in the top 16 bits of
+            // reserved0, and RmaPosted / SlotConsumed travel with it. Under the old
+            // positional mapping this loop's `continue` on a rkey_pack failure
+            // silently shifted every later slot by one.
+            if (!slot.rma_persistent || slot.rma_retired) continue;
             PackedSlot ps{};
             ps.addr = reinterpret_cast<std::uint64_t>(slot.addr);
             ps.capacity = slot.capacity;
+            ps.persistent = slot.rma_persistent;
+            ps.server_idx = static_cast<std::uint16_t>(si);
             ucs_status_t st = ucp_rkey_pack(context_, slot.memh,
                                             &ps.rkey_buf, &ps.rkey_len);
             if (st != UCS_OK) {
@@ -1499,9 +1782,12 @@ void UcxCommunicator::send_rma_setup() {
         }
     }
 
+    // An EMPTY advertisement is meaningful and must still be sent: the peer's Connect()
+    // blocks until it arrives, so skipping it costs the full 2 s handshake timeout on
+    // every connection. num_slots = 0 tells the peer "no usable slots, use the eager
+    // path", which is the correct state until the pool is built on demand.
     if (packed.empty()) {
-        ucx_debug_log("rma_setup: no slots to advertise; skipping");
-        return;
+        ucx_debug_log("rma_setup: advertising an empty pool (slots are built on demand)");
     }
 
     // Assemble AM body: [EnvelopeHeader] [N * RmaSlotDescriptor] [N * rkey blobs]
@@ -1523,6 +1809,7 @@ void UcxCommunicator::send_rma_setup() {
     // Old peers (pre-B2) see descriptor.reserved0=0 always → no GPU block →
     // identical to pre-B2 layout.
     constexpr std::uint32_t kHasGpuShadow = 1u << 0;
+    constexpr std::uint32_t kSlotPersistent = 1u << 1;  // safe for the peer to ucp_put into
 
     size_t descriptors_bytes = packed.size() * sizeof(RmaSlotDescriptor);
     size_t rkeys_bytes = 0;
@@ -1545,7 +1832,12 @@ void UcxCommunicator::send_rma_setup() {
     hdr->message_type = static_cast<std::uint16_t>(MessageType::RmaSetup);
     hdr->header_size = sizeof(EnvelopeHeader);
     hdr->reserved0 = 0;
-    hdr->status_code = 0;
+    // Epoch of THIS layout. Bumped on every advertisement, delivered to the client,
+    // and echoed by it on every RmaPosted so an ack minted against a superseded
+    // layout can be recognised and dropped instead of freeing a live slot.
+    const std::uint32_t epoch =
+        rma_pool_epoch_.fetch_add(1, std::memory_order_acq_rel) + 1;
+    hdr->status_code = epoch;
     hdr->request_id = 0;
     hdr->routine_size = 0;
     hdr->payload_size = static_cast<std::uint64_t>(packed.size());
@@ -1557,6 +1849,9 @@ void UcxCommunicator::send_rma_setup() {
         d.slot_capacity = p.capacity;
         d.rkey_size = static_cast<std::uint32_t>(p.rkey_len);
         d.reserved0 = (p.gpu_rkey_buf != nullptr) ? kHasGpuShadow : 0u;
+        if (p.persistent) d.reserved0 |= kSlotPersistent;
+        // Top 16 bits: the server's own index for this slot (see RemoteSlot::server_idx).
+        d.reserved0 |= (static_cast<std::uint32_t>(p.server_idx) << 16);
         std::memcpy(buf.data() + off, &d, sizeof(d));
         off += sizeof(d);
     }
@@ -1629,6 +1924,7 @@ void UcxCommunicator::handle_rma_setup_am(const void *data, size_t length) {
     const unsigned char *rkey_end = base + length;
 
     constexpr std::uint32_t kHasGpuShadow = 1u << 0;
+    constexpr std::uint32_t kSlotPersistent = 1u << 1;  // safe for the peer to ucp_put into
 
     std::vector<RemoteSlot> new_slots;
     new_slots.reserve(num_slots);
@@ -1650,6 +1946,8 @@ void UcxCommunicator::handle_rma_setup_am(const void *data, size_t length) {
 
         RemoteSlot rs{desc_ptr[i].remote_addr,
                       desc_ptr[i].slot_capacity, rkey};
+        rs.persistent = (desc_ptr[i].reserved0 & kSlotPersistent) != 0;
+        rs.server_idx = static_cast<std::uint16_t>(desc_ptr[i].reserved0 >> 16);
 
         // GPUDirect Step B2: parse optional GPU extension after the host
         // rkey blob if the descriptor's flag bit is set. Old peers don't
@@ -1696,16 +1994,73 @@ void UcxCommunicator::handle_rma_setup_am(const void *data, size_t length) {
     bool put_capable = false;
     for (const auto &rs : new_slots)
         if (rs.rkey != nullptr) { put_capable = true; break; }
+
+    const std::uint32_t new_epoch = hdr.status_code;
+    bool applied = false;
     {
         std::lock_guard<std::mutex> lk(rma_state_mu_);
-        remote_slots_ = std::move(new_slots);
-        next_remote_slot_idx_ = 0;
+        // Swapping the layout while a slot is InFlight is NOT safe: that slot would
+        // come back Free in the new vector although the backend is still consuming
+        // it, and the very next WriteIovRma would ucp_put on top of a live transfer.
+        // Park the new layout and let release_remote_slot() install it once the last
+        // in-flight transfer has been acknowledged. Meanwhile WriteIovRma stops
+        // handing out slots, so the drain is guaranteed to finish.
+        bool any_inflight = false;
+        for (const auto &rs : remote_slots_)
+            if (rs.state == RemoteSlot::State::InFlight) { any_inflight = true; break; }
+
+        if (any_inflight) {
+            // A second advertisement arriving while an earlier one is still parked
+            // supersedes it; drop the older parked rkeys rather than leak them.
+            if (rma_swap_pending_) {
+                for (auto &rs : pending_slots_) {
+                    if (rs.rkey != nullptr) ucp_rkey_destroy(rs.rkey);
+                    if (rs.gpu_rkey != nullptr) ucp_rkey_destroy(rs.gpu_rkey);
+                }
+            }
+            pending_slots_ = std::move(new_slots);
+            pending_epoch_ = new_epoch;
+            rma_swap_pending_ = true;
+            ucx_debug_log("rma_setup: epoch %u parked (transfers in flight)", new_epoch);
+        } else {
+            pending_slots_ = std::move(new_slots);
+            pending_epoch_ = new_epoch;
+            rma_swap_pending_ = true;
+            apply_pending_slots_locked();
+            applied = true;
+        }
         rma_setup_received_.store(true);
     }
-    rma_put_capable_.store(put_capable);
+    if (applied) rma_put_capable_.store(put_capable);
     rma_setup_cv_.notify_all();
-    ucx_debug_log("rma_setup: received %zu remote slots (%zu with gpu shadow)",
-                  remote_slots_.size(), gpu_received);
+    rma_slot_cv_.notify_all();
+    ucx_debug_log("rma_setup: epoch %u, %zu remote slots (%zu with gpu shadow)%s",
+                  new_epoch, remote_slots_.size(), gpu_received,
+                  applied ? "" : " [deferred]");
+}
+
+// Install the parked layout. Caller holds rma_state_mu_ and must have established
+// that no slot is InFlight. Destroys the outgoing rkeys -- the previous code moved a
+// new vector over the old one and leaked every rkey it held, which was harmless only
+// because a second advertisement never happened.
+void UcxCommunicator::apply_pending_slots_locked() {
+    if (!rma_swap_pending_) return;
+    for (auto &rs : remote_slots_) {
+        if (rs.rkey != nullptr) ucp_rkey_destroy(rs.rkey);
+        if (rs.gpu_rkey != nullptr) ucp_rkey_destroy(rs.gpu_rkey);
+    }
+    remote_slots_ = std::move(pending_slots_);
+    pending_slots_.clear();
+    remote_epoch_ = pending_epoch_;
+    rma_swap_pending_ = false;
+    next_remote_slot_idx_ = 0;
+
+    bool put_capable = false;
+    for (const auto &rs : remote_slots_)
+        if (rs.rkey != nullptr) { put_capable = true; break; }
+    rma_put_capable_.store(put_capable);
+    ucx_debug_log("rma_setup: epoch %u installed (%zu slots)", remote_epoch_,
+                  remote_slots_.size());
 }
 
 void UcxCommunicator::destroy_rma_state() {
@@ -1877,19 +2232,51 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
     // put completion does NOT imply the remote app released the buffer.
     size_t slot_idx;
     std::uint64_t slot_gen;
+    std::uint64_t slot_tag;
     RemoteSlot rs;
     {
         std::unique_lock<std::mutex> lk(rma_state_mu_);
         if (remote_slots_.empty()) return 0;
         size_t found = static_cast<size_t>(-1);
+        // Pick a free slot that actually FITS. Taking the first free slot and then
+        // giving up on capacity means one undersized slot at a low index sends every
+        // large transfer down the eager path for the lifetime of the connection --
+        // which is exactly what happened once the pool started holding a mix of
+        // full-capacity slots and the message-sized ones acquire_rx_slot() appends.
         const bool got = rma_slot_cv_.wait_for(
             lk, std::chrono::seconds(30), [&] {
                 if (endpoint_failed_.load()) return true;
+                // A new layout is parked waiting for the in-flight transfers to
+                // drain. Handing out another slot from the outgoing layout would
+                // keep the drain from ever completing, so stop issuing until the
+                // swap has been installed. Slots still in flight will release and
+                // install it; if something goes wrong the 30 s timeout falls back
+                // to the eager path rather than wedging.
+                if (rma_swap_pending_) return false;
+                bool any_free = false;
+                // If the peer tags persistent slots, restrict puts to those. If it tags
+                // none (an older peer), keep the previous behaviour rather than refusing
+                // to use RMA at all.
+                bool any_persistent = false;
+                for (const auto &r : remote_slots_)
+                    if (r.persistent) { any_persistent = true; break; }
                 for (size_t i = 0; i < remote_slots_.size(); ++i) {
-                    if (remote_slots_[i].state == RemoteSlot::State::Free) {
+                    if (remote_slots_[i].state != RemoteSlot::State::Free) continue;
+                    any_free = true;
+                    if (remote_slots_[i].rkey != nullptr &&
+                        (!any_persistent || remote_slots_[i].persistent) &&
+                        remote_slots_[i].capacity >= total) {
                         found = i;
                         return true;
                     }
+                }
+                // Every slot is free and none is big enough: waiting cannot help, so
+                // stop instead of burning the 30 s timeout before falling back.
+                if (any_free) {
+                    bool all_free = true;
+                    for (const auto &r : remote_slots_)
+                        if (r.state != RemoteSlot::State::Free) { all_free = false; break; }
+                    if (all_free) return true;
                 }
                 return false;
             });
@@ -1900,6 +2287,10 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
         remote_slots_[slot_idx].state = RemoteSlot::State::InFlight;
         slot_gen = ++remote_slots_[slot_idx].generation;
         rs = remote_slots_[slot_idx];
+        // Tag every RmaPosted with the epoch of the layout it was addressed against,
+        // so the returning SlotConsumed can be matched against that layout and not
+        // whatever has replaced it.
+        slot_tag = gvirtus::communicators::ucxam::make_slot_tag(remote_epoch_, slot_gen);
     }
 
     // RAII: if we bail before success (capacity fallback, or ANY throw during
@@ -1908,10 +2299,25 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
     // slot is instead freed later by the backend's SlotConsumed ack.
     bool rma_committed = false;
     struct SlotReleaser {
-        UcxCommunicator *self; size_t idx; std::uint64_t gen; bool *committed;
-        ~SlotReleaser() { if (!*committed) self->release_remote_slot(idx, gen); }
-    } slot_releaser{this, slot_idx, slot_gen, &rma_committed};
+        UcxCommunicator *self; size_t srv_idx; std::uint64_t tag; bool *committed;
+        ~SlotReleaser() { if (!*committed) self->release_remote_slot(srv_idx, tag); }
+    } slot_releaser{this, rs.server_idx, slot_tag, &rma_committed};
 
+    if (rs.rkey != nullptr && total > rs.capacity) {
+        // Falling off the RMA fast path for size is a 3x-class performance cliff, and
+        // it used to be completely silent. Say it once, with both numbers, so it is
+        // diagnosable from a normal run instead of only from a bandwidth sweep.
+        static std::atomic<bool> warned{false};
+        bool expected = false;
+        if (warned.compare_exchange_strong(expected, true)) {
+            std::fprintf(stderr,
+                "[GVS] RMA fast path declined: message %zu B exceeds slot capacity %zu B "
+                "-- falling back to eager AM (much slower for large transfers). Raise "
+                "GVIRTUS_RMA_SLOT_CAP_MB above %zu MB to keep the fast path.\n",
+                total, static_cast<size_t>(rs.capacity),
+                (total + 1024u * 1024u - 1u) / (1024u * 1024u));
+        }
+    }
     if (rs.rkey == nullptr || total > rs.capacity) {
         // Caller will fall back to the IOV path. (slot freed by SlotReleaser)
         return 0;
@@ -2269,11 +2675,14 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
         notif.message_type = static_cast<std::uint16_t>(
             gvirtus::communicators::ucxam::MessageType::RmaPosted);
         notif.header_size = sizeof(notif);
-        notif.reserved0 = static_cast<std::uint16_t>(slot_idx);
+        // The SERVER's slot id, not our vector position (see RemoteSlot::server_idx).
+        notif.reserved0 = rs.server_idx;
         // GPUDirect Step B3: status_code carries the gpu_split_offset (=
         // pre_size, the position in the host slot where the GPU data folds in).
         notif.status_code = gpu_split_offset;
-        notif.request_id = slot_gen;  // echoed back in SlotConsumed for ABA-safe release
+        // (epoch << 32) | generation, echoed verbatim in SlotConsumed so the ack can
+        // be rejected if it belongs to a layout we have since replaced.
+        notif.request_id = slot_tag;
         // GPUDirect Step B3: non-zero routine_size = bytes that landed in
         // slot.gpu_addr (vs slot.host_addr). The receiver uses this together
         // with status_code (offset) to build a dual PooledMsg. Zero = legacy
@@ -2394,31 +2803,16 @@ size_t UcxCommunicator::WriteIov(const struct iovec *iov, size_t iov_count) {
     // the staging memcpy, push the bytes via ucp_put_nbx directly into the
     // remote slot and notify with a tiny AM. Avoids UCX's per-message
     // rendezvous handshake (which doesn't amortise in our sync pattern).
-    // The 64 KB floor was chosen before we could measure the two paths against
-    // each other. A H2D bandwidth sweep (2026-07-25, dpu-01<->dpu-02, CX-7 200G)
-    // shows the RMA/GPUDirect route only wins ABOVE a few MB, because its
-    // RmaSetup/RmaPosted handshake costs a round trip that a small eager AM
-    // does not pay:
-    //     size    RMA+GPUDirect   eager AM (staged)
-    //      64 KB       1.03 GB/s        2.32 GB/s   <- RMA loses 2.2x
-    //     256 KB       2.78 GB/s        4.86 GB/s   <- RMA loses 1.7x
-    //       1 MB       6.65 GB/s        7.44 GB/s
-    //       4 MB       8.64 GB/s        8.52 GB/s   <- crossover
-    //      16 MB      20.53 GB/s        8.87 GB/s   <- RMA wins 2.3x
-    //      64 MB      22.96 GB/s        8.97 GB/s   <- RMA wins 2.6x
-    // Below the crossover the handshake dominates; above it, peer-DMA straight
-    // into the GPU shadow is the only way to reach line rate. Defaulting the
-    // floor to the measured crossover makes the RMA path a strict improvement
-    // at every size instead of a regression for small transfers (which is what
-    // made GPUDirect measure ~0.5% SLOWER than staged RDMA on miniBUDE, whose
-    // payloads are 256 KB-1.5 MB). Tunable so the crossover can be re-measured
-    // on other fabrics.
-    static const size_t kRmaMinBytes = []() -> size_t {
-        const char *v = std::getenv("GVIRTUS_RMA_MIN_BYTES");
-        if (v == nullptr || v[0] == 0) return 4u * 1024u * 1024u;  // 4 MB
+    // Floor at the measured crossover, not 64 KB: below a few MB the RMA handshake
+    // costs a round trip that a small eager AM never pays. Matches the frontend
+    // default so both directions agree (commit f0d8c1f).
+    static const size_t kRmaMinBytes = ucx_rma_min_bytes();
+    static const size_t kRmaMinBytesUnused = []() -> size_t {
+        const char *e = std::getenv("GVIRTUS_RMA_MIN_BYTES");
+        if (e == nullptr || e[0] == 0) return 4u * 1024u * 1024u;
         char *end = nullptr;
-        unsigned long long parsed = std::strtoull(v, &end, 10);
-        return (end != v) ? static_cast<size_t>(parsed) : 4u * 1024u * 1024u;
+        unsigned long long parsed = std::strtoull(e, &end, 10);
+        return (end != e) ? static_cast<size_t>(parsed) : 4u * 1024u * 1024u;
     }();
 
     if (total >= kRmaMinBytes && rma_setup_received_.load()) {

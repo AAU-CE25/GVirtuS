@@ -139,6 +139,21 @@ class UcxCommunicator : public Communicator {
         bool rma_origin{false};
         std::uint64_t rma_generation{0};
 
+        // True for slots provisioned as the RMA pool (init_rx_pool). These are the only
+        // slots a peer may ucp_put into, and acquire_rx_slot() must never hand one to an
+        // incoming eager AM: the peer's data lands by peer-DMA without the server being
+        // involved, so an AM given the same slot would overwrite it.
+        bool rma_persistent{false};
+
+        // Epoch of the advertisement this slot was published under, and whether a
+        // later, larger pool has superseded it. A retired slot is advertised to
+        // nobody and handed to nobody -- not to the RMA path (the client has a new
+        // layout) and not to eager AMs (a client that has not yet seen the new
+        // advertisement may still have a put in flight to this address). It is
+        // freed one epoch later, in retire_and_free_locked().
+        std::uint32_t rma_epoch{0};
+        bool rma_retired{false};
+
         // Optional GPU shadow region for GPUDirect (Variant B, Step B1).
         // Allocated only when GVIRTUS_GPUDIRECT=1 and probe passed. Lives
         // alongside the host `addr`. Frontend will eventually be told the
@@ -215,13 +230,26 @@ class UcxCommunicator : public Communicator {
     // Read/TryAcquireFrame, so both sides must see the same slot identity
     // to acquire and release correctly.
     struct RxPool {
-        std::vector<PinnedSlot> slots;
+        // deque, not vector: the AM receive handler takes a PinnedSlot& and uses it
+        // (slot.addr, slot.memh, slot.rma_origin) after acquire_rx_slot() has released
+        // the pool mutex, while other threads may append -- acquire_rx_slot's on-demand
+        // append, and the on-demand pool build. A vector reallocation invalidates every
+        // reference into it, which is undefined behaviour and shows up as intermittent
+        // data corruption at unpredictable transfers. deque never invalidates references
+        // to existing elements on push_back/resize, and indexing is unchanged.
+        std::deque<PinnedSlot> slots;
         std::mutex mu;
     };
     std::shared_ptr<RxPool> rx_pool_{std::make_shared<RxPool>()};
     PooledMsg current_frame_;  // held between TryAcquireFrame/ReleaseFrame
 
     void init_rx_pool();
+    // Build the pool and advertise it, from a context where worker_mutex_ is NOT held.
+    void materialise_rma_pool();
+    // Set when a message large enough for the RMA path arrives on a connection whose
+    // pool has not been built yet; consumed at the top of Read().
+    std::atomic<bool> rma_pool_requested_{false};
+    std::atomic<bool> rma_pool_ready_{false};
     void destroy_rx_pool();
     size_t acquire_rx_slot(size_t needed);   // returns slot_idx, grows pool if all busy
     void release_rx_slot(size_t slot_idx);   // marks slot free
@@ -241,6 +269,22 @@ class UcxCommunicator : public Communicator {
         std::uint64_t addr{0};       // remote address (server's view)
         std::uint64_t capacity{0};
         ucp_rkey_h rkey{nullptr};    // unpacked on this side
+
+        // The server's OWN index for this slot, carried in the top 16 bits of
+        // RmaSlotDescriptor::reserved0. Slot identity used to be positional -- the
+        // client's slot i had to be the server's slot i -- which forced the server
+        // to advertise every slot it owned, including the message-sized ones the
+        // eager path appends and the ones it has retired, and silently broke if
+        // ucp_rkey_pack failed for any slot (send_rma_setup `continue`s, shifting
+        // every later index). RmaPosted/SlotConsumed now travel with this id, so
+        // the server can advertise exactly the slots that are usable.
+        std::uint16_t server_idx{0};
+
+        // Set when the peer tagged this slot as part of its persistent RMA pool
+        // (descriptor.reserved0 bit 1). Only those are safe to ucp_put into: the
+        // peer hands its temporary slots to incoming eager AMs, which would land on
+        // top of our transfer.
+        bool persistent{false};
 
         // Optional GPU shadow advertised by peer (Variant B, Step B2). When
         // gpu_rkey != nullptr the client can ucp_put_nbx big payloads to
@@ -264,6 +308,46 @@ class UcxCommunicator : public Communicator {
 
     std::vector<RemoteSlot> remote_slots_;
     std::mutex rma_state_mu_;
+
+    // --- Re-advertisement (epoch + quiesce), client side -------------------
+    // The server may publish a new slot layout mid-connection: the pool is built
+    // on demand and grown again when a message does not fit. Swapping
+    // remote_slots_ the moment a new RmaSetup lands is NOT safe -- a slot that is
+    // InFlight would silently come back Free in the new vector while the backend
+    // is still consuming it, and the client would ucp_put on top of a live
+    // transfer. So a layout that arrives while anything is InFlight is parked
+    // here and applied by release_remote_slot() once the last one drains.
+    std::uint32_t remote_epoch_{0};        // epoch of the layout in remote_slots_
+    std::vector<RemoteSlot> pending_slots_;
+    std::uint32_t pending_epoch_{0};
+    bool rma_swap_pending_{false};
+    // Apply pending_slots_ to remote_slots_. Caller must hold rma_state_mu_ AND
+    // must have established that no slot is InFlight.
+    void apply_pending_slots_locked();
+
+    // --- On-demand sizing, server side -------------------------------------
+    // Largest payload seen on this connection at or above the RMA floor. The pool
+    // is sized from this instead of from the GVIRTUS_RMA_SLOT_CAP_MB knob, which
+    // becomes a ceiling rather than a target: a connection whose biggest message
+    // is 8 MB should not pin 2 x 1025 MB (plus the same again in GPU shadow) and
+    // pay ~2.2 s of connect for buffers it can never fill.
+    std::atomic<size_t> rma_pool_hint_bytes_{0};
+    // Capacity the persistent slots were actually built at, and the epoch under
+    // which they were last advertised.
+    std::atomic<size_t> rma_pool_cap_{0};
+    std::atomic<std::uint32_t> rma_pool_epoch_{0};
+    // Serializes materialise_rma_pool() against itself (build + advertise must be
+    // atomic with respect to a second grow request).
+    std::mutex rma_build_mu_;
+    // Persistent slots that a previous epoch advertised and that have since been
+    // superseded. They are NOT freed at the moment they are retired: a client that
+    // has not yet seen the new advertisement may still have a put in flight to
+    // them. They are freed one epoch later, by which point every put was addressed
+    // against a layout the client has acknowledged by using it.
+    std::vector<size_t> retired_slot_idx_;
+    void retire_and_free_locked(std::uint32_t now_epoch);
+    // Slot capacity to build for a given observed payload size.
+    static size_t rma_slot_cap_for(size_t hint_bytes);
     // Backpressure: WriteIovRma waits here when every remote slot is InFlight,
     // and release_remote_slot (driven by the backend's SlotConsumed ack) wakes
     // a waiter. Guards against slot reuse-before-consumption (the old

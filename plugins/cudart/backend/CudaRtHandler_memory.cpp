@@ -27,6 +27,7 @@
  */
 
 #include "CudaRtHandler.h"
+#include "gvirtus/communicators/Communicator.h"
 #include "CudaUtil.h"
 
 #include <gvirtus/communicators/Communicator.h>
@@ -365,6 +366,31 @@ CUDA_ROUTINE_HANDLER(MallocPitch) {
     }
 }
 
+namespace {
+
+// The stream the GPUDirect shadow->destination copies are issued on, and whether one is
+// still in flight for the frame currently being consumed. Both are thread_local because
+// the backend runs one thread per connection and the transport calls the drain hook on
+// that same thread, right after it sends the response.
+thread_local cudaStream_t g_shadow_stream = nullptr;
+thread_local bool g_shadow_copy_pending = false;
+
+void gvirtus_shadow_drain() {
+    if (g_shadow_copy_pending && g_shadow_stream != nullptr) {
+        cudaStreamSynchronize(g_shadow_stream);
+        g_shadow_copy_pending = false;
+    }
+}
+
+struct ShadowDrainRegistrar {
+    ShadowDrainRegistrar() {
+        gvirtus::communicators::SetFrameDrainHook(&gvirtus_shadow_drain);
+    }
+};
+ShadowDrainRegistrar g_shadow_drain_registrar;
+
+}  // namespace
+
 CUDA_ROUTINE_HANDLER(Memcpy) {
     /* cudaError_t cudaError_t cudaMemcpy(void *dst, const void *src,
         size_t count, cudaMemcpyKind kind) */
@@ -401,8 +427,54 @@ CUDA_ROUTINE_HANDLER(Memcpy) {
                 void *gpu_src = input_buffer->GetGpuPayload();
                 size_t gpu_src_size = input_buffer->GetGpuPayloadSize();
                 if (gpu_src != nullptr && gpu_src_size >= count) {
-                    exit_code = cudaMemcpy(dst, gpu_src, count,
-                                           cudaMemcpyDeviceToDevice);
+                    // CORRECTNESS FIX (2026-07-25): cudaMemcpy D2D is ASYNC wrt the CPU
+                    // thread (it enqueues on a stream and returns). The old code let the
+                    // handler return -> ReleaseFrame -> SlotConsumed -> the client reused
+                    // the shadow slot and the NEXT peer-DMA overwrote it WHILE the copy
+                    // engine was still reading it -> dst got mixed old/new bytes -> a
+                    // fraction of clients computed on corrupt poses (multi-tenant only).
+                    // Issue the D2D on a per-connection stream and WAIT for completion
+                    // before returning, so the shadow is owned until the copy truly ends.
+                    // Per-connection stream avoids serializing other tenants kernels.
+                    // PERF (2026-07-25): the stream MUST be non-blocking. A stream from
+                    // cudaStreamCreate() implicitly barriers against the legacy default
+                    // stream in BOTH directions, and this backend runs every tenants
+                    // kernels on the legacy stream (one shared context, one thread per
+                    // connection). A blocking stream therefore made each GPUDirect
+                    // consume (a) wait for all pending work of all tenants and
+                    // (b) stall every subsequent launch until the copy drained --
+                    // a tax the host-staged path never pays, which is why GPUDirect
+                    // measured ~0.5% SLOWER than staged RDMA. cudaStreamNonBlocking
+                    // removes both barriers; ordering after the callers previously
+                    // issued work is preserved explicitly with an event, and the
+                    // cudaStreamSynchronize below still owns the shadow slot until
+                    // the copy truly completes (the correctness fix above).
+                    thread_local cudaEvent_t _shadow_prior = nullptr;
+                    // Create the stream and the event independently: the D2H handler
+                    // below shares g_shadow_stream, so whichever path runs first would
+                    // otherwise leave the other's event null -> cudaEventRecord(nullptr)
+                    // fails silently and the ordering guarantee quietly disappears.
+                    if (g_shadow_stream == nullptr) {
+                        cudaStreamCreateWithFlags(&g_shadow_stream, cudaStreamNonBlocking);
+                    }
+                    if (_shadow_prior == nullptr) {
+                        cudaEventCreateWithFlags(&_shadow_prior, cudaEventDisableTiming);
+                    }
+                    // Order the copy AFTER work already issued on the default stream
+                    // (cudaMemcpy is defined to be ordered wrt previously issued work),
+                    // without making later launches wait for us.
+                    cudaEventRecord(_shadow_prior, 0);
+                    cudaStreamWaitEvent(g_shadow_stream, _shadow_prior, 0);
+                    exit_code = cudaMemcpyAsync(dst, gpu_src, count,
+                                                cudaMemcpyDeviceToDevice, g_shadow_stream);
+                    // Do NOT wait here. Measured, this wait was 163-211 us of a 2.82 ms
+                    // 64 MB transfer (6.4%) and the client was blocked behind all of it
+                    // for no reason: the only way to observe dst is another request on
+                    // this connection, which this same thread processes strictly later.
+                    // Hand the wait to the transport, which runs it after the response
+                    // has gone out and before it frees the slot (Communicator.h,
+                    // gvirtus_shadow_drain below).
+                    if (exit_code == cudaSuccess) g_shadow_copy_pending = true;
                     result = std::make_shared<Result>(exit_code);
                     break;
                 }
@@ -449,8 +521,57 @@ CUDA_ROUTINE_HANDLER(Memcpy) {
                 if (gvirtus_gpudirect_d2h_enabled() && count >= kGpuDirectD2HThreshold) {
                     void *gpu_scratch = get_tls_gpu_scratch(count);
                     if (gpu_scratch != nullptr) {
-                        exit_code = cudaMemcpy(gpu_scratch, src, count,
-                                               cudaMemcpyDeviceToDevice);
+                        // CORRECTNESS FIX (2026-07-25) — the D2H twin of the H2D fix
+                        // above, and the cause of the long-hunted "got == want - 31"
+                        // corruption that five rounds attributed to the H2D/RMA slot
+                        // path.
+                        //
+                        // cudaMemcpy D2D performs NO host-side synchronization. CUDA
+                        // Runtime API, "API synchronization behavior", rule 4: "For
+                        // transfers from device memory to device memory, no host-side
+                        // synchronization is performed." It enqueues the copy and
+                        // returns immediately.
+                        //
+                        // The handler then returned, Process.cpp registered gpu_scratch
+                        // with ucp_mem_map and shipped the client a GET descriptor, and
+                        // the client issued an RDMA READ straight out of gpu_scratch --
+                        // while the copy engine was still filling it. get_tls_gpu_scratch
+                        // hands back ONE reused buffer per thread, so the bytes the NIC
+                        // served from the not-yet-overwritten head were precisely the
+                        // PREVIOUS D2H's. Measured signature: got == want - 31 with the
+                        // 31-per-transfer test pattern (i.e. transfer n-1, never n-2),
+                        // a handful of samples, always inside the first ~64 KB -- the
+                        // window where the 24 GB/s RDMA READ can outrun a D2D that was
+                        // scheduled a few microseconds late, before the much faster
+                        // copy overtakes it for the remaining 64 MB.
+                        //
+                        // Unlike the H2D case this CANNOT be deferred to the transport
+                        // drain hook: there the shadow only has to survive until the
+                        // slot is released, here the client reads the scratch the moment
+                        // it sees the response. The copy must be complete BEFORE the
+                        // response leaves this thread.
+                        //
+                        // Same non-blocking stream + prior-work event as the H2D path,
+                        // so a tenant's copy is ordered after its own previously issued
+                        // work without erecting a legacy-default-stream barrier across
+                        // every other tenant on this backend.
+                        thread_local cudaEvent_t _d2h_prior = nullptr;
+                        if (g_shadow_stream == nullptr) {
+                            cudaStreamCreateWithFlags(&g_shadow_stream,
+                                                      cudaStreamNonBlocking);
+                        }
+                        if (_d2h_prior == nullptr) {
+                            cudaEventCreateWithFlags(&_d2h_prior,
+                                                     cudaEventDisableTiming);
+                        }
+                        cudaEventRecord(_d2h_prior, 0);
+                        cudaStreamWaitEvent(g_shadow_stream, _d2h_prior, 0);
+                        exit_code = cudaMemcpyAsync(gpu_scratch, src, count,
+                                                    cudaMemcpyDeviceToDevice,
+                                                    g_shadow_stream);
+                        if (exit_code == cudaSuccess) {
+                            exit_code = cudaStreamSynchronize(g_shadow_stream);
+                        }
                         if (exit_code == cudaSuccess) {
                             try {
                                 // Wire format matches Add<char>(p,n): [size_t count][bytes].
