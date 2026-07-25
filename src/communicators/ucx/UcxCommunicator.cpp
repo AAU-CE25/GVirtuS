@@ -2021,7 +2021,16 @@ void UcxCommunicator::handle_rma_setup_am(const void *data, size_t length) {
             pending_slots_ = std::move(new_slots);
             pending_epoch_ = new_epoch;
             rma_swap_pending_ = true;
-            ucx_debug_log("rma_setup: epoch %u parked (transfers in flight)", new_epoch);
+            // Unconditional (not ucx_debug_log): this is the branch that makes
+            // re-advertisement safe under concurrency, and a test needs to be able to
+            // prove it actually ran rather than assume it. Turning on full debug
+            // logging to see it would perturb the very timing that reaches it.
+            ++rma_swap_parked_count_;
+            std::fprintf(stderr,
+                         "[GVS] rma_setup: epoch %u PARKED (transfers in flight), "
+                         "park #%llu\n",
+                         new_epoch, (unsigned long long)rma_swap_parked_count_);
+            std::fflush(stderr);
         } else {
             pending_slots_ = std::move(new_slots);
             pending_epoch_ = new_epoch;
@@ -2054,6 +2063,11 @@ void UcxCommunicator::apply_pending_slots_locked() {
     remote_epoch_ = pending_epoch_;
     rma_swap_pending_ = false;
     next_remote_slot_idx_ = 0;
+    if (rma_swap_parked_count_ > 0) {
+        std::fprintf(stderr, "[GVS] rma_setup: epoch %u INSTALLED after park\n",
+                     remote_epoch_);
+        std::fflush(stderr);
+    }
 
     bool put_capable = false;
     for (const auto &rs : remote_slots_)

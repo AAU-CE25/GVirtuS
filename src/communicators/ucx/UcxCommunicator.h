@@ -321,6 +321,9 @@ class UcxCommunicator : public Communicator {
     std::vector<RemoteSlot> pending_slots_;
     std::uint32_t pending_epoch_{0};
     bool rma_swap_pending_{false};
+    // How many advertisements had to be parked. Reported unconditionally so a
+    // concurrency test can prove the quiesce path executed.
+    std::uint64_t rma_swap_parked_count_{0};
     // Apply pending_slots_ to remote_slots_. Caller must hold rma_state_mu_ AND
     // must have established that no slot is InFlight.
     void apply_pending_slots_locked();
