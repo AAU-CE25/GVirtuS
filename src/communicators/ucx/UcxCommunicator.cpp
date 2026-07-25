@@ -2680,6 +2680,17 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
         wait_request_completion(put_req, "rma_put");
     }
 
+    // NOTE on remote completion (tested 2026-07-25, NOT the fix).
+    //
+    // ucp_put_nbx completion is LOCAL -- the source buffer may be reused, not the bytes
+    // have landed -- and the RmaPosted AM below is not ordered against RDMA writes still
+    // in flight. Adding ucp_ep_flush_nbx here to close that gap was measured and changed
+    // nothing: the fire-and-forget RMA failure reproduced identically (same transfers,
+    // same byte counts) while roughly doubling issue time (310 ms vs 166 ms for
+    // 6 x 64 MB). It is therefore NOT applied -- an unmeasured cost for no demonstrated
+    // benefit -- and the semantic gap is recorded as an open question rather than
+    // papered over. Whatever breaks fire-and-forget RMA is upstream of arrival.
+
     // Tiny RmaPosted notification — same protocol bytes regardless of which
     // data path filled the remote slot.
     {
