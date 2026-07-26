@@ -399,14 +399,27 @@ class UcxCommunicator : public Communicator {
     void handle_rma_setup_am(const void *data, size_t length); // client side
     void destroy_rma_state();                                 // teardown
 
-    // NOTE: gpu_get_regs_ (server GPU scratch) and client_dst_regs_ (client D2H
-    // destination) used to live here, each a private address-keyed ucp_mem_map cache
-    // with its own mutex and its own comment saying it was deliberately "not unmapped
-    // at teardown (process-lifetime)". Both were wrong on both counts: neither could be
-    // invalidated when the buffer was freed, and surviving into ucp_cleanup is what
-    // corrupted the heap at exit. They are gone, replaced by one process-global
-    // registry with an invalidation hook (RunRegistrationInvalidate) and a teardown
-    // sweep (release_registrations_for_context), shared with the H2D source cache.
+    // === D2H-via-GET (server side) ===
+    // Registrations of the backend's D2H GPU scratch, PER COMMUNICATOR.
+    //
+    // This deliberately does NOT use the process-global registry that the H2D source
+    // and D2H destination share. Connections are threads in one backend process, and
+    // the scratch is thread_local, so a finished thread's scratch is freed and another
+    // thread's cudaMalloc can return the same address. A global registry with
+    // cross-context invalidation then destroys the SECOND thread's live registration
+    // when the first frees -- measured as ~17% of tenants losing their connection at
+    // concurrency 8 with "D2H-GET failed", which the pre-lazy control (this same
+    // per-communicator map) does not exhibit.
+    //
+    // Growth is handled by the len check in PrepareGpuGet, and unlike the original
+    // these ARE unmapped in destroy_rma_state -- leaving them mapped into ucp_cleanup
+    // is what corrupted the heap at exit.
+    struct GpuGetReg {
+        size_t len{0};
+        ucp_mem_h memh{nullptr};
+    };
+    std::unordered_map<std::uint64_t, GpuGetReg> gpu_get_regs_;
+    std::mutex gpu_get_mu_;
 
     // Client-side data path: stage iov fragments into tx_scratch_, RDMA-put
     // into the next remote slot, then send a small RmaPosted AM with the

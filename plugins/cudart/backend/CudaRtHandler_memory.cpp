@@ -113,11 +113,13 @@ void *get_tls_gpu_scratch(size_t needed) {
         return tls_gpu_scratch;
     }
     if (tls_gpu_scratch != nullptr) {
-        // The transport registered this scratch for remote RDMA-READ and caches that
-        // registration by address. cudaFree + cudaMalloc readily returns the same
-        // address, so the handle must be dropped here or the next D2H serves the GET
-        // from a mapping that no longer describes this buffer.
-        gvirtus::communicators::RunRegistrationInvalidate(tls_gpu_scratch);
+        // NO RunRegistrationInvalidate here. That hook drops the address in EVERY UCX
+        // context, and connections are threads sharing this process: since this scratch
+        // is thread_local, another thread's cudaMalloc can already hold this address
+        // with its own LIVE registration, which the hook would destroy underneath it.
+        // Measured as ~17% of tenants dying with "D2H-GET failed" at concurrency 8.
+        // PrepareGpuGet keeps its registrations per communicator and re-maps on the len
+        // check, which covers this growth without touching anyone else's.
         cudaFree(tls_gpu_scratch);
         tls_gpu_scratch = nullptr;
         tls_gpu_scratch_size = 0;
@@ -152,9 +154,7 @@ void *get_d2h_get_scratch(size_t needed) {
         return tls_d2h_get_pool[i];
     }
     if (tls_d2h_get_pool[i] != nullptr) {
-        // Same as get_tls_gpu_scratch: drop the transport's registration before the
-        // allocation goes back to CUDA.
-        gvirtus::communicators::RunRegistrationInvalidate(tls_d2h_get_pool[i]);
+        // Same reasoning as get_tls_gpu_scratch: no cross-context invalidation here.
         cudaFree(tls_d2h_get_pool[i]);
         tls_d2h_get_pool[i] = nullptr;
         tls_d2h_get_pool_size[i] = 0;

@@ -2366,12 +2366,17 @@ void UcxCommunicator::destroy_rma_state() {
     next_remote_slot_idx_ = 0;
     }
     // Outside the lock: release every ucp_mem_map this context still owns -- the H2D
-    // source registrations, the D2H destination registrations and the server's GPU
-    // scratch. Reaching ucp_cleanup with these still mapped is what corrupted the heap
-    // at exit ("corrupted size vs. prev_size in fastbins" in the frontend, "double free
-    // in tcache" in the backend's per-connection child), because by then the
-    // application had already freed the memory they described.
+    // source and D2H destination registrations from the shared registry, and this
+    // communicator's own GPU-scratch registrations. Reaching ucp_cleanup with these
+    // still mapped is what corrupted the heap at exit ("corrupted size vs. prev_size in
+    // fastbins" in the frontend, "double free in tcache" in the backend), because by
+    // then the application had already freed the memory they described.
     release_registrations_for_context(context_);
+    {
+        std::lock_guard<std::mutex> lk(gpu_get_mu_);
+        for (auto &kv : gpu_get_regs_) ucp_mem_unmap(context_, kv.second.memh);
+        gpu_get_regs_.clear();
+    }
 }
 
 // D2H-via-GET, server side. Register the backend's GPU scratch [gpu_addr,len)
@@ -2399,14 +2404,35 @@ bool UcxCommunicator::PrepareGpuGet(void *gpu_addr, size_t len,
     // get_d2h_get_scratch invalidate before freeing it. The frontend's hook is not
     // installed in the backend process anyway (it lives in the frontend half of the
     // cudart plugin), so asking would fail closed and cost a registration per D2H.
-    bool memh_owned = false;
-    ucp_mem_h memh = acquire_app_registration(context_, gpu_addr, len,
-                                              /*cacheable*/ true, /*is_cuda*/ true,
-                                              memh_owned);
-    if (memh == nullptr) {
-        ucx_debug_log("PrepareGpuGet: ucp_mem_map(CUDA) failed");
-        return false;
+    std::lock_guard<std::mutex> lk(gpu_get_mu_);
+    const std::uint64_t key = reinterpret_cast<std::uint64_t>(gpu_addr);
+    auto it = gpu_get_regs_.find(key);
+    if (it != gpu_get_regs_.end() && it->second.len < len) {
+        // Same base address, larger transfer than we registered: remap. This is also
+        // what covers the scratch growing (cudaFree + cudaMalloc), so no cross-thread
+        // invalidation is needed -- and must not be used, see the header.
+        ucp_mem_unmap(context_, it->second.memh);
+        gpu_get_regs_.erase(it);
+        it = gpu_get_regs_.end();
     }
+    if (it == gpu_get_regs_.end()) {
+        ucp_mem_map_params_t p{};
+        p.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS |
+                       UCP_MEM_MAP_PARAM_FIELD_LENGTH |
+                       UCP_MEM_MAP_PARAM_FIELD_MEMORY_TYPE;
+        p.address = gpu_addr;
+        p.length = len;
+        p.memory_type = UCS_MEMORY_TYPE_CUDA;
+        ucp_mem_h m = nullptr;
+        ucs_status_t mst = ucp_mem_map(context_, &p, &m);
+        if (mst != UCS_OK) {
+            ucx_debug_log("PrepareGpuGet: ucp_mem_map(CUDA) failed: %s",
+                          ucs_status_string(mst));
+            return false;
+        }
+        it = gpu_get_regs_.emplace(key, GpuGetReg{len, m}).first;
+    }
+    ucp_mem_h memh = it->second.memh;
 
     void *rkey_buf = nullptr;
     size_t rkey_size = 0;
