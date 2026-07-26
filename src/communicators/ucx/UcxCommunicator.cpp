@@ -2779,12 +2779,31 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
         // claim on the D2H side ("1 GB/s without a memh") turned out to be about a
         // different thing entirely, so this one gets measured before it is trusted.
         // Set GVIRTUS_RMA_SRC_HOST_CACHE_MIN_MB=0 to disable host source caching.
+        // Default is the RMA floor: every buffer that takes this path is worth caching.
+        //
+        // It used to be 16 MB, and that was NOT a performance choice -- it was damage
+        // control for an address-keyed cache that could not be invalidated (commit
+        // 360d473, after a stale memh caused IB local-protection errors). Registering
+        // 4-8 MB sources afresh on every put was the price of not corrupting them.
+        //
+        // That hazard is gone: the cache is now invalidated from cudaFreeHost/cudaFree
+        // and only holds buffers whose free we are told about. Keeping the threshold
+        // would just be paying the old price for a bug that no longer exists, and it
+        // is expensive -- measured on simple_matrix, per-put registration is what kept
+        // H2D at 8 GB/s below 16 MB while D2H, whose destination registration was never
+        // size-gated, reached 21 GB/s at the same 4 MB:
+        //
+        //     4 MB payload:  7.99 -> 21.88 GB/s   (write 1.050 -> 0.383 ms)
+        //     8 MB payload:  8.36 -> 22.96 GB/s   (write 2.006 -> 0.730 ms)
+        //
+        // That asymmetry between the two directions was this threshold, nothing else.
         static const size_t kHostCacheMin = []() -> size_t {
+            const size_t dflt = ucx_rma_min_bytes();
             const char *e = std::getenv("GVIRTUS_RMA_SRC_HOST_CACHE_MIN_MB");
-            if (e == nullptr || e[0] == '\0') return 16u * 1024u * 1024u;
+            if (e == nullptr || e[0] == '\0') return dflt;
             char *end = nullptr;
             unsigned long long mb = std::strtoull(e, &end, 10);
-            if (end == e) return 16u * 1024u * 1024u;
+            if (end == e) return dflt;
             // 0 means "never cache a host source".
             return (mb == 0) ? std::numeric_limits<size_t>::max()
                              : static_cast<size_t>(mb) * 1024u * 1024u;
