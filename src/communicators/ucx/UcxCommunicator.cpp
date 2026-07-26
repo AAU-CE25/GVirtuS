@@ -437,6 +437,23 @@ ucs_status_t UcxCommunicator::am_recv_handler(void *arg, const void *header,
                                  slot_idx, self->rx_pool_->slots.size());
                     return UCS_OK;
                 }
+                // The peer posted against a layout epoch: record it, so slots the
+                // superseded advertisement retired can be released at the next safe
+                // point instead of waiting for another regrow that may never come.
+                {
+                    const std::uint32_t posted_epoch =
+                        gvirtus::communicators::ucxam::slot_tag_epoch(peek.request_id);
+                    std::uint32_t prev =
+                        self->rma_epoch_acked_.load(std::memory_order_relaxed);
+                    while (posted_epoch > prev &&
+                           !self->rma_epoch_acked_.compare_exchange_weak(
+                               prev, posted_epoch, std::memory_order_relaxed)) {
+                    }
+                    if (posted_epoch > prev) {
+                        self->rma_reclaim_requested_.store(true, std::memory_order_release);
+                    }
+                }
+
                 auto &slot = self->rx_pool_->slots[slot_idx];
                 // The client should only ever post into a live persistent slot it was
                 // advertised. Anything else means it is working from a layout we have
@@ -1115,6 +1132,10 @@ size_t UcxCommunicator::Read(char *buffer, size_t size) {
     if (rma_pool_requested_.load(std::memory_order_acquire)) {
         materialise_rma_pool();
     }
+    // Safe point for releasing superseded slots (see reclaim_retired_slots).
+    if (rma_reclaim_requested_.load(std::memory_order_acquire)) {
+        reclaim_retired_slots();
+    }
 
     // Drain AM queue into the caller buffer, preserving stream semantics.
     // Busy-poll to keep ucp_worker_progress() running continuously.
@@ -1176,6 +1197,10 @@ bool UcxCommunicator::TryAcquireFrame(const unsigned char *&data, size_t &size) 
     // again whenever a message arrives eagerly that the current slots cannot hold.
     if (rma_pool_requested_.load(std::memory_order_acquire)) {
         materialise_rma_pool();
+    }
+    // Safe point for releasing superseded slots (see reclaim_retired_slots).
+    if (rma_reclaim_requested_.load(std::memory_order_acquire)) {
+        reclaim_retired_slots();
     }
 
     // If we already hold a partially-consumed message, give up — the caller
@@ -1375,8 +1400,23 @@ size_t UcxCommunicator::rma_slot_cap_for(size_t hint_bytes) {
     };
     const size_t ceiling = env_mb("GVIRTUS_RMA_SLOT_CAP_MB", 1025) * 1024u * 1024u +
                            kSlotFramingSlack;
-    const size_t floor_bytes = env_mb("GVIRTUS_RMA_SLOT_MIN_MB", 16) * 1024u * 1024u +
-                               kSlotFramingSlack;
+    // Floor defaults to the RMA threshold itself, not an arbitrary constant: a slot
+    // smaller than the smallest message that takes the RMA path can never be used, and
+    // anything larger is memory reserved on speculation.
+    //
+    // The 16 MB it used to be was picked without measurement. Measured (payload 4 MB,
+    // 12 transfers, floors 4/8/16/32 MB): first transfer 29.9/30.2/30.0/29.9 ms and
+    // steady state 8.7/10.8/8.0/10.8 GB/s -- no trend, the spread is run-to-run noise.
+    // The floor costs nothing in time and everything in memory (4x at floor 16 vs 4 for
+    // 4 MB traffic), so it should be as small as is useful. A workload whose sizes creep
+    // upward pays a regrow instead, which is one staged transfer (~130 ms, measured in
+    // growtest) and is bounded to log2 steps by the power-of-two rounding.
+    const size_t floor_default = ucx_rma_min_bytes();
+    const char *floor_env = std::getenv("GVIRTUS_RMA_SLOT_MIN_MB");
+    const size_t floor_bytes =
+        (floor_env != nullptr && floor_env[0] != '\0')
+            ? env_mb("GVIRTUS_RMA_SLOT_MIN_MB", 4) * 1024u * 1024u + kSlotFramingSlack
+            : floor_default + kSlotFramingSlack;
     if (hint_bytes == 0) return ceiling;  // no evidence yet (eager prealloc)
 
     // Round the PAYLOAD to a power of two, then add the slack -- not the other way
@@ -1403,14 +1443,26 @@ size_t UcxCommunicator::rma_slot_cap_for(size_t hint_bytes) {
 // every put has by then been addressed against a layout the client demonstrably has
 // (it used it). Caller must hold rx_pool_->mu.
 void UcxCommunicator::retire_and_free_locked(std::uint32_t now_epoch) {
+    const std::uint32_t acked = rma_epoch_acked_.load(std::memory_order_acquire);
     for (auto &sl : rx_pool_->slots) {
         if (!sl.rma_retired || sl.in_use) continue;
-        if (now_epoch <= sl.rma_epoch + 1) continue;  // still within the grace epoch
+        // sl.rma_epoch is the epoch of the advertisement that SUPERSEDED this slot.
+        // Two independent reasons it is now safe to release:
+        //   (a) the peer has posted against that epoch or later, so it demonstrably
+        //       holds the new layout and cannot have a put addressed here; or
+        //   (b) a further advertisement has since gone out, the original one-epoch
+        //       grace, kept as a backstop for a peer that goes quiet.
+        const bool peer_moved_on = acked >= sl.rma_epoch;
+        const bool grace_expired = now_epoch > sl.rma_epoch + 1;
+        if (!peer_moved_on && !grace_expired) continue;
+        std::fprintf(stderr,
+                     "[GVS] rx_pool: releasing superseded slot (%zu B host%s, retired at "
+                     "epoch %u, peer acked %u)\n",
+                     sl.capacity, sl.gpu_addr ? " + GPU shadow" : "", sl.rma_epoch, acked);
+        std::fflush(stderr);
         unmap_slot_from_ucp(context_, sl);
         free_pinned_host(sl.addr, sl.is_cuda_host);
         free_gpu_slot(sl.gpu_addr);
-        ucx_debug_log("rx_pool: freed retired slot (%zu bytes, retired at epoch %u)",
-                      sl.capacity, sl.rma_epoch);
         sl = PinnedSlot{};  // capacity 0, not persistent, not retired: reusable entry
     }
 }
@@ -1557,6 +1609,16 @@ void UcxCommunicator::init_rx_pool() {
 // device memory HERE, so ask for the pool to be rebuilt with one. The rebuild goes
 // through exactly the same materialise/retire/re-advertise path as a size regrow, so
 // it inherits the epoch and quiesce handling rather than needing its own.
+// Release slots a superseded advertisement retired, once the peer has demonstrably
+// moved to the new layout. Called from Read()/TryAcquireFrame(), never from the AM
+// callback that observes the epoch: that runs under worker_mutex_ and freeing a slot
+// calls cudaFreeHost/cudaFree, which can block and would stall worker progress.
+void UcxCommunicator::reclaim_retired_slots() {
+    if (!rma_reclaim_requested_.exchange(false, std::memory_order_acq_rel)) return;
+    std::lock_guard<std::mutex> lk(rx_pool_->mu);
+    retire_and_free_locked(rma_pool_epoch_.load(std::memory_order_acquire));
+}
+
 void UcxCommunicator::NoteDeviceDestinedPayload(size_t bytes) {
     if (bytes < ucx_rma_min_bytes()) return;
     if (!g_gpudirect_enabled.load()) return;   // no shadow is possible on this backend

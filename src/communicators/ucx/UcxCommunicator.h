@@ -362,6 +362,19 @@ class UcxCommunicator : public Communicator {
     // against a layout the client has acknowledged by using it.
     std::vector<size_t> retired_slot_idx_;
     void retire_and_free_locked(std::uint32_t now_epoch);
+    // Highest layout epoch we have seen the peer actually USE (the epoch tag on an
+    // incoming RmaPosted). Once the peer posts against epoch N, it demonstrably holds
+    // that advertisement, so everything retired when N was published can be released --
+    // no in-flight put can still be addressed at it. Strictly better than waiting a
+    // whole extra epoch: that only reclaimed on the NEXT regrow, so a connection that
+    // regrew once and then ran steady kept the superseded generation allocated for its
+    // entire life.
+    std::atomic<std::uint32_t> rma_epoch_acked_{0};
+    std::atomic<bool> rma_reclaim_requested_{false};
+    // Reclaim at a safe point. NOT done in the AM callback that observes the epoch:
+    // that runs under worker_mutex_ and freeing a slot calls cudaFreeHost/cudaFree,
+    // which can block and would stall worker progress.
+    void reclaim_retired_slots();
     // Slot capacity to build for a given observed payload size.
     static size_t rma_slot_cap_for(size_t hint_bytes);
     // Backpressure: WriteIovRma waits here when every remote slot is InFlight,
