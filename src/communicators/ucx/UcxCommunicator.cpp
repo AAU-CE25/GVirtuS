@@ -2101,8 +2101,19 @@ void UcxCommunicator::handle_rma_setup_am(const void *data, size_t length) {
         // in-flight transfer has been acknowledged. Meanwhile WriteIovRma stops
         // handing out slots, so the drain is guaranteed to finish.
         bool any_inflight = false;
+        size_t inflight_n = 0;
         for (const auto &rs : remote_slots_)
-            if (rs.state == RemoteSlot::State::InFlight) { any_inflight = true; break; }
+            if (rs.state == RemoteSlot::State::InFlight) { any_inflight = true; ++inflight_n; }
+
+        // Unconditional: whether the quiesce path is ever reached is a property of the
+        // protocol's timing, not something to be assumed. Report the in-flight count on
+        // EVERY advertisement so "it never parks" can be distinguished from "it parks
+        // and we never looked".
+        std::fprintf(stderr,
+                     "[GVS] rma_setup: epoch %u arrived, %zu/%zu slots in flight -> %s\n",
+                     hdr.status_code, inflight_n, remote_slots_.size(),
+                     any_inflight ? "PARK" : "install now");
+        std::fflush(stderr);
 
         if (any_inflight) {
             // A second advertisement arriving while an earlier one is still parked
