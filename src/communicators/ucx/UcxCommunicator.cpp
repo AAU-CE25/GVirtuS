@@ -2555,6 +2555,32 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
             got = try_pick();
         }
         if (!got || endpoint_failed_.load() || found == static_cast<size_t>(-1)) {
+            // Say WHY, once. Falling off the RMA fast path for size is a 3.5x cliff
+            // (measured: simple_matrix 256 MB 24.32 GB/s vs 324 MB 6.96 GB/s, the
+            // staged ceiling) and it used to be announced by a warning further down.
+            // Selecting only slots that FIT moved the exit to here, above that warning,
+            // and made the cliff silent again. Report it where the decision is now made.
+            if (!endpoint_failed_.load() && !remote_slots_.empty()) {
+                size_t biggest = 0;
+                for (const auto &r : remote_slots_)
+                    if (r.rkey != nullptr && r.capacity > biggest) biggest = r.capacity;
+                if (biggest > 0 && total > biggest) {
+                    static std::atomic<bool> warned{false};
+                    bool expected = false;
+                    if (warned.compare_exchange_strong(expected, true)) {
+                        std::fprintf(stderr,
+                            "[GVS] RMA fast path declined: message %zu B exceeds the "
+                            "peer's largest slot %zu B -- falling back to eager AM "
+                            "(~3.5x slower for large transfers). Raise "
+                            "GVIRTUS_RMA_SLOT_CAP_MB above %zu MB ON THE BACKEND (the "
+                            "pool lives there; setting it on the frontend has no "
+                            "effect).\n",
+                            total, biggest,
+                            (total + 1024u * 1024u - 1u) / (1024u * 1024u));
+                        std::fflush(stderr);
+                    }
+                }
+            }
             return 0;  // backpressure timeout / endpoint failure -> IOV fallback
         }
         slot_idx = found;
