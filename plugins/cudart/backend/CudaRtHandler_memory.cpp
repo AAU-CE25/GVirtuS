@@ -28,6 +28,13 @@
 
 #include "CudaRtHandler.h"
 #include "gvirtus/communicators/Communicator.h"
+
+#include <map>
+
+// Per-connection device-allocation registry (defined further down, see Communicator.h
+// under "Connection teardown"). Declared here because Malloc/Free appear above it.
+void gvirtus_track_device_alloc(void *p, size_t bytes);
+void gvirtus_untrack_device_alloc(void *p);
 #include "CudaUtil.h"
 
 #include <gvirtus/communicators/Communicator.h>
@@ -213,6 +220,65 @@ char *get_tls_d2h_slot(size_t needed_bytes_for_data) {
     std::memset(tls_d2h_slot, 0, new_cap);
     return tls_d2h_slot;
 }
+
+// --- Per-connection device-allocation registry (see Communicator.h) ---------
+// thread_local, because a connection IS a thread here: the backend serves each one as
+// a detached std::thread, and the plugin handlers are built once per PROCESS, so a
+// registry living in the handler would be process-wide and could not tell one client's
+// allocations from another's.
+//
+// cudaFree removes entries on the normal path, so a client that shuts down cleanly
+// leaves an empty set and the sweep frees nothing -- no double-free. What the sweep
+// catches is the client that never got to send its frees.
+thread_local std::map<void *, size_t> tls_device_allocs;
+}  // namespace
+
+void gvirtus_track_device_alloc(void *p, size_t bytes) {
+    if (p != nullptr) tls_device_allocs[p] = bytes;
+}
+
+void gvirtus_untrack_device_alloc(void *p) {
+    if (p != nullptr) tls_device_allocs.erase(p);
+}
+
+namespace {
+// Runs on the connection's own thread just before it ends, so the thread_local state is
+// still this connection's and the CUDA context is still healthy.
+void gvirtus_connection_cleanup() {
+    size_t n = 0, bytes = 0;
+    for (auto &kv : tls_device_allocs) {
+        if (cudaFree(kv.first) == cudaSuccess) { ++n; bytes += kv.second; }
+    }
+    tls_device_allocs.clear();
+    // These scratches are thread_local too and would outlive the thread the same way.
+    if (tls_gpu_scratch != nullptr) {
+        cudaFree(tls_gpu_scratch); tls_gpu_scratch = nullptr; tls_gpu_scratch_size = 0;
+    }
+    for (int i = 0; i < kD2HGetPoolSize; ++i) {
+        if (tls_d2h_get_pool[i] != nullptr) {
+            cudaFree(tls_d2h_get_pool[i]);
+            tls_d2h_get_pool[i] = nullptr; tls_d2h_get_pool_size[i] = 0;
+        }
+    }
+    if (tls_d2h_slot != nullptr) {
+        gvirtus::communicators::RunRegistrationInvalidate(tls_d2h_slot);
+        cudaFreeHost(tls_d2h_slot); tls_d2h_slot = nullptr; tls_d2h_slot_cap = 0;
+    }
+    if (n > 0) {
+        // Worth saying: a non-empty sweep is normal for a killed pod, but on a clean
+        // shutdown it would mean the client itself leaked.
+        std::fprintf(stderr,
+                     "[GVS] connection teardown: reclaimed %zu device allocation(s), "
+                     "%.1f MiB the client never freed\n", n, bytes / 1048576.0);
+        std::fflush(stderr);
+    }
+}
+struct ConnCleanupRegistrar {
+    ConnCleanupRegistrar() {
+        gvirtus::communicators::SetConnectionCleanupHook(&gvirtus_connection_cleanup);
+    }
+};
+ConnCleanupRegistrar g_conn_cleanup_registrar;
 }  // namespace
 
 // This is for HostRegister support
@@ -230,6 +296,7 @@ CUDA_ROUTINE_HANDLER(MemGetInfo) {
 
 CUDA_ROUTINE_HANDLER(Free) {
     void *devPtr = input_buffer->GetFromMarshal<void *>();
+    gvirtus_untrack_device_alloc(devPtr);
     cudaError_t exit_code = cudaFree(devPtr);
 
     return std::make_shared<Result>(exit_code);
@@ -342,6 +409,7 @@ CUDA_ROUTINE_HANDLER(Malloc) {
     try {
         size_t size = input_buffer->Get<size_t>();
         cudaError_t exit_code = cudaMalloc(&devPtr, size);
+        if (exit_code == cudaSuccess) gvirtus_track_device_alloc(devPtr, size);
 #ifdef DEBUG
         std::cout << "Allocated DevicePointer " << devPtr << " with a size of " << size
                   << std::endl;

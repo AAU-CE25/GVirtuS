@@ -465,6 +465,20 @@ void Process::Start() {
         // after ~20 connections and silently disabling GPUDirect (rx_pool logs
         // "GPU shadows=0", H2D then falls back to the host path).
         std::unique_ptr<Communicator> client_owner(client_comm);
+        // ...and reclaim what the APPLICATION allocated. The unique_ptr above gives the
+        // Communicator's own buffers an owner, but the client's cudaMallocs had none:
+        // the handler returns the pointer and forgets it, and the handlers are built per
+        // PROCESS, not per connection. A client that exits cleanly sends its cudaFrees;
+        // one that is killed never does, and the memory is stranded for the life of the
+        // backend (measured: 45 217 / 46 068 MiB after an 8-pod llama run, after which
+        // the next multi-tenant point could not start).
+        //
+        // Runs on this thread, so the plugin's thread_local registry is still this
+        // connection's, and before the Communicator is destroyed so the CUDA context is
+        // still healthy.
+        struct ConnCleanup {
+            ~ConnCleanup() { gvirtus::communicators::RunConnectionCleanup(); }
+        } conn_cleanup;
         LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "]"
                                             << "Process::Start()'s \"execute\" lambda called");
         // carica i puntatori ai simboli dei moduli in mHandlers

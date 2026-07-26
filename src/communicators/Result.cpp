@@ -86,5 +86,16 @@ bool RegistrationCacheable(const void *addr, size_t len) {
     return (fn != nullptr) && fn(addr, len);
 }
 
+static std::atomic<ConnectionCleanupFn> g_conn_cleanup_hook{nullptr};
+
+void SetConnectionCleanupHook(ConnectionCleanupFn fn) {
+    g_conn_cleanup_hook.store(fn, std::memory_order_release);
+}
+
+void RunConnectionCleanup() {
+    ConnectionCleanupFn fn = g_conn_cleanup_hook.load(std::memory_order_acquire);
+    if (fn != nullptr) fn();
+}
+
 }  // namespace communicators
 }  // namespace gvirtus

@@ -287,5 +287,28 @@ void RunRegistrationInvalidate(const void *addr);
 using RegistrationCacheableFn = bool (*)(const void *addr, size_t len);
 void SetRegistrationCacheableHook(RegistrationCacheableFn fn);
 bool RegistrationCacheable(const void *addr, size_t len);
+
+// --- Connection teardown ---------------------------------------------------
+// The backend serves every connection as a detached std::thread sharing one CUDA
+// context, and the plugin handlers are built ONCE per process, not per connection.
+// So nothing owns a client's device allocations: cudaMalloc hands the pointer back
+// and forgets it. A client that exits cleanly sends its cudaFree calls; one that is
+// killed (docker rm -f, crash, network drop) never does, and its memory is stranded
+// for the life of the backend.
+//
+// This is a regression from the original fork-per-connection design, where the child
+// process exiting released the whole CUDA context. Process.cpp's own comment records
+// the switch to std::thread().detach() and that it "dropped that cleanup"; the
+// Communicator's own buffers were given back an owner, the application's were not.
+//
+// Measured consequence: after an 8-pod llama run the card sat at 45 217 / 46 068 MiB
+// and the next multi-tenant point could not start at all.
+//
+// The plugin registers a cleanup here and the backend calls it on the connection's
+// thread just before that thread ends, so the sweep runs with the right thread_local
+// state and while the CUDA context is still healthy.
+using ConnectionCleanupFn = void (*)();
+void SetConnectionCleanupHook(ConnectionCleanupFn fn);
+void RunConnectionCleanup();
 }  // namespace communicators
 }  // namespace gvirtus
