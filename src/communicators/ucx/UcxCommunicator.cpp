@@ -2416,18 +2416,27 @@ bool UcxCommunicator::PrepareGpuGet(void *gpu_addr, size_t len,
         it = gpu_get_regs_.end();
     }
     if (it == gpu_get_regs_.end()) {
+        // The scratch may be DEVICE memory (the GPUDirect path) or HOST memory (the
+        // RDMA-without-GPUDirect path added alongside this). Detect rather than assume:
+        // registering host memory with UCS_MEMORY_TYPE_CUDA fails, and the whole point
+        // of the host variant is that it needs no peermem and no CUDA memory type, so
+        // it works under the forced rcache-off configuration that blocks a
+        // server-active cuda->host put.
+        const bool src_is_device = is_gpu_pointer(gpu_addr);
         ucp_mem_map_params_t p{};
         p.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS |
-                       UCP_MEM_MAP_PARAM_FIELD_LENGTH |
-                       UCP_MEM_MAP_PARAM_FIELD_MEMORY_TYPE;
+                       UCP_MEM_MAP_PARAM_FIELD_LENGTH;
         p.address = gpu_addr;
         p.length = len;
-        p.memory_type = UCS_MEMORY_TYPE_CUDA;
+        if (src_is_device) {
+            p.field_mask |= UCP_MEM_MAP_PARAM_FIELD_MEMORY_TYPE;
+            p.memory_type = UCS_MEMORY_TYPE_CUDA;
+        }
         ucp_mem_h m = nullptr;
         ucs_status_t mst = ucp_mem_map(context_, &p, &m);
         if (mst != UCS_OK) {
-            ucx_debug_log("PrepareGpuGet: ucp_mem_map(CUDA) failed: %s",
-                          ucs_status_string(mst));
+            ucx_debug_log("PrepareGpuGet: ucp_mem_map(%s) failed: %s",
+                          src_is_device ? "CUDA" : "HOST", ucs_status_string(mst));
             return false;
         }
         it = gpu_get_regs_.emplace(key, GpuGetReg{len, m}).first;

@@ -188,10 +188,22 @@ char *get_tls_d2h_slot(size_t needed_bytes_for_data) {
     if (tls_d2h_slot != nullptr && tls_d2h_slot_cap >= needed_total) {
         return tls_d2h_slot;
     }
-    delete[] tls_d2h_slot;
+    if (tls_d2h_slot != nullptr) {
+        // This buffer may be registered with the transport (the host-GET path below
+        // hands its address to the client). Drop that registration before the memory
+        // goes back, or the next allocation can land on the same address and inherit a
+        // handle describing the old mapping.
+        gvirtus::communicators::RunRegistrationInvalidate(tls_d2h_slot);
+        cudaFreeHost(tls_d2h_slot);
+        tls_d2h_slot = nullptr;
+    }
     const size_t new_cap = std::max(needed_total, tls_d2h_slot_cap * 2);
-    tls_d2h_slot = new (std::nothrow) char[new_cap];
-    if (tls_d2h_slot == nullptr) {
+    // PINNED, not new char[]. Two reasons: the cudaMemcpy D2H that fills it is much
+    // faster out of pinned memory, and the client now RDMA-READs it directly, so UCX
+    // would otherwise have to pin it on the fly on every transfer.
+    if (cudaHostAlloc(reinterpret_cast<void **>(&tls_d2h_slot), new_cap,
+                      cudaHostAllocDefault) != cudaSuccess) {
+        tls_d2h_slot = nullptr;
         tls_d2h_slot_cap = 0;
         return nullptr;
     }
@@ -700,6 +712,39 @@ CUDA_ROUTINE_HANDLER(Memcpy) {
                 }
                 *reinterpret_cast<size_t *>(slot) = count;
                 exit_code = cudaMemcpy(slot + sizeof(size_t), src, count, kind);
+
+                // HOST-GET (2026-07-26): let the client RDMA-READ this staged buffer
+                // instead of pushing it back through the eager AM path.
+                //
+                // The client-GET inversion was invented to solve a device-side problem
+                // -- UCX cannot build a server-active cuda->host put under the forced
+                // rcache-off config -- so it was only ever wired to the GPU scratch.
+                // The non-GPUDirect path kept the eager fallback, and that is why D2H
+                // without GPUDirect measured 5.7 GB/s while H2D on the same transport
+                // measured 12.7: the return path was losing RDMA, not just peer-DMA.
+                //
+                // Nothing device-specific is needed here. `slot` is host memory, so its
+                // registration is a plain host ucp_mem_map -- no peermem, no CUDA
+                // memory type, unaffected by the rcache workaround. PrepareGpuGet
+                // detects the memory type, and the descriptor, the wire flag and the
+                // client's ucp_get_nbx are all unchanged.
+                //
+                // Expected: PCIe device->host read in series with a host->host RDMA
+                // READ, 1/(1/26 + 1/24) ~ 12.5 GB/s, i.e. symmetric with H2D.
+                if (exit_code == cudaSuccess && count >= kGpuDirectD2HThreshold &&
+                    gvirtus::communicators::tls_client_rma_put_capable) {
+                    try {
+                        out = std::make_shared<Buffer>();
+                        out->Add<size_t>(count);
+                    } catch (const std::exception &e) {
+                        cerr << e.what() << endl;
+                        return std::make_shared<Result>(cudaErrorMemoryAllocation);
+                    }
+                    result = std::make_shared<Result>(exit_code, out);
+                    result->SetGpuPayload(slot + sizeof(size_t), count);
+                    break;
+                }
+
                 try {
                     out = std::make_shared<Buffer>(slot, sizeof(size_t) + count);
                 } catch (const std::exception &e) {
