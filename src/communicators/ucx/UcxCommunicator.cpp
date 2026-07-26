@@ -271,6 +271,50 @@ struct SrcRegHookRegistrar {
 };
 SrcRegHookRegistrar g_src_reg_hook_registrar;
 
+// Obtain a registration for an application buffer, shared by the H2D source and the
+// D2H destination -- ucp_mem_map is direction-agnostic and a buffer may well be both.
+//
+// Cached only when the frontend confirms it will report the free (device pointers and
+// tracked pinned host). Everything else is registered per call and unmapped by the
+// caller, because an address-keyed cache we cannot invalidate is exactly the defect
+// that silently corrupted both directions.
+ucp_mem_h acquire_app_registration(ucp_context_h ctx, const void *addr, size_t len,
+                                   bool &out_owned) {
+    out_owned = false;
+    if (ctx == nullptr || addr == nullptr || len == 0) return nullptr;
+
+    const bool cacheable = gvirtus::communicators::RegistrationCacheable(addr, len);
+
+    if (cacheable) {
+        std::lock_guard<std::mutex> lk(g_src_reg_mu);
+        auto it = g_src_regs.find(addr);
+        if (it != g_src_regs.end() && it->second.len < len) {
+            ucp_mem_unmap(it->second.ctx, it->second.memh);
+            g_src_regs.erase(it);
+            it = g_src_regs.end();
+        }
+        if (it != g_src_regs.end()) return it->second.memh;
+
+        ucp_mem_map_params_t mp{};
+        mp.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS | UCP_MEM_MAP_PARAM_FIELD_LENGTH;
+        mp.address = const_cast<void *>(addr);
+        mp.length = len;
+        ucp_mem_h m = nullptr;
+        if (ucp_mem_map(ctx, &mp, &m) != UCS_OK) return nullptr;
+        g_src_regs.emplace(addr, SrcReg{ctx, m, len});
+        return m;
+    }
+
+    ucp_mem_map_params_t mp{};
+    mp.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS | UCP_MEM_MAP_PARAM_FIELD_LENGTH;
+    mp.address = const_cast<void *>(addr);
+    mp.length = len;
+    ucp_mem_h m = nullptr;
+    if (ucp_mem_map(ctx, &mp, &m) != UCS_OK) return nullptr;
+    out_owned = true;
+    return m;
+}
+
 // Global flag: true iff GVIRTUS_GPUDIRECT=1 and probe succeeded.
 // Set once at backend startup by init_ucx(); read by handlers (Step 3) and
 // by is_gpu_pointer below as a short-circuit guard.
@@ -2361,24 +2405,19 @@ bool UcxCommunicator::GetFromRemoteGpu(void *dst_host, std::uint64_t remote_addr
     // an address we do not control the lifetime of. The cost is measured in the commit
     // message; if it matters, the way back to caching is an explicit invalidation hook
     // driven by cudaFreeHost -- which still would not cover pageable destinations.
-    ucp_mem_h dst_memh = nullptr;
+    // Registering per call was the first cut of this fix and it cost 3x the D2H
+    // bandwidth: simple_matrix N=4096 fell to 8.27 GB/s from ~24, because its h_C is a
+    // cudaMallocHost buffer reused every iteration -- exactly the case the cache exists
+    // for. Removing the cache was the wrong repair; making it invalidatable is the
+    // right one, and is what the H2D source ended up doing. Same registry, same
+    // invalidation on cudaFreeHost/cudaFree, same "only cache what we will be told
+    // about" rule -- a pageable destination is still registered per call.
     bool dst_memh_owned = false;
-    if (context_ != nullptr) {
-        ucp_mem_map_params_t mp{};
-        mp.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS |
-                        UCP_MEM_MAP_PARAM_FIELD_LENGTH;
-        mp.address = dst_host;
-        mp.length = count;
-        ucp_mem_h m = nullptr;
-        ucs_status_t mst = ucp_mem_map(context_, &mp, &m);
-        if (mst == UCS_OK) {
-            dst_memh = m;
-            dst_memh_owned = true;
-        } else {
-            ucx_debug_log("GetFromRemoteGpu: dst ucp_mem_map failed: %s "
-                          "(falling back to on-the-fly reg)",
-                          ucs_status_string(mst));
-        }
+    ucp_mem_h dst_memh =
+        acquire_app_registration(context_, dst_host, count, dst_memh_owned);
+    if (dst_memh == nullptr) {
+        ucx_debug_log("GetFromRemoteGpu: dst registration failed "
+                      "(falling back to on-the-fly reg)");
     }
 
     ucp_request_param_t param{};
