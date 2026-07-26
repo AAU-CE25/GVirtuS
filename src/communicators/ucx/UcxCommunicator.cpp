@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <dlfcn.h>
+#include <limits>
 #include <malloc.h>
 #include <mutex>
 #include <netdb.h>
@@ -224,6 +225,51 @@ void load_cuda_device_funcs() {
     }
     ucx_debug_log("gpudirect: cudaMalloc/cudaFree unavailable (libcudart not found)");
 }
+
+// ---------------------------------------------------------------------------
+// H2D source registration cache (invalidatable).
+// ---------------------------------------------------------------------------
+// Registering a 64 MB source per put costs half the H2D bandwidth (measured:
+// 23.4 GB/s cached vs 11.5 GB/s uncached), so the cache has to stay. What it did NOT
+// have was any way to be invalidated when the application freed the buffer, which is
+// the same defect that silently corrupted the D2H destination path (a86b1ec): the
+// allocator hands the same address back, the cached handle still describes the old
+// mapping, and the NIC reads the wrong pages.
+//
+// This is now process-global rather than a function-static thread_local, so a free on
+// any thread invalidates it, and it stores the owning context so entries from
+// different communicators can be unmapped correctly. Entries are only created for
+// addresses the frontend has told us it will report the free of -- see
+// RegistrationCacheable().
+struct SrcReg {
+    ucp_context_h ctx{nullptr};
+    ucp_mem_h memh{nullptr};
+    size_t len{0};
+};
+std::mutex g_src_reg_mu;
+std::unordered_map<const void *, SrcReg> g_src_regs;
+
+void src_reg_invalidate(const void *addr) {
+    ucp_context_h ctx = nullptr;
+    ucp_mem_h memh = nullptr;
+    {
+        std::lock_guard<std::mutex> lk(g_src_reg_mu);
+        auto it = g_src_regs.find(addr);
+        if (it == g_src_regs.end()) return;
+        ctx = it->second.ctx;
+        memh = it->second.memh;
+        g_src_regs.erase(it);
+    }
+    if (ctx != nullptr && memh != nullptr) ucp_mem_unmap(ctx, memh);
+    ucx_debug_log("src_reg: invalidated registration for %p (freed by the app)", addr);
+}
+
+struct SrcRegHookRegistrar {
+    SrcRegHookRegistrar() {
+        gvirtus::communicators::SetRegistrationInvalidateHook(&src_reg_invalidate);
+    }
+};
+SrcRegHookRegistrar g_src_reg_hook_registrar;
 
 // Global flag: true iff GVIRTUS_GPUDIRECT=1 and probe succeeded.
 // Set once at backend startup by init_ucx(); read by handlers (Step 3) and
@@ -2508,12 +2554,32 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
         // per-put re-registration would actually hurt (>= 16 MB, e.g. the
         // transfer-bench arrays, which are allocated once and do not churn).
         static constexpr size_t kCacheThreshold  = 2u  * 1024u * 1024u;  // 2 MB (device)
-        static constexpr size_t kHostCacheMin    = 16u * 1024u * 1024u;  // 16 MB (host)
-        const bool use_memh_cache = big_is_gpu ? (big_size >= kCacheThreshold)
-                                               : (big_size >= kHostCacheMin);
-
-        static thread_local std::unordered_map<const void *, ucp_mem_h>
-            user_memh_cache;
+        // Env-tunable so the cost of NOT caching can be measured rather than assumed.
+        // The comment above claims ~25 ms per 64 MB re-registration; the equivalent
+        // claim on the D2H side ("1 GB/s without a memh") turned out to be about a
+        // different thing entirely, so this one gets measured before it is trusted.
+        // Set GVIRTUS_RMA_SRC_HOST_CACHE_MIN_MB=0 to disable host source caching.
+        static const size_t kHostCacheMin = []() -> size_t {
+            const char *e = std::getenv("GVIRTUS_RMA_SRC_HOST_CACHE_MIN_MB");
+            if (e == nullptr || e[0] == '\0') return 16u * 1024u * 1024u;
+            char *end = nullptr;
+            unsigned long long mb = std::strtoull(e, &end, 10);
+            if (end == e) return 16u * 1024u * 1024u;
+            // 0 means "never cache a host source".
+            return (mb == 0) ? std::numeric_limits<size_t>::max()
+                             : static_cast<size_t>(mb) * 1024u * 1024u;
+        }();
+        const void *user_addr_probe = iov[biggest_idx].iov_base;
+        // Size threshold AND lifetime: only cache a registration for a buffer whose
+        // free the frontend will actually report to us. A plain malloc'd host source
+        // fails this and is registered per call -- glibc mmaps large allocations at
+        // repeatable addresses, so caching one would reintroduce exactly the stale
+        // handle that corrupted the D2H destination path.
+        const bool size_ok = big_is_gpu ? (big_size >= kCacheThreshold)
+                                        : (big_size >= kHostCacheMin);
+        const bool use_memh_cache =
+            size_ok && gvirtus::communicators::RegistrationCacheable(user_addr_probe,
+                                                                    big_size);
 
         const void *user_addr = iov[biggest_idx].iov_base;
         ucp_mem_h user_memh = nullptr;
@@ -2537,16 +2603,23 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
         };
 
         if (use_memh_cache) {
-            auto cit = user_memh_cache.find(user_addr);
-
-            if (cit != user_memh_cache.end()) {
-                user_memh = cit->second;
+            std::lock_guard<std::mutex> lk(g_src_reg_mu);
+            auto cit = g_src_regs.find(user_addr);
+            // A cached entry that is too small for this transfer describes the wrong
+            // extent: drop and re-register rather than put past its end.
+            if (cit != g_src_regs.end() && cit->second.len < big_size) {
+                ucp_mem_unmap(cit->second.ctx, cit->second.memh);
+                g_src_regs.erase(cit);
+                cit = g_src_regs.end();
+            }
+            if (cit != g_src_regs.end()) {
+                user_memh = cit->second.memh;
             } else {
                 ucp_mem_map_params_t mp{};
                 fill_mp(mp);
 
                 if (ucp_mem_map(context_, &mp, &user_memh) == UCS_OK) {
-                    user_memh_cache.emplace(user_addr, user_memh);
+                    g_src_regs.emplace(user_addr, SrcReg{context_, user_memh, big_size});
                 } else {
                     user_memh = nullptr;
                 }

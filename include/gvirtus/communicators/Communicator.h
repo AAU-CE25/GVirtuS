@@ -240,5 +240,34 @@ namespace communicators {
 using FrameDrainFn = void (*)();
 void SetFrameDrainHook(FrameDrainFn fn);
 void RunFrameDrainHook();
+
+// --- Registration lifetime -------------------------------------------------
+// The UCX transport caches ucp_mem_h registrations for large H2D SOURCE buffers,
+// keyed by address, because re-registering a 64 MB source per call halves H2D
+// throughput (measured 23.4 -> 11.5 GB/s). An address-keyed cache is only safe if
+// something invalidates it when the application frees that address -- otherwise the
+// allocator hands the same address back, the stale handle still describes the old
+// mapping, and the transfer silently reads or writes the wrong pages. That is
+// exactly the defect fixed on the D2H destination side (a86b1ec).
+//
+// UCX would normally do this itself through rcache/UCM memory hooks, but this
+// deployment forces UCX_RCACHE_ENABLE=n for the CUDA memtype workaround, so the
+// invalidation has to come from us. Two hooks, both installed by the UCX
+// communicator and called by the CUDA frontend:
+//
+//   InvalidateRegistration  - called from cudaFree / cudaFreeHost, drops any cached
+//                             registration covering that address.
+//   RegistrationCacheable   - asked before caching. Only buffers whose free we will
+//                             actually observe may be cached; a plain malloc'd host
+//                             buffer must not be, because free() is invisible to us
+//                             and glibc mmaps large allocations at repeatable
+//                             addresses.
+using RegistrationInvalidateFn = void (*)(const void *addr);
+void SetRegistrationInvalidateHook(RegistrationInvalidateFn fn);
+void RunRegistrationInvalidate(const void *addr);
+
+using RegistrationCacheableFn = bool (*)(const void *addr, size_t len);
+void SetRegistrationCacheableHook(RegistrationCacheableFn fn);
+bool RegistrationCacheable(const void *addr, size_t len);
 }  // namespace communicators
 }  // namespace gvirtus

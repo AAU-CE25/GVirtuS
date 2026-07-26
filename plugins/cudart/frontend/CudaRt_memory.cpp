@@ -32,6 +32,8 @@
 #include <map>
 #include <mutex>
 
+#include "gvirtus/communicators/Communicator.h"
+
 using namespace std;
 using gvirtus::common::mappedPointer;
 
@@ -78,6 +80,34 @@ bool gvirtus_is_pinned(const void *dst, size_t count) {
     --it;  // greatest base <= a
     return a >= it->first && (a + count) <= (it->first + it->second);
 }
+}  // namespace
+
+// Registration-cacheability hook for the transport (see Communicator.h).
+//
+// The UCX communicator caches the ucp_mem_h of a large H2D SOURCE buffer keyed by its
+// address, because re-registering per put halves H2D bandwidth (23.4 -> 11.5 GB/s
+// measured). That is only safe for a buffer whose free we will report, so answer true
+// only for allocations this frontend tracks:
+//
+//   * device pointers  - cudaFree comes through us
+//   * pinned host      - cudaFreeHost comes through us and untracks it
+//
+// A plain malloc'd host buffer answers false and is registered per call. glibc mmaps
+// large allocations and readily returns the same address after a free, so caching one
+// would recreate the stale-handle corruption fixed on the D2H side in a86b1ec.
+static bool gvirtus_registration_cacheable(const void *addr, size_t len) {
+    if (addr == nullptr || len == 0) return false;
+    if (CudaRtFrontend::isDevicePointer(const_cast<void *>(addr))) return true;
+    return gvirtus_is_pinned(addr, len);
+}
+
+namespace {
+struct RegCacheableRegistrar {
+    RegCacheableRegistrar() {
+        gvirtus::communicators::SetRegistrationCacheableHook(&gvirtus_registration_cacheable);
+    }
+};
+RegCacheableRegistrar g_reg_cacheable_registrar;
 }  // namespace
 
 cudaMemcpyKind inferMemcpyKind(void *dst, const void *src) {
@@ -140,6 +170,10 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaFree(void *devPtr) {
         devPtr = remotePointer.pointer;
     }
 
+    // Same reasoning as cudaFreeHost: a device source registration cached at >= 2 MB
+    // must not outlive the allocation it describes.
+    gvirtus::communicators::RunRegistrationInvalidate(devPtr);
+
     CudaRtFrontend::Prepare();
     CudaRtFrontend::AddDevicePointerForArguments(devPtr);
     CudaRtFrontend::Execute("cudaFree");
@@ -155,6 +189,10 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaFreeArray(cudaArray *array) {
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaFreeHost(void *ptr) {
     gvirtus_untrack_pinned(ptr);
+    // Drop any transport registration covering this address BEFORE the memory goes
+    // back to the allocator. Without this the next allocation can land on the same
+    // address and inherit a handle describing the old mapping.
+    gvirtus::communicators::RunRegistrationInvalidate(ptr);
     free(ptr);
     return cudaSuccess;
 }

@@ -61,5 +61,30 @@ void RunFrameDrainHook() {
     if (fn != nullptr) fn();
 }
 
+// Registration-lifetime hooks. See Communicator.h for why these exist.
+static std::atomic<RegistrationInvalidateFn> g_reg_invalidate_hook{nullptr};
+static std::atomic<RegistrationCacheableFn> g_reg_cacheable_hook{nullptr};
+
+void SetRegistrationInvalidateHook(RegistrationInvalidateFn fn) {
+    g_reg_invalidate_hook.store(fn, std::memory_order_release);
+}
+
+void RunRegistrationInvalidate(const void *addr) {
+    if (addr == nullptr) return;
+    RegistrationInvalidateFn fn = g_reg_invalidate_hook.load(std::memory_order_acquire);
+    if (fn != nullptr) fn(addr);
+}
+
+void SetRegistrationCacheableHook(RegistrationCacheableFn fn) {
+    g_reg_cacheable_hook.store(fn, std::memory_order_release);
+}
+
+// Default when no frontend installed a hook: NOT cacheable. Failing closed keeps a
+// transport that cannot be told about frees from caching anything by accident.
+bool RegistrationCacheable(const void *addr, size_t len) {
+    RegistrationCacheableFn fn = g_reg_cacheable_hook.load(std::memory_order_acquire);
+    return (fn != nullptr) && fn(addr, len);
+}
+
 }  // namespace communicators
 }  // namespace gvirtus
