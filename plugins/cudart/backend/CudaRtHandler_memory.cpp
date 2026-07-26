@@ -375,10 +375,74 @@ namespace {
 thread_local cudaStream_t g_shadow_stream = nullptr;
 thread_local bool g_shadow_copy_pending = false;
 
+// Set by the ASYNC H2D handler, which issues its shadow->destination copy on the
+// CALLER's stream (it has to: subsequent work the client queues on that stream must
+// see the data) rather than on g_shadow_stream. A stream sync on g_shadow_stream
+// therefore cannot cover it, and the caller may have used more than one stream, so
+// the drain falls back to a device-wide sync in that case. It only fires when such a
+// copy is genuinely outstanding.
+thread_local bool g_shadow_async_pending = false;
+
+// ---------------------------------------------------------------------------
+// H2D trace (GVIRTUS_H2D_TRACE=1). Diagnostic only, off by default.
+// ---------------------------------------------------------------------------
+// Prints, per H2D request, which branch the handler took and the FIRST BYTES IT
+// ACTUALLY READ. The test payloads are byte[k] = tag*31 + (k>>12), so byte 0 is
+// tag*31: the trace identifies which transfer's data (or none) is in the buffer
+// the handler is about to copy from, which is what separates "the put landed
+// somewhere else" from "the handler read the wrong place".
+bool h2d_trace_enabled() {
+    static const bool v = []() {
+        const char *e = std::getenv("GVIRTUS_H2D_TRACE");
+        return e != nullptr && e[0] == '1';
+    }();
+    return v;
+}
+
+void h2d_trace(const char *who, const char *branch, const void *buf, bool buf_is_device,
+               size_t count, const void *dst, const void *gpu_src, size_t gpu_src_size) {
+    if (!h2d_trace_enabled()) return;
+    unsigned char probe[8] = {0};
+    if (buf != nullptr) {
+        if (buf_is_device) {
+            cudaMemcpy(probe, buf, sizeof(probe), cudaMemcpyDeviceToHost);
+        } else {
+            std::memcpy(probe, buf, sizeof(probe));
+        }
+    }
+    std::fprintf(stderr,
+                 "[H2DTRACE] %s branch=%s count=%zu dst=%p src=%p(%s) "
+                 "gpu_src=%p gpu_sz=%zu first8=%02x %02x %02x %02x %02x %02x %02x %02x\n",
+                 who, branch, count, dst, buf, buf_is_device ? "dev" : "host",
+                 gpu_src, gpu_src_size,
+                 probe[0], probe[1], probe[2], probe[3],
+                 probe[4], probe[5], probe[6], probe[7]);
+    std::fflush(stderr);
+}
+
 void gvirtus_shadow_drain() {
     if (g_shadow_copy_pending && g_shadow_stream != nullptr) {
         cudaStreamSynchronize(g_shadow_stream);
         g_shadow_copy_pending = false;
+    }
+    // CORRECTNESS FIX (2026-07-25): the async H2D shadow copy was invisible here.
+    //
+    // The synchronous H2D handler issues its D2D on g_shadow_stream, flags
+    // g_shadow_copy_pending, and this hook -- called from ReleaseFrame, i.e. BEFORE
+    // the RX slot is released and SlotConsumed goes back -- waits for it. That is
+    // what keeps the peer from peer-DMA'ing the next transfer over a shadow the copy
+    // engine is still reading.
+    //
+    // The async handler used a different mechanism: tls_async_gpu_pending, drained by
+    // Communicator::drain_device_if_async_pending(), which Process.cpp calls only on
+    // the RESPONSE path. A fire-and-forget cudaMemcpyAsync sends no response, so for
+    // a burst of them nothing drained at all: ReleaseFrame freed the slot, the client
+    // reused it, and the next peer-DMA landed on the shadow mid-copy. The sync path
+    // was fixed for exactly this hazard; the async path was left behind.
+    if (g_shadow_async_pending) {
+        cudaDeviceSynchronize();
+        g_shadow_async_pending = false;
+        gvirtus::communicators::tls_async_gpu_pending = false;
     }
 }
 
@@ -465,6 +529,8 @@ CUDA_ROUTINE_HANDLER(Memcpy) {
                     // without making later launches wait for us.
                     cudaEventRecord(_shadow_prior, 0);
                     cudaStreamWaitEvent(g_shadow_stream, _shadow_prior, 0);
+                    h2d_trace("Memcpy", "gpu_shadow", gpu_src, /*device*/ true,
+                              count, dst, gpu_src, gpu_src_size);
                     exit_code = cudaMemcpyAsync(dst, gpu_src, count,
                                                 cudaMemcpyDeviceToDevice, g_shadow_stream);
                     // Do NOT wait here. Measured, this wait was 163-211 us of a 2.82 ms
@@ -485,6 +551,13 @@ CUDA_ROUTINE_HANDLER(Memcpy) {
                     cerr << e.what() << endl;
                     return std::make_shared<Result>(cudaErrorMemoryAllocation);
                 }
+                h2d_trace("Memcpy", "host_slot", src, /*device*/ false,
+                          count, dst, gpu_src, gpu_src_size);
+                // This payload was device-destined but had to bounce through the host
+                // slot: no GPU shadow on this connection. Report it so the transport can
+                // decide the shadow is worth its device memory here (see
+                // Communicator::NoteDeviceDestinedPayload). Process.cpp forwards it.
+                gvirtus::communicators::tls_device_destined_bytes = count;
                 exit_code = cudaMemcpy(dst, src, count, kind);
                 result = std::make_shared<Result>(exit_code);
                 break;
@@ -620,6 +693,22 @@ CUDA_ROUTINE_HANDLER(Memcpy) {
                 dst = input_buffer->GetFromMarshal<void *>();
                 src = input_buffer->GetFromMarshal<void *>();
                 exit_code = cudaMemcpy(dst, src, count, kind);
+                // Third of the three directions (2026-07-25). cudaMemcpy D2D performs
+                // no host-side synchronization, so this returned with the copy still
+                // running and the RPC then told the client the call was complete.
+                //
+                // Today that survives only by accident: the two places that read
+                // device memory on a GVirtuS-private stream (the H2D shadow copy and
+                // the D2H GET scratch copy) each record an event on the legacy default
+                // stream first, so they happen to be ordered after this copy. Any
+                // future internal stream that forgets that event would silently race.
+                // Make the invariant hold by construction instead: when a synchronous
+                // RPC returns, its device work is done. The client is blocked on this
+                // reply anyway, so the wait costs it nothing it was not already paying.
+                if (exit_code == cudaSuccess) {
+                    cudaError_t sync_err = cudaStreamSynchronize(0);
+                    if (sync_err != cudaSuccess) exit_code = sync_err;
+                }
                 result = std::make_shared<Result>(exit_code);
                 break;
         }
@@ -861,6 +950,12 @@ CUDA_ROUTINE_HANDLER(Memcpy2D) {
                     return std::make_shared<Result>(cudaErrorMemoryAllocation);
                 }
                 exit_code = cudaMemcpy2D(dst, dpitch, src, spitch, width, height, kind);
+                // Same rule-4 hazard as the 1-D D2D above: cudaMemcpy2D D2D does not
+                // synchronize with the host either.
+                if (exit_code == cudaSuccess) {
+                    cudaError_t sync_err = cudaStreamSynchronize(0);
+                    if (sync_err != cudaSuccess) exit_code = sync_err;
+                }
                 result = std::make_shared<Result>(exit_code);
                 break;
         }
@@ -910,6 +1005,8 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
                 void *gpu_src = input_buffer->GetGpuPayload();
                 size_t gpu_src_size = input_buffer->GetGpuPayloadSize();
                 if (gpu_src != nullptr && gpu_src_size >= count) {
+                    h2d_trace("MemcpyAsync", "gpu_shadow", gpu_src, /*device*/ true,
+                              count, dst, gpu_src, gpu_src_size);
                     exit_code = cudaMemcpyAsync(dst, gpu_src, count,
                                                 cudaMemcpyDeviceToDevice, stream);
                     // Phase 3 (true async): do NOT synchronize here — consecutive
@@ -922,6 +1019,12 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
                     // full lifetime without a per-copy stall.
                     if (exit_code == cudaSuccess) {
                         gvirtus::communicators::tls_async_gpu_pending = true;
+                        // ALSO flag it for the frame drain hook. tls_async_gpu_pending
+                        // alone is drained only before a response-bearing reply, and a
+                        // fire-and-forget copy never produces one -- so without this the
+                        // slot was released, acked, and reused while this D2D was still
+                        // reading the shadow. See gvirtus_shadow_drain().
+                        g_shadow_async_pending = true;
                     }
                     result = std::make_shared<Result>(exit_code);
                     break;
@@ -941,6 +1044,11 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
                                     << dst << ", src: " << src << ", count: " << count
                                     << ", kind: " << kind << ", stream: " << stream);
 
+                h2d_trace("MemcpyAsync", "host_slot", src, /*device*/ false,
+                          count, dst, gpu_src, gpu_src_size);
+                // Same signal as the synchronous handler: device-destined bytes staged
+                // through the host slot for want of a GPU shadow.
+                gvirtus::communicators::tls_device_destined_bytes = count;
                 exit_code = cudaMemcpyAsync(dst, src, count, kind, stream);
 
                 /*

@@ -20,6 +20,11 @@ thread_local bool tls_connection_supports_cuda = false;
 // Set by the cudart MemcpyAsync handler, drained + cleared before a response.
 thread_local bool tls_async_gpu_pending = false;
 
+// Per-thread: bytes of a device-destined bulk payload that had to be staged through
+// the host slot because this connection's pool has no GPU shadow. Set by the H2D
+// handlers, consumed by Process.cpp -> Communicator::NoteDeviceDestinedPayload.
+thread_local size_t tls_device_destined_bytes = 0;
+
 // Per-thread: is the current connection's client RMA-put-capable (its rkey
 // unpacked)? Set by Process.cpp before each Execute; read by the D2H handler to
 // gate the GPU-scratch response path.

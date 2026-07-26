@@ -79,6 +79,7 @@ class UcxCommunicator : public Communicator {
     // cudaDeviceSynchronize iff a fire-and-forget async H2D D2D is pending on
     // this thread; called by Process.cpp before every response-bearing reply.
     void drain_device_if_async_pending() override;
+    void NoteDeviceDestinedPayload(size_t bytes) override;
 
     // See Communicator::rma_put_capable. True iff RmaSetup was received AND at
     // least one remote slot has a usable (non-null) rkey we can ucp_put into.
@@ -335,6 +336,18 @@ class UcxCommunicator : public Communicator {
     // is 8 MB should not pin 2 x 1025 MB (plus the same again in GPU shadow) and
     // pay ~2.2 s of connect for buffers it can never fill.
     std::atomic<size_t> rma_pool_hint_bytes_{0};
+    // Whether this connection has PROVEN it moves device-destined bulk data, i.e.
+    // whether its slots are worth a GPU shadow. A shadow doubles the pool's cost in
+    // DEVICE memory, and on a multi-tenant backend allocating one speculatively for
+    // every connection is what exhausts the GPU and takes down other tenants. Set by
+    // NoteDeviceDestinedPayload the first time such a payload has to be staged through
+    // the host slot; the pool then regrows with shadows through the ordinary
+    // materialise/re-advertise path. GVIRTUS_RMA_GPU_SHADOW_EAGER=1 restores the old
+    // always-allocate behaviour.
+    std::atomic<bool> rma_want_gpu_shadow_{false};
+    // Whether the live persistent slots actually have shadows, so a regrow is
+    // triggered when the answer changes rather than only when the size does.
+    std::atomic<bool> rma_pool_has_shadow_{false};
     // Capacity the persistent slots were actually built at, and the epoch under
     // which they were last advertised.
     std::atomic<size_t> rma_pool_cap_{0};

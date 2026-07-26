@@ -189,6 +189,12 @@ class Communicator {
     // under the forced rcache-off config). Returns false when unsupported (non-UCX
     // transport, GPUDirect off, or registration fails) — caller keeps the legacy
     // put/host path. Appended LAST to preserve vtable ABI.
+    // A device-destined bulk payload arrived that had to be staged through the host
+    // slot because this connection's pool has no GPU shadow. Evidence that the shadow
+    // is worth its device memory on THIS connection; the UCX transport rebuilds the
+    // pool with shadows and re-advertises. No-op elsewhere.
+    virtual void NoteDeviceDestinedPayload(size_t /*bytes*/) {}
+
     virtual bool PrepareGpuGet(void * /*gpu_addr*/, size_t /*len*/,
                                std::uint64_t & /*out_remote_addr*/,
                                std::vector<char> & /*out_rkey*/) {
@@ -226,6 +232,18 @@ extern thread_local bool tls_connection_supports_cuda;
 // before the backend writes a response-bearing reply. Definition lives in
 // CommunicatorFactory.cpp alongside tls_connection_supports_cuda.
 extern thread_local bool tls_async_gpu_pending;
+
+// Set by the H2D handlers when a payload that WOULD have been peer-DMA'd into a GPU
+// shadow had to be staged through the host slot instead, because this connection's
+// pool has no shadow. Read by Process.cpp after the handler returns, which passes it
+// to Communicator::NoteDeviceDestinedPayload so the pool can be rebuilt with shadows.
+//
+// The shadow is no longer allocated speculatively: a GPU shadow doubles the pool's
+// footprint in DEVICE memory, and a connection that never moves device-destined bulk
+// data never touches it. On a multi-tenant backend that speculative allocation is what
+// exhausts GPU memory and takes down other tenants. Now the first such payload pays one
+// host-staged transfer and the pool regrows with shadows, exactly like the size regrow.
+extern thread_local size_t tls_device_destined_bytes;
 
 // Per-thread flag set by Process.cpp before each handler Execute() to
 // client_comm->rma_put_capable(). The cudart D2H handler reads it to gate the

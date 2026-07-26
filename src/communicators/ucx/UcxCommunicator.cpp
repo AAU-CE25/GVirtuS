@@ -1463,12 +1463,31 @@ void UcxCommunicator::init_rx_pool() {
     // every message that arrives, so by the time a large transfer asks for the pool
     // there are already several tiny slots here. Count the LIVE persistent slots that
     // are actually big enough to serve the RMA path at the capacity we now want.
+    // A shadow is allocated only once this connection has PROVEN it moves
+    // device-destined bulk data (NoteDeviceDestinedPayload), not merely because the
+    // process passed the GPUDirect probe. The shadow doubles the pool's cost in DEVICE
+    // memory; a connection that never peer-DMAs into it was pinning that away from
+    // every other tenant for nothing. GVIRTUS_RMA_GPU_SHADOW_EAGER=1 restores the old
+    // always-allocate behaviour.
+    static const bool shadow_eager = []() {
+        const char *e = std::getenv("GVIRTUS_RMA_GPU_SHADOW_EAGER");
+        return e != nullptr && e[0] != '0';
+    }();
+    const bool want_shadow =
+        shadow_eager || rma_want_gpu_shadow_.load(std::memory_order_acquire);
+    const bool need_shadow_now = want_shadow && g_gpudirect_enabled.load();
+
+    // "Already provisioned" now means big enough AND carrying a shadow if one is
+    // wanted, so that gaining the shadow triggers a rebuild the same way gaining size
+    // does.
     size_t full_slots = 0;
     for (const auto &sl : rx_pool_->slots)
-        if (sl.rma_persistent && !sl.rma_retired && sl.capacity >= kInitialSlotCap)
+        if (sl.rma_persistent && !sl.rma_retired && sl.capacity >= kInitialSlotCap &&
+            (!need_shadow_now || sl.gpu_addr != nullptr))
             ++full_slots;
     if (full_slots >= kInitialSlotCount) {
         rma_pool_cap_.store(kInitialSlotCap, std::memory_order_release);
+        rma_pool_has_shadow_.store(need_shadow_now, std::memory_order_release);
         return;  // already provisioned at (at least) this capacity
     }
 
@@ -1477,18 +1496,22 @@ void UcxCommunicator::init_rx_pool() {
     // out -- but do not free them yet (see retire_and_free_locked).
     for (auto &sl : rx_pool_->slots) {
         if (!sl.rma_persistent || sl.rma_retired) continue;
-        if (sl.capacity >= kInitialSlotCap) continue;
+        const bool too_small = sl.capacity < kInitialSlotCap;
+        const bool missing_shadow = need_shadow_now && sl.gpu_addr == nullptr;
+        if (!too_small && !missing_shadow) continue;
         sl.rma_retired = true;
         sl.rma_epoch = new_epoch;
-        ucx_debug_log("rx_pool: retiring persistent slot (%zu B) for regrow to %zu B",
-                      sl.capacity, kInitialSlotCap);
+        ucx_debug_log("rx_pool: retiring persistent slot (%zu B, shadow=%s) -- regrow to "
+                      "%zu B%s",
+                      sl.capacity, sl.gpu_addr ? "yes" : "no", kInitialSlotCap,
+                      missing_shadow ? " + GPU shadow" : "");
     }
 
     // GPUDirect (Step B1): when active, each slot ALSO gets a GPU shadow
     // region of the same capacity, mem_map'd as CUDA. The shadow is unused
     // in B1 — purely additive. Step B2 will advertise its rkey to peers;
     // Step B3 will route big H2D payloads here via NIC peer-DMA.
-    const bool gpudirect_active = g_gpudirect_enabled.load();
+    const bool gpudirect_active = g_gpudirect_enabled.load() && want_shadow;
     size_t gpu_allocated_count = 0;
 
     // Append: resize() would destroy the small on-demand slots, which may be in use.
@@ -1526,6 +1549,27 @@ void UcxCommunicator::init_rx_pool() {
     ucx_debug_log("rx_pool: initialized %zu slots x %zu bytes (gpu_shadows=%zu)",
                   kInitialSlotCount, kInitialSlotCap, gpu_allocated_count);
     rma_pool_cap_.store(kInitialSlotCap, std::memory_order_release);
+    rma_pool_has_shadow_.store(gpu_allocated_count > 0, std::memory_order_release);
+}
+
+// A device-destined bulk payload had to be staged through the host slot because this
+// connection's pool has no GPU shadow. That is the evidence the shadow is worth its
+// device memory HERE, so ask for the pool to be rebuilt with one. The rebuild goes
+// through exactly the same materialise/retire/re-advertise path as a size regrow, so
+// it inherits the epoch and quiesce handling rather than needing its own.
+void UcxCommunicator::NoteDeviceDestinedPayload(size_t bytes) {
+    if (bytes < ucx_rma_min_bytes()) return;
+    if (!g_gpudirect_enabled.load()) return;   // no shadow is possible on this backend
+    if (rma_pool_has_shadow_.load(std::memory_order_acquire)) return;  // already has one
+    if (rma_want_gpu_shadow_.exchange(true, std::memory_order_acq_rel)) {
+        return;  // already asked; the rebuild is pending
+    }
+    std::fprintf(stderr,
+                 "[GVS] rx_pool: connection moved %zu B of device-destined payload "
+                 "through the host slot -- adding GPU shadows on the next rebuild\n",
+                 bytes);
+    std::fflush(stderr);
+    rma_pool_requested_.store(true, std::memory_order_release);
 }
 
 // Build the slot pool and advertise it to the peer. MUST be called from a context that
@@ -1540,7 +1584,12 @@ void UcxCommunicator::materialise_rma_pool() {
 
     const size_t want = rma_slot_cap_for(
         rma_pool_hint_bytes_.load(std::memory_order_acquire));
-    if (rma_pool_ready_.load(std::memory_order_acquire) &&
+    // A rebuild is also needed when the shadow requirement changed, not only the size.
+    const bool shadow_gap = rma_want_gpu_shadow_.load(std::memory_order_acquire) &&
+                            g_gpudirect_enabled.load() &&
+                            !rma_pool_has_shadow_.load(std::memory_order_acquire);
+    if (!shadow_gap &&
+        rma_pool_ready_.load(std::memory_order_acquire) &&
         rma_pool_cap_.load(std::memory_order_acquire) >= want) {
         // Another thread already grew it to at least what we need.
         rma_pool_requested_.store(false, std::memory_order_release);
@@ -2323,8 +2372,10 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
         // large transfer down the eager path for the lifetime of the connection --
         // which is exactly what happened once the pool started holding a mix of
         // full-capacity slots and the message-sized ones acquire_rx_slot() appends.
-        const bool got = rma_slot_cv_.wait_for(
-            lk, std::chrono::seconds(30), [&] {
+        // Slot selection. Returns true when `found` holds a usable slot, and ALSO when
+        // waiting cannot help (nothing in flight, nothing big enough) so the caller
+        // falls back to the eager path immediately instead of burning the timeout.
+        auto try_pick = [&]() -> bool {
                 if (endpoint_failed_.load()) return true;
                 // A new layout is parked waiting for the in-flight transfers to
                 // drain. Handing out another slot from the outgoing layout would
@@ -2359,7 +2410,38 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
                     if (all_free) return true;
                 }
                 return false;
-            });
+        };
+
+        // POLL, DO NOT BLOCK ON THE CONDITION VARIABLE.
+        //
+        // The only thing that can make this condition true is processing a SlotConsumed
+        // AM, and in a single-threaded client THIS thread is the only one that ever
+        // calls ucp_worker_progress. A plain rma_slot_cv_.wait_for() therefore waits
+        // for a notification that nobody is left to deliver, and every such wait ran
+        // the full 30 s backpressure timeout before falling back to the eager path.
+        //
+        // Latent since the explicit slot lifecycle went in (3ec4474): with the old
+        // fixed 2 x 1025 MB pool a large transfer always fit and never had to wait, so
+        // nothing exercised it. Sizing the pool to the traffic makes "no free slot big
+        // enough yet" a normal state, which exposed it as a 30 s stall
+        // (measured: round 0 of concgrow, 30470 ms vs 41 ms once warm).
+        //
+        // Unlock rma_state_mu_ before taking worker_mutex_: the AM callback runs under
+        // worker_mutex_ and takes rma_state_mu_, so holding both in that order here
+        // would invert the lock order.
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        bool got = try_pick();
+        while (!got) {
+            if (std::chrono::steady_clock::now() >= deadline) break;
+            lk.unlock();
+            if (worker_ != nullptr) {
+                std::lock_guard<std::mutex> worker_lock(*worker_mutex_);
+                ucp_worker_progress(worker_);
+            }
+            std::this_thread::yield();
+            lk.lock();
+            got = try_pick();
+        }
         if (!got || endpoint_failed_.load() || found == static_cast<size_t>(-1)) {
             return 0;  // backpressure timeout / endpoint failure -> IOV fallback
         }

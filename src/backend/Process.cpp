@@ -167,6 +167,33 @@ bool read_ucx_am_request(Communicator *client_comm,
         // transports that don't support GPU payloads.
         client_comm->current_frame_gpu(gpu_payload, gpu_payload_size);
 
+        // H2D trace (GVIRTUS_H2D_TRACE=1): what the transport handed us, before any
+        // handler touches it. `first8` is read straight out of the payload region of
+        // the frame, i.e. exactly the bytes the RMA put was supposed to deliver.
+        {
+            static const bool trace = [] {
+                const char *e = std::getenv("GVIRTUS_H2D_TRACE");
+                return e != nullptr && e[0] == '1';
+            }();
+            if (trace) {
+                unsigned char p8[8] = {0};
+                if (payload_data != nullptr && payload_size >= 8)
+                    std::memcpy(p8, payload_data, 8);
+                std::fprintf(stderr,
+                             "[H2DTRACE] frame routine=%s frame_size=%zu hdr.payload=%llu "
+                             "hdr.routine=%llu flags=0x%x payload_at=+%zu gpu=%p/%zu "
+                             "payload_first8=%02x %02x %02x %02x %02x %02x %02x %02x\n",
+                             routine.c_str(), frame_size,
+                             (unsigned long long)header.payload_size,
+                             (unsigned long long)header.routine_size,
+                             (unsigned)header.reserved0,
+                             (size_t)(payload_data - frame),
+                             gpu_payload, gpu_payload_size,
+                             p8[0], p8[1], p8[2], p8[3], p8[4], p8[5], p8[6], p8[7]);
+                std::fflush(stderr);
+            }
+        }
+
         error.clear();
         return true;
     }
@@ -545,6 +572,18 @@ void Process::Start() {
                         (request_header.reserved0 &
                          gvirtus::communicators::ucxam::kEnvelopeFlagNoResponse) != 0;
                     const int call_exit = result->GetExitCode();
+
+                    // GPU shadows are no longer allocated speculatively for every
+                    // connection (they double the pool's DEVICE footprint, which is what
+                    // exhausted GPU memory on a multi-tenant backend). A handler that had
+                    // to stage device-destined bytes through the host slot sets this;
+                    // forwarding it lets the transport decide the shadow has earned its
+                    // memory on THIS connection and rebuild the pool with one.
+                    if (gvirtus::communicators::tls_device_destined_bytes != 0) {
+                        const size_t dd = gvirtus::communicators::tls_device_destined_bytes;
+                        gvirtus::communicators::tls_device_destined_bytes = 0;
+                        client_comm->NoteDeviceDestinedPayload(dd);
+                    }
 
                     if (no_response) {
                         // Fire-and-forget: the frontend did not wait for a
