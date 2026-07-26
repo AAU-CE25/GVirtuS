@@ -241,27 +241,55 @@ void load_cuda_device_funcs() {
 // different communicators can be unmapped correctly. Entries are only created for
 // addresses the frontend has told us it will report the free of -- see
 // RegistrationCacheable().
+// Keyed by (CONTEXT, address), not by address alone.
+//
+// The backend forks once per configured endpoint and then serves every connection as a
+// detached std::thread in that one process (Backend.cpp fork over _children,
+// Process.cpp `std::thread(execute, client).detach()`), so all connections share this
+// map while each holds its OWN ucp_context_h. Keying by address alone let one
+// connection be handed a ucp_mem_h created in another connection's context -- reachable
+// because the D2H GPU scratch is thread_local, so a finished thread's scratch is freed
+// and a new thread's cudaMalloc readily returns the same address. Using a memh with the
+// wrong context is what surfaced as "D2H-GET failed" followed by a connection reset,
+// killing ~30% of tenants at concurrency 8.
+struct SrcRegKey {
+    ucp_context_h ctx;
+    const void *addr;
+    bool operator==(const SrcRegKey &o) const { return ctx == o.ctx && addr == o.addr; }
+};
+struct SrcRegKeyHash {
+    size_t operator()(const SrcRegKey &k) const {
+        return std::hash<const void *>()(k.addr) ^
+               (std::hash<const void *>()(static_cast<const void *>(k.ctx)) << 1);
+    }
+};
 struct SrcReg {
-    ucp_context_h ctx{nullptr};
     ucp_mem_h memh{nullptr};
     size_t len{0};
 };
 std::mutex g_src_reg_mu;
-std::unordered_map<const void *, SrcReg> g_src_regs;
+std::unordered_map<SrcRegKey, SrcReg, SrcRegKeyHash> g_src_regs;
 
+// The application freed this address, so EVERY context's registration of it is stale --
+// drop them all, not just one.
 void src_reg_invalidate(const void *addr) {
-    ucp_context_h ctx = nullptr;
-    ucp_mem_h memh = nullptr;
+    std::vector<std::pair<ucp_context_h, ucp_mem_h>> doomed;
     {
         std::lock_guard<std::mutex> lk(g_src_reg_mu);
-        auto it = g_src_regs.find(addr);
-        if (it == g_src_regs.end()) return;
-        ctx = it->second.ctx;
-        memh = it->second.memh;
-        g_src_regs.erase(it);
+        for (auto it = g_src_regs.begin(); it != g_src_regs.end();) {
+            if (it->first.addr == addr) {
+                doomed.emplace_back(it->first.ctx, it->second.memh);
+                it = g_src_regs.erase(it);
+            } else {
+                ++it;
+            }
+        }
     }
-    if (ctx != nullptr && memh != nullptr) ucp_mem_unmap(ctx, memh);
-    ucx_debug_log("src_reg: invalidated registration for %p (freed by the app)", addr);
+    for (auto &d : doomed) ucp_mem_unmap(d.first, d.second);
+    if (!doomed.empty()) {
+        ucx_debug_log("src_reg: invalidated %zu registration(s) for %p (freed by the app)",
+                      doomed.size(), addr);
+    }
 }
 
 struct SrcRegHookRegistrar {
@@ -294,10 +322,11 @@ ucp_mem_h acquire_app_registration(ucp_context_h ctx, const void *addr, size_t l
     };
 
     if (cacheable) {
+        const SrcRegKey key{ctx, addr};
         std::lock_guard<std::mutex> lk(g_src_reg_mu);
-        auto it = g_src_regs.find(addr);
+        auto it = g_src_regs.find(key);
         if (it != g_src_regs.end() && it->second.len < len) {
-            ucp_mem_unmap(it->second.ctx, it->second.memh);
+            ucp_mem_unmap(ctx, it->second.memh);
             g_src_regs.erase(it);
             it = g_src_regs.end();
         }
@@ -307,7 +336,7 @@ ucp_mem_h acquire_app_registration(ucp_context_h ctx, const void *addr, size_t l
         fill(mp);
         ucp_mem_h m = nullptr;
         if (ucp_mem_map(ctx, &mp, &m) != UCS_OK) return nullptr;
-        g_src_regs.emplace(addr, SrcReg{ctx, m, len});
+        g_src_regs.emplace(key, SrcReg{m, len});
         return m;
     }
 
@@ -334,7 +363,7 @@ void release_registrations_for_context(ucp_context_h ctx) {
     {
         std::lock_guard<std::mutex> lk(g_src_reg_mu);
         for (auto it = g_src_regs.begin(); it != g_src_regs.end();) {
-            if (it->second.ctx == ctx) {
+            if (it->first.ctx == ctx) {
                 doomed.push_back(it->second.memh);
                 it = g_src_regs.erase(it);
             } else {
@@ -2882,12 +2911,16 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
         };
 
         if (use_memh_cache) {
+            // Keyed by (context, address) -- see the registry definition. Connections
+            // are threads in one backend process, each with its own context, so an
+            // address-only key can hand this connection another one's handle.
+            const SrcRegKey key{context_, user_addr};
             std::lock_guard<std::mutex> lk(g_src_reg_mu);
-            auto cit = g_src_regs.find(user_addr);
+            auto cit = g_src_regs.find(key);
             // A cached entry that is too small for this transfer describes the wrong
             // extent: drop and re-register rather than put past its end.
             if (cit != g_src_regs.end() && cit->second.len < big_size) {
-                ucp_mem_unmap(cit->second.ctx, cit->second.memh);
+                ucp_mem_unmap(context_, cit->second.memh);
                 g_src_regs.erase(cit);
                 cit = g_src_regs.end();
             }
@@ -2898,7 +2931,7 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
                 fill_mp(mp);
 
                 if (ucp_mem_map(context_, &mp, &user_memh) == UCS_OK) {
-                    g_src_regs.emplace(user_addr, SrcReg{context_, user_memh, big_size});
+                    g_src_regs.emplace(key, SrcReg{user_memh, big_size});
                 } else {
                     user_memh = nullptr;
                 }
