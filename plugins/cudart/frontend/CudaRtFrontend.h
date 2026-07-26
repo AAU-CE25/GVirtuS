@@ -105,7 +105,9 @@ class CudaRtFrontend {
         gvirtus::frontend::Frontend::GetFrontend()->GetInputBuffer()->Add(ptr, n);
     }
 
-    // Fase 5 wrapper - see Frontend.h for the contract.
+    // Wrapper over Frontend::AddHostPointerForArgumentsDirect — see Frontend.h
+    // for the zero-copy contract (the pointer is spliced directly into the
+    // outgoing WriteIov instead of being memmove'd into the input Buffer).
     template <class T>
     static inline void AddHostPointerForArgumentsDirect(const T* ptr, size_t n = 1) {
         gvirtus::frontend::Frontend::GetFrontend()->AddHostPointerForArgumentsDirect<T>(ptr, n);
@@ -161,9 +163,9 @@ class CudaRtFrontend {
         return gvirtus::frontend::Frontend::GetFrontend()->GetOutputBuffer()->Assign<T>(n);
     }
 
-    // Fase 4 wrappers - register a caller-owned destination so Execute()
-    // writes the big output payload directly there. See Frontend.h for the
-    // contract. Caller pattern:
+    // Register a caller-owned destination so Execute() writes the big
+    // output payload directly there instead of into a scratch buffer that
+    // then gets memmove'd. See Frontend.h for the contract. Caller pattern:
     //
     //   SetOutputDestination(dst, count);
     //   Execute("...");

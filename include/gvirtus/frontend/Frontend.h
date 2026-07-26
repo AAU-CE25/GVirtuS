@@ -28,22 +28,22 @@
  * @author Giuseppe Coviello <giuseppe.coviello@uniparthenope.it>
  * @date   Wed Sep 30 12:57:11 2009
  *
- * @brief
- *
- *
+ * @brief Per-thread RPC stub used by every CUDA routine wrapper to marshal
+ * arguments, invoke the backend, and unmarshal results — extended here with
+ * UCX zero-copy transfer support.
  */
 
 /*
  * Frontend — per-thread RPC stub extended for UCX zero-copy transfers.
  *
- * UCX communicator additions (Phases 4-5):
+ * UCX communicator additions:
  *
- *   SetOutputDestination() / DirectOutputConsumed()  — Fase 4 (D2H zero-copy):
- *     caller pre-registers a destination buffer. Execute()'s response handler
+ *   SetOutputDestination() / DirectOutputConsumed()  — D2H zero-copy: caller
+ *     pre-registers a destination buffer. Execute()'s response handler
  *     writes the big output payload directly there from the pinned RX-pool
  *     frame, skipping the intermediate mpOutputBuffer staging.
  *
- *   AddHostPointerForArgumentsDirect()  — Fase 5 (H2D zero-copy): records the
+ *   AddHostPointerForArgumentsDirect()  — H2D zero-copy: records the
  *     caller's buffer pointer for splice into WriteIov's iov array. The 64 MB
  *     payload travels straight from user memory into RMA without memcpy into
  *     mpInputBuffer. Falls back to standard marshal for non-UCX transports.
@@ -51,8 +51,6 @@
  *   Reentrancy guard (mpInitialized)  — prevents recursive RPC during UCX's
  *     libuct_cuda module init (dlopen fires cu* calls through the frontend
  *     shim before Connect() completes).
- *
- * Optimization phases: 4 (gather-send, frame receive), 5 (zero-copy H2D/D2H)
  */
 #pragma once
 
@@ -118,7 +116,7 @@ class Frontend {
 
     inline communicators::Buffer *GetOutputBuffer() { return mpOutputBuffer.get(); }
 
-    // Fase 4 - zero-copy D2H: caller pre-registers a destination so the
+    // Zero-copy D2H: caller pre-registers a destination so the
     // response handler in Execute() writes the big output payload directly
     // there, skipping the AppendBytes(64MB) -> mpOutputBuffer staging and
     // the subsequent memmove on the user side. Honoured only when the
@@ -137,44 +135,17 @@ class Frontend {
     }
     inline bool DirectOutputConsumed() const { return mDirectOutputConsumed; }
 
-    // Fase 5 - zero-copy variant of AddHostPointerForArguments. Writes ONLY
-    // the size_t length prefix into mpInputBuffer; records ptr as a direct
-    // chunk that Execute() will splice into the WriteIov iov at the current
-    // buffer offset. Caller must NOT mutate ptr until Execute() returns.
-    // Pattern (matches AddHostPointerForArguments wire format):
-    //     [size_t = n*sizeof(T)] [n*sizeof(T) bytes of ptr]
-    //
-    // Only the UCX path in Execute() honours the iov-split. Plain-TCP /
-    // HybridCommunicator go through input_buffer->Dump() which serializes
-    // mpInputBuffer as-is and would send the truncated buffer (header-only,
-    // missing the user payload) — backend AssignAll<char> then throws
-    // "Can't read char" and cudaMemcpy returns cudaErrorMemoryAllocation(2).
-    // Fall back to the legacy in-buffer marshal in that case so non-UCX
-    // transports keep working; UCX retains the zero-copy fast path.
+    // Zero-copy variant of AddHostPointerForArguments. Records `ptr` as a
+    // BORROWED segment in the Buffer (Buffer::AddRef) instead of copying it:
+    // the same [size_t len][bytes] wire layout is produced, but the data is
+    // referenced in place and emitted by Buffer::GetIov() at send time.
+    // Caller must NOT mutate `ptr` until Execute() returns. Works on every
+    // transport — the UCX path sends the fragments via WriteIov (true
+    // zero-copy); other transports concatenate once in Buffer::Dump(), giving
+    // identical wire bytes. No transport gate, no Frontend-side splice state.
     template <class T>
     void AddHostPointerForArgumentsDirect(const T *ptr, size_t n = 1) {
-        const bool ucx =
-            _communicator && _communicator->obj_ptr() &&
-            _communicator->obj_ptr()->to_string() == "ucxcommunicator";
-        if (!ucx) {
-            mpInputBuffer->Add<T>(const_cast<T *>(ptr), n);
-            return;
-        }
-        if (ptr == nullptr) {
-            mpInputBuffer->Add((size_t)0);
-            return;
-        }
-        const size_t bytes = sizeof(T) * n;
-        mpInputBuffer->Add(bytes);  // size_t prefix only
-        mDirectInputBufferOffset = mpInputBuffer->GetBufferSize();
-        mDirectInputSrc          = ptr;
-        mDirectInputBytes        = bytes;
-    }
-    inline bool HasDirectInput()  const { return mDirectInputSrc != nullptr; }
-    inline void ClearDirectInput()      {
-        mDirectInputSrc          = nullptr;
-        mDirectInputBytes        = 0;
-        mDirectInputBufferOffset = 0;
+        mpInputBuffer->AddRef<T>(ptr, n);
     }
 
     inline communicators::Buffer *GetLaunchBuffer() { return mpLaunchBuffer.get(); }
@@ -311,17 +282,9 @@ class Frontend {
     size_t mDirectOutputCount     = 0;
     bool   mDirectOutputConsumed  = false;
 
-    // Fase 5 - zero-copy H2D send: when set, Execute()'s iov construction
-    // splits the input_buffer iov entry into three:
-    //   [input_buffer[0..mDirectInputBufferOffset]]
-    //   [mDirectInputSrc .. mDirectInputBytes]
-    //   [input_buffer[mDirectInputBufferOffset..end]]
-    // so the 64MB user payload travels straight from caller memory into
-    // sendmsg/RMA without the Add<T>(ptr,n) memcpy into mpInputBuffer.
-    // Per-thread, cleared automatically at the end of Execute().
-    const void *mDirectInputSrc          = nullptr;
-    size_t      mDirectInputBytes        = 0;
-    size_t      mDirectInputBufferOffset = 0;
+    // Zero-copy H2D send is now handled entirely inside the input Buffer via
+    // Buffer::AddRef / Buffer::GetIov (see AddHostPointerForArgumentsDirect) —
+    // no Frontend-side splice state required.
     std::shared_ptr<communicators::Buffer> mpLaunchBuffer;
 
     int mExitCode;

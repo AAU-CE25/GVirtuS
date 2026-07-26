@@ -9,8 +9,6 @@
 #include <nlohmann/json.hpp>
 
 #include "Endpoint.h"
-#include "Endpoint_Hybrid.h"
-#include "Endpoint_Rdma.h"
 #include "Endpoint_Tcp.h"
 #include "Endpoint_Ucx.h"
 
@@ -64,28 +62,6 @@ class EndpointFactory {
             LOG4CPLUS_INFO(logger, "Initializing TCP/IP Endpoint");
             auto end = common::JSON<Endpoint_Tcp>(json_path).parser();
             ptr = std::make_shared<Endpoint_Tcp>(end);
-        }
-        // infiniband
-        else if ("infiniband-rdma" == j["communicator"][ind_endpoint]["endpoint"].at("suite")) {
-#ifdef DEBUG
-            std::cout << "EndpointFactory::get_endpoint() found infiniband endpoint" << std::endl;
-#endif
-            auto end = common::JSON<Endpoint_Rdma>(json_path).parser();
-            ptr = std::make_shared<Endpoint_Rdma>(end);
-        } else if ("roce-rdma" == j["communicator"][ind_endpoint]["endpoint"].at("suite")) {
-#ifdef DEBUG
-            std::cout << "EndpointFactory::get_endpoint() found rdma-roce endpoint (reusing "
-                         "Endpoint_Rdma)"
-                      << std::endl;
-#endif
-            auto end = common::JSON<Endpoint_Rdma>(json_path).parser();
-            ptr = std::make_shared<Endpoint_Rdma>(end);
-        } else if ("hybrid" == j["communicator"][ind_endpoint]["endpoint"].at("suite")) {
-#ifdef DEBUG
-            std::cout << "EndpointFactory::get_endpoint() found hybrid endpoint" << std::endl;
-#endif
-            auto end = common::JSON<Endpoint_Hybrid>(json_path).parser();
-            ptr = std::make_shared<Endpoint_Hybrid>(end);
         } else if ("ucx" == j["communicator"][ind_endpoint]["endpoint"].at("suite")) {
 #ifdef DEBUG
             std::cout << "EndpointFactory::get_endpoint() found ucx endpoint" << std::endl;

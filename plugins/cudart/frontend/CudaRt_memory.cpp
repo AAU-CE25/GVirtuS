@@ -307,7 +307,7 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpy(void *dst, const void *src,
             break;
         case cudaMemcpyHostToDevice:
             CudaRtFrontend::AddDevicePointerForArguments(dst);
-            // Fase 5: skip the 64MB memcpy into mpInputBuffer; the user src
+            // Skips the 64MB memcpy into mpInputBuffer; the user src
             // pointer is spliced directly into the WriteIov iov by Execute().
             CudaRtFrontend::AddHostPointerForArgumentsDirect<char>(
                 static_cast<const char *>(src), count);
@@ -321,8 +321,8 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpy(void *dst, const void *src,
             CudaRtFrontend::AddDevicePointerForArguments(src);
             CudaRtFrontend::AddVariableForArguments(count);
             CudaRtFrontend::AddVariableForArguments(kind);
-            // Fase 4: pre-register dst so the response handler writes the
-            // big payload directly there. Avoids one 64MB memcpy.
+            // Pre-registers dst so the response handler writes the
+            // big payload directly there, avoiding one 64MB memcpy.
             CudaRtFrontend::SetOutputDestination(dst, count);
             CudaRtFrontend::Execute("cudaMemcpy");
             if (CudaRtFrontend::Success() && !CudaRtFrontend::DirectOutputConsumed()) {

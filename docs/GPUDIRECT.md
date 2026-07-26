@@ -1073,13 +1073,38 @@ critical paths.
 
 ### Handler GPU-awareness coverage
 
+**Update:** the WRITE-side (backend response) half of this limitation has
+been superseded — see `docs/GPUDIRECT_PLUGIN_EXTENSION_PLAN.md`, now
+implemented. Instead of each handler calling `GetGpuPayload`/`SetGpuPayload`
+explicitly (what this section originally proposed, and what
+`Result::SetGpuPayload` used to do — that method is now removed),
+`Buffer::Add()` itself auto-detects a device pointer (via the new
+transport-agnostic `IsDevicePointer`/`DeviceMemory.h`, gated by a size
+threshold and the same process-wide GPUDirect flag) and borrows it as a
+`SegKind::GpuRef` segment — the "future GpuRef" this codebase's `Buffer.h`
+comment already anticipated. `plugins/cudadr/backend/CudaDrHandler_memory.cpp`'s
+`MemcpyDtoH` now takes this path (gated explicitly on the same
+precondition `Add()` itself checks internally — an unconditional hand-off
+would be unsafe, since `Add()`'s fallback assumes host memory); `cublas`'s
+and `cudnn`'s existing `Add<char>` call sites were audited and found to
+already operate on host pointers (`in->Assign<...>`), so they were already
+safe and needed no change. The READ side (`Buffer::GetGpuPayload`/
+`SetGpuPayload` used by the `HostToDevice` case below, and the whole
+`current_frame_gpu`/Process.cpp input-reconstruction path) was
+deliberately left as-is — unifying it into the same segment model is
+flagged as future work, since it touches every `Assign`/`AssignAll` call
+site across every plugin and could not be validated without a real
+UCX+GPU stack.
+
 Only `CudaRtHandler_memory::Memcpy` (`HostToDevice` case) reads the
 Buffer's GpuPayload. Other handlers (cuBLAS GEMM with > 4 MB args, cuDNN
 conv with large tensors) would receive a Buffer with a "hole" in the
 host slot and corrupt data. Currently the 4 MB threshold + simple_matrix's
 known iov sizes makes this safe in practice, but extending GPUDirect to
 cover cuBLAS/cuDNN handlers needs each handler to call `GetGpuPayload`
-and route accordingly. ~10–20 LOC per handler.
+and route accordingly. ~10–20 LOC per handler. **(Superseded for the
+write/response direction — see the Update note above; still accurate for
+the read/request direction.)**
 
 ### Small-N overhead residual
 

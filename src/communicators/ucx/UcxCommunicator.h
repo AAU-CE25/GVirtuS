@@ -25,9 +25,6 @@
  *   - Per-connection transport gate (current_connection_supports_cuda): lazy
  *     ucp_ep_query determines whether the negotiated lanes are RDMA-class,
  *     enabling mixed RDMA + TCP frontends on a single backend.
- *
- * Optimization phases: 1 (baseline AM), 2 (protocol), 4 (gather-send),
- *                      5 (RMA), 6 (GPUDirect RDMA)
  */
 #pragma once
 
@@ -64,8 +61,17 @@ class UcxCommunicator : public Communicator {
     void run() override;
 
     // Override of Communicator::WriteIov — uses UCX's UCP_DATATYPE_IOV so
-    // ucp_am_send_nbx gathers the fragments natively without staging.
-    size_t WriteIov(const struct iovec *iov, size_t iov_count) override;
+    // ucp_am_send_nbx gathers the fragments natively without staging. Takes
+    // IovFrag (not struct iovec) so each fragment's is_device tag — set once
+    // by Buffer::Add()'s auto-detect (see Buffer.h) — is available without
+    // re-probing (WriteIovRma reads it directly).
+    size_t WriteIov(const IovFrag *iov, size_t iov_count) override;
+
+    // UCX active messages are self-delimiting, so a framed send is just an
+    // IoV send — no [uint64 length] prefix (overrides Communicator::WriteFrame).
+    size_t WriteFrame(const IovFrag *iov, size_t iov_count) override {
+        return WriteIov(iov, iov_count);
+    }
 
     // Zero-copy frame handoff: backends that read a whole AM message at once
     // can call this to get a pointer into the pinned RX pool slot directly,
@@ -73,11 +79,11 @@ class UcxCommunicator : public Communicator {
     // stream. Must be paired with ReleaseFrame() once the caller is done.
     bool TryAcquireFrame(const unsigned char *&data, size_t &size) override;
 
-    // GPUDirect (Variant B Step B4). After a successful TryAcquireFrame the
-    // current frame may have an associated GPU-resident payload (set by
-    // am_recv_handler when the peer used the Step B3 GPU-split wire format).
-    // Process.cpp reads these via the virtual Communicator::current_frame_gpu
-    // and attaches them to the input Buffer; GPU-aware handlers route via
+    // After a successful TryAcquireFrame, the current frame may have an
+    // associated GPU-resident payload (set by am_recv_handler when the peer
+    // split the wire message across host + GPU shadows). Process.cpp reads
+    // these via the virtual Communicator::current_frame_gpu and attaches
+    // them to the input Buffer; GPU-aware handlers route via
     // cudaMemcpyDeviceToDevice instead of HostToDevice, skipping the host bounce.
     void current_frame_gpu(void *&gpu, std::size_t &size) const override {
         gpu  = current_frame_.gpu_data;
@@ -127,12 +133,11 @@ class UcxCommunicator : public Communicator {
         bool is_cuda_host{false};
         ucp_mem_h memh{nullptr};
 
-        // Optional GPU shadow region for GPUDirect (Variant B, Step B1).
-        // Allocated only when GVIRTUS_GPUDIRECT=1 and probe passed. Lives
-        // alongside the host `addr`. Frontend will eventually be told the
-        // gpu_addr+rkey via RmaSetup (Step B2) and route big payloads here
-        // directly via NIC peer-DMA (Step B3). Step B1 only allocates +
-        // registers — nothing reads/writes gpu_addr yet.
+        // Optional GPU shadow region for GPUDirect RDMA. Allocated only
+        // when GVIRTUS_GPUDIRECT=1 and the startup probe passed. Lives
+        // alongside the host `addr`. The frontend is told the gpu_addr+rkey
+        // via RmaSetup and routes big payloads here directly via NIC
+        // peer-DMA (see WriteIovRma in UcxRma.cpp).
         unsigned char *gpu_addr{nullptr};
         size_t gpu_capacity{0};
         ucp_mem_h gpu_memh{nullptr};
@@ -146,13 +151,14 @@ class UcxCommunicator : public Communicator {
         size_t size{0};
         size_t slot_idx{static_cast<size_t>(-1)};  // -1 if not from pool (e.g., empty)
 
-        // GPUDirect Step B3: when the peer split the payload across host +
-        // GPU shadows, this points into the slot's GPU region. The byte range
-        // [data + (size - gpu_size), data + size) of the LOGICAL message lives
-        // in gpu_data[0 .. gpu_size). Consumers can either: (a) consolidate
-        // via cudaMemcpy D2H into the host hole (B3 default — preserves the
-        // existing parser path at a cost of ~3ms warm), or (b) read GPU
-        // directly via Buffer's dual-aware AssignAll (B4 optimization).
+        // When the peer split the payload across host + GPU shadows, this
+        // points into the slot's GPU region. The byte range
+        // [data + (size - gpu_size), data + size) of the LOGICAL message
+        // lives in gpu_data[0 .. gpu_size). Consumers can either:
+        // (a) consolidate via cudaMemcpy D2H into the host hole (the
+        // default — preserves the existing parser path at a cost of ~3ms
+        // warm), or (b) read GPU memory directly via
+        // Communicator::current_frame_gpu() and a GPU-aware handler.
         unsigned char *gpu_data{nullptr};
         size_t gpu_size{0};
     };
@@ -230,8 +236,8 @@ class UcxCommunicator : public Communicator {
         std::uint64_t capacity{0};
         ucp_rkey_h rkey{nullptr};    // unpacked on this side
 
-        // Optional GPU shadow advertised by peer (Variant B, Step B2). When
-        // gpu_rkey != nullptr the client can ucp_put_nbx big payloads to
+        // Optional GPU shadow advertised by peer. When gpu_rkey != nullptr
+        // the client can ucp_put_nbx big payloads to
         // gpu_addr (with this rkey) and the NIC will peer-DMA into the
         // server's GPU memory (peermem). nullptr / 0 → peer didn't advertise
         // a GPU shadow → keep host-only path.
@@ -255,7 +261,7 @@ class UcxCommunicator : public Communicator {
     // slot index. Returns total bytes (== sum of iov lengths) on success.
     // Falls back to the IOV path if remote_slots_ is empty or the message
     // doesn't fit in any remote slot.
-    size_t WriteIovRma(const struct iovec *iov, size_t iov_count, size_t total);
+    size_t WriteIovRma(const IovFrag *iov, size_t iov_count, size_t total);
 
     std::string hostname_;
     std::uint16_t port_{};
