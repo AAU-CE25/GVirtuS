@@ -85,6 +85,18 @@ bool gvirtus_gpudirect_enabled() {
 // to the host path (correct everywhere, no crash). H2D GPUDirect (backend GPU
 // shadow receive) is UNAFFECTED — this gates only the D2H response.
 bool gvirtus_gpudirect_d2h_enabled() {
+    // GVIRTUS_GPUDIRECT_D2H=0 disables the client-GET path for D2H only, leaving the
+    // H2D shadow route untouched. The symmetric counterpart of the frontend's
+    // GVIRTUS_RMA_GPUDIRECT_MIN_BYTES, so each direction can be A/B'd on its own;
+    // clearing GVIRTUS_GPUDIRECT turns off both at once and measures neither.
+    //
+    // Backend-side by necessity: this gate is evaluated on the server, so it cannot be
+    // set per run from the frontend the way the H2D knob can.
+    static const bool d2h_disabled = []() {
+        const char *e = std::getenv("GVIRTUS_GPUDIRECT_D2H");
+        return e != nullptr && e[0] == '0';
+    }();
+    if (d2h_disabled) return false;
     return gvirtus_gpudirect_enabled() &&
            gvirtus::communicators::tls_client_rma_put_capable;
 }
@@ -101,6 +113,11 @@ void *get_tls_gpu_scratch(size_t needed) {
         return tls_gpu_scratch;
     }
     if (tls_gpu_scratch != nullptr) {
+        // The transport registered this scratch for remote RDMA-READ and caches that
+        // registration by address. cudaFree + cudaMalloc readily returns the same
+        // address, so the handle must be dropped here or the next D2H serves the GET
+        // from a mapping that no longer describes this buffer.
+        gvirtus::communicators::RunRegistrationInvalidate(tls_gpu_scratch);
         cudaFree(tls_gpu_scratch);
         tls_gpu_scratch = nullptr;
         tls_gpu_scratch_size = 0;
@@ -135,6 +152,9 @@ void *get_d2h_get_scratch(size_t needed) {
         return tls_d2h_get_pool[i];
     }
     if (tls_d2h_get_pool[i] != nullptr) {
+        // Same as get_tls_gpu_scratch: drop the transport's registration before the
+        // allocation goes back to CUDA.
+        gvirtus::communicators::RunRegistrationInvalidate(tls_d2h_get_pool[i]);
         cudaFree(tls_d2h_get_pool[i]);
         tls_d2h_get_pool[i] = nullptr;
         tls_d2h_get_pool_size[i] = 0;

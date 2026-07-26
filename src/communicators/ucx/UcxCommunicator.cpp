@@ -279,11 +279,19 @@ SrcRegHookRegistrar g_src_reg_hook_registrar;
 // caller, because an address-keyed cache we cannot invalidate is exactly the defect
 // that silently corrupted both directions.
 ucp_mem_h acquire_app_registration(ucp_context_h ctx, const void *addr, size_t len,
-                                   bool &out_owned) {
+                                   bool cacheable, bool is_cuda, bool &out_owned) {
     out_owned = false;
     if (ctx == nullptr || addr == nullptr || len == 0) return nullptr;
 
-    const bool cacheable = gvirtus::communicators::RegistrationCacheable(addr, len);
+    auto fill = [&](ucp_mem_map_params_t &mp) {
+        mp.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS | UCP_MEM_MAP_PARAM_FIELD_LENGTH;
+        mp.address = const_cast<void *>(addr);
+        mp.length = len;
+        if (is_cuda) {
+            mp.field_mask |= UCP_MEM_MAP_PARAM_FIELD_MEMORY_TYPE;
+            mp.memory_type = UCS_MEMORY_TYPE_CUDA;
+        }
+    };
 
     if (cacheable) {
         std::lock_guard<std::mutex> lk(g_src_reg_mu);
@@ -296,9 +304,7 @@ ucp_mem_h acquire_app_registration(ucp_context_h ctx, const void *addr, size_t l
         if (it != g_src_regs.end()) return it->second.memh;
 
         ucp_mem_map_params_t mp{};
-        mp.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS | UCP_MEM_MAP_PARAM_FIELD_LENGTH;
-        mp.address = const_cast<void *>(addr);
-        mp.length = len;
+        fill(mp);
         ucp_mem_h m = nullptr;
         if (ucp_mem_map(ctx, &mp, &m) != UCS_OK) return nullptr;
         g_src_regs.emplace(addr, SrcReg{ctx, m, len});
@@ -306,13 +312,40 @@ ucp_mem_h acquire_app_registration(ucp_context_h ctx, const void *addr, size_t l
     }
 
     ucp_mem_map_params_t mp{};
-    mp.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS | UCP_MEM_MAP_PARAM_FIELD_LENGTH;
-    mp.address = const_cast<void *>(addr);
-    mp.length = len;
+    fill(mp);
     ucp_mem_h m = nullptr;
     if (ucp_mem_map(ctx, &mp, &m) != UCS_OK) return nullptr;
     out_owned = true;
     return m;
+}
+
+// Release every registration this context owns. Called at teardown, BEFORE the UCX
+// context is destroyed.
+//
+// Nothing used to do this. client_dst_regs_, gpu_get_regs_ and the old
+// user_memh_cache were all populated with ucp_mem_map and never unmapped, so the
+// process reached ucp_cleanup still holding MRs over buffers the application had long
+// since freed -- which is where the "corrupted size vs. prev_size in fastbins" and
+// "double free in tcache" at exit came from. user_memh_cache was worse still: being
+// static thread_local, its handles outlived the context itself.
+void release_registrations_for_context(ucp_context_h ctx) {
+    if (ctx == nullptr) return;
+    std::vector<ucp_mem_h> doomed;
+    {
+        std::lock_guard<std::mutex> lk(g_src_reg_mu);
+        for (auto it = g_src_regs.begin(); it != g_src_regs.end();) {
+            if (it->second.ctx == ctx) {
+                doomed.push_back(it->second.memh);
+                it = g_src_regs.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+    for (ucp_mem_h m : doomed) ucp_mem_unmap(ctx, m);
+    if (!doomed.empty()) {
+        ucx_debug_log("teardown: unmapped %zu cached registrations", doomed.size());
+    }
 }
 
 // Global flag: true iff GVIRTUS_GPUDIRECT=1 and probe succeeded.
@@ -2290,15 +2323,26 @@ void UcxCommunicator::apply_pending_slots_locked() {
 }
 
 void UcxCommunicator::destroy_rma_state() {
+    {
     std::lock_guard<std::mutex> lk(rma_state_mu_);
     for (auto &rs : remote_slots_) {
         if (rs.rkey != nullptr) ucp_rkey_destroy(rs.rkey);
         if (rs.gpu_rkey != nullptr) ucp_rkey_destroy(rs.gpu_rkey);
     }
     remote_slots_.clear();
+    pending_slots_.clear();
+    rma_swap_pending_ = false;
     rma_setup_received_.store(false);
     rma_put_capable_.store(false);
     next_remote_slot_idx_ = 0;
+    }
+    // Outside the lock: release every ucp_mem_map this context still owns -- the H2D
+    // source registrations, the D2H destination registrations and the server's GPU
+    // scratch. Reaching ucp_cleanup with these still mapped is what corrupted the heap
+    // at exit ("corrupted size vs. prev_size in fastbins" in the frontend, "double free
+    // in tcache" in the backend's per-connection child), because by then the
+    // application had already freed the memory they described.
+    release_registrations_for_context(context_);
 }
 
 // D2H-via-GET, server side. Register the backend's GPU scratch [gpu_addr,len)
@@ -2314,36 +2358,30 @@ bool UcxCommunicator::PrepareGpuGet(void *gpu_addr, size_t len,
                                     std::vector<char> &out_rkey) {
     if (context_ == nullptr || gpu_addr == nullptr || len == 0) return false;
 
-    std::lock_guard<std::mutex> lk(gpu_get_mu_);
-    const std::uint64_t key = reinterpret_cast<std::uint64_t>(gpu_addr);
-    auto it = gpu_get_regs_.find(key);
-    if (it != gpu_get_regs_.end() && it->second.len < len) {
-        // Same base address but a larger transfer than we registered: remap.
-        ucp_mem_unmap(context_, it->second.memh);
-        gpu_get_regs_.erase(it);
-        it = gpu_get_regs_.end();
-    }
-    if (it == gpu_get_regs_.end()) {
-        ucp_mem_map_params_t p{};
-        p.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS |
-                       UCP_MEM_MAP_PARAM_FIELD_LENGTH |
-                       UCP_MEM_MAP_PARAM_FIELD_MEMORY_TYPE;
-        p.address = gpu_addr;
-        p.length = len;
-        p.memory_type = UCS_MEMORY_TYPE_CUDA;
-        ucp_mem_h memh = nullptr;
-        ucs_status_t st = ucp_mem_map(context_, &p, &memh);
-        if (st != UCS_OK) {
-            ucx_debug_log("PrepareGpuGet: ucp_mem_map(CUDA) failed: %s",
-                          ucs_status_string(st));
-            return false;
-        }
-        it = gpu_get_regs_.emplace(key, GpuGetReg{len, memh}).first;
+    // Uses the same registry as the H2D source and the D2H destination, so there is one
+    // invalidation path and one teardown sweep instead of three private maps that each
+    // leaked. gpu_get_regs_ was the last one still never unmapped: the GPU scratch is
+    // cudaFree'd and reallocated whenever it grows, and the registration for the old
+    // allocation simply stayed -- the same recycled-address hazard already proven on
+    // both application-buffer caches, plus the teardown leak.
+    //
+    // Cacheable is asserted here rather than asked of the frontend hook: this buffer is
+    // the BACKEND's own scratch, its lifetime is ours, and get_tls_gpu_scratch /
+    // get_d2h_get_scratch invalidate before freeing it. The frontend's hook is not
+    // installed in the backend process anyway (it lives in the frontend half of the
+    // cudart plugin), so asking would fail closed and cost a registration per D2H.
+    bool memh_owned = false;
+    ucp_mem_h memh = acquire_app_registration(context_, gpu_addr, len,
+                                              /*cacheable*/ true, /*is_cuda*/ true,
+                                              memh_owned);
+    if (memh == nullptr) {
+        ucx_debug_log("PrepareGpuGet: ucp_mem_map(CUDA) failed");
+        return false;
     }
 
     void *rkey_buf = nullptr;
     size_t rkey_size = 0;
-    ucs_status_t st = ucp_rkey_pack(context_, it->second.memh, &rkey_buf, &rkey_size);
+    ucs_status_t st = ucp_rkey_pack(context_, memh, &rkey_buf, &rkey_size);
     if (st != UCS_OK || rkey_buf == nullptr) {
         ucx_debug_log("PrepareGpuGet: ucp_rkey_pack failed: %s", ucs_status_string(st));
         return false;
@@ -2351,7 +2389,7 @@ bool UcxCommunicator::PrepareGpuGet(void *gpu_addr, size_t len,
     out_rkey.assign(reinterpret_cast<char *>(rkey_buf),
                     reinterpret_cast<char *>(rkey_buf) + rkey_size);
     ucp_rkey_buffer_release(rkey_buf);
-    out_remote_addr = key;
+    out_remote_addr = reinterpret_cast<std::uint64_t>(gpu_addr);
     return true;
 }
 
@@ -2413,8 +2451,10 @@ bool UcxCommunicator::GetFromRemoteGpu(void *dst_host, std::uint64_t remote_addr
     // invalidation on cudaFreeHost/cudaFree, same "only cache what we will be told
     // about" rule -- a pageable destination is still registered per call.
     bool dst_memh_owned = false;
-    ucp_mem_h dst_memh =
-        acquire_app_registration(context_, dst_host, count, dst_memh_owned);
+    ucp_mem_h dst_memh = acquire_app_registration(
+        context_, dst_host, count,
+        gvirtus::communicators::RegistrationCacheable(dst_host, count),
+        /*is_cuda*/ false, dst_memh_owned);
     if (dst_memh == nullptr) {
         ucx_debug_log("GetFromRemoteGpu: dst registration failed "
                       "(falling back to on-the-fly reg)");

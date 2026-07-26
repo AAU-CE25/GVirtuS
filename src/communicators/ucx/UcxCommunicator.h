@@ -399,27 +399,14 @@ class UcxCommunicator : public Communicator {
     void handle_rma_setup_am(const void *data, size_t length); // client side
     void destroy_rma_state();                                 // teardown
 
-    // === D2H-via-GET (server side) ===
-    // Cache of ucp_mem_map(CUDA) registrations for the backend's D2H GPU scratch,
-    // keyed by device address. The TLS gpu scratch is reused and grows
-    // monotonically, so we register once per distinct buffer and repack the
-    // (cheap) rkey per call. Guarded by gpu_get_mu_. Not unmapped explicitly at
-    // teardown (process-lifetime; avoids destabilizing the fragile UCX teardown).
-    struct GpuGetReg {
-        size_t len{0};
-        ucp_mem_h memh{nullptr};
-    };
-    std::unordered_map<std::uint64_t, GpuGetReg> gpu_get_regs_;
-    std::mutex gpu_get_mu_;
-
-    // === D2H-via-GET (client side) ===
-    // Cache of ucp_mem_map registrations for the client's D2H destination host
-    // buffers, keyed by address. Passed as a memh hint to ucp_get_nbx so UCX
-    // doesn't re-register the dst every call (the broken rcache can't cache it).
-    // D2H typically reuses the same dst, so this registers once. Guarded by
-    // client_dst_mu_. Not unmapped at teardown (process-lifetime).
-    std::unordered_map<std::uint64_t, GpuGetReg> client_dst_regs_;
-    std::mutex client_dst_mu_;
+    // NOTE: gpu_get_regs_ (server GPU scratch) and client_dst_regs_ (client D2H
+    // destination) used to live here, each a private address-keyed ucp_mem_map cache
+    // with its own mutex and its own comment saying it was deliberately "not unmapped
+    // at teardown (process-lifetime)". Both were wrong on both counts: neither could be
+    // invalidated when the buffer was freed, and surviving into ucp_cleanup is what
+    // corrupted the heap at exit. They are gone, replaced by one process-global
+    // registry with an invalidation hook (RunRegistrationInvalidate) and a teardown
+    // sweep (release_registrations_for_context), shared with the H2D source cache.
 
     // Client-side data path: stage iov fragments into tx_scratch_, RDMA-put
     // into the next remote slot, then send a small RmaPosted AM with the
