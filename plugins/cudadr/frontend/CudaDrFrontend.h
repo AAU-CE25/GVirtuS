@@ -125,6 +125,16 @@ class CudaDrFrontend {
      *       memmove(dst, GetOutputHostPointer<char>(count), count);
      *   ClearOutputDestination();
      */
+    /* Empalma el bufer del usuario en el iov en vez de copiarlo al bufer de
+     * serializacion. Sobre UCX evita una copia host-a-host completa por llamada --
+     * medido: cuMemcpyHtoD iba 3,11x mas lento que el equivalente de cudart por esto--
+     * y permite que el fragmento grande viaje por peer-DMA. Sobre otros transportes el
+     * helper generico cae solo a un Add normal, asi que es transparente. */
+    template <class T>
+    static inline void AddHostPointerForArgumentsDirect(const T *ptr, size_t n = 1) {
+        gvirtus::frontend::Frontend::GetFrontend()->AddHostPointerForArgumentsDirect<T>(ptr, n);
+    }
+
     static inline void SetOutputDestination(void *dst, size_t count) {
         gvirtus::frontend::Frontend::GetFrontend()->SetOutputDestination(dst, count);
     }

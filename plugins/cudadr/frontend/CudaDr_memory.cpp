@@ -106,8 +106,10 @@ extern "C" CUresult cuMemcpyHtoD(CUdeviceptr dstDevice, const void *srcHost, siz
     CudaDrFrontend::Prepare();
     CudaDrFrontend::AddVariableForArguments(ByteCount);
     CudaDrFrontend::AddVariableForArguments(dstDevice);
-    CudaDrFrontend::AddHostPointerForArguments<char>(
-        static_cast<char *>(const_cast<void *>(srcHost)), ByteCount);
+    /* Direct: se empalma el origen en el iov en vez de copiarlo. Ver la nota del
+     * envoltorio en CudaDrFrontend.h. */
+    CudaDrFrontend::AddHostPointerForArgumentsDirect<char>(
+        static_cast<const char *>(srcHost), ByteCount);
     CudaDrFrontend::Execute("cuMemcpyHtoD");
     return CudaDrFrontend::GetExitCode();
 }
