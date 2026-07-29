@@ -27,6 +27,7 @@
  */
 
 #include "CudaDr.h"
+#include "CudaDr_querycache.h"
 
 using namespace std;
 
@@ -59,6 +60,8 @@ extern "C" CUresult cuDevicePrimaryCtxReset(CUdevice dev)
 
 /*Create a CUDA context*/
 extern "C" CUresult cuCtxCreate(CUcontext *pctx, unsigned int flags, CUdevice dev) {
+    /* El contexto en curso puede cambiar aqui: se olvida lo cacheado. */
+    if (gvirtus_drqcache::enabled()) gvirtus_drqcache::ctx_invalidate();
     CudaDrFrontend::Prepare();
     CudaDrFrontend::AddVariableForArguments(flags);
     CudaDrFrontend::AddVariableForArguments(dev);
@@ -81,6 +84,8 @@ extern "C" CUresult cuCtxAttach(CUcontext *pctx, unsigned int flags) {
 
 /*Destroy the current context or a floating CUDA context*/
 extern "C" CUresult cuCtxDestroy(CUcontext ctx) {
+    /* El contexto en curso puede cambiar aqui: se olvida lo cacheado. */
+    if (gvirtus_drqcache::enabled()) gvirtus_drqcache::ctx_invalidate();
     CudaDrFrontend::Prepare();
     CudaDrFrontend::AddDevicePointerForArguments(ctx);
     CudaDrFrontend::Execute("cuCtxDestroy");
@@ -97,17 +102,23 @@ extern "C" CUresult cuCtxDetach(CUcontext ctx) {
 
 /*Returns the device ID for the current context.*/
 extern "C" CUresult cuCtxGetDevice(CUdevice *device) {
+    if (gvirtus_drqcache::enabled() && gvirtus_drqcache::ctx_get_device(device)) {
+        return CUDA_SUCCESS;
+    }
     CudaDrFrontend::Prepare();
     CudaDrFrontend::AddHostPointerForArguments(device);
     CudaDrFrontend::Execute("cuCtxGetDevice");
     if (CudaDrFrontend::Success()) {
         *device = *(CudaDrFrontend::GetOutputHostPointer<CUdevice>());
+        if (gvirtus_drqcache::enabled()) gvirtus_drqcache::ctx_put_device(*device);
     }
     return CudaDrFrontend::GetExitCode();
 }
 
 /*Pops the current CUDA context from the current CPU thread.*/
 extern "C" CUresult cuCtxPopCurrent_v2(CUcontext *pctx) {
+    /* El contexto en curso puede cambiar aqui: se olvida lo cacheado. */
+    if (gvirtus_drqcache::enabled()) gvirtus_drqcache::ctx_invalidate();
     CudaDrFrontend::Prepare();
     CUcontext ctx;
     pctx = &ctx;
@@ -118,6 +129,8 @@ extern "C" CUresult cuCtxPopCurrent_v2(CUcontext *pctx) {
 
 /*Pushes a floating context on the current CPU thread. */
 extern "C" CUresult cuCtxPushCurrent_v2(CUcontext ctx) {
+    /* El contexto en curso puede cambiar aqui: se olvida lo cacheado. */
+    if (gvirtus_drqcache::enabled()) gvirtus_drqcache::ctx_invalidate();
     CudaDrFrontend::Prepare();
     CudaDrFrontend::AddDevicePointerForArguments(ctx);
     CudaDrFrontend::Execute("cuCtxPushCurrent");
@@ -161,6 +174,9 @@ extern "C" CUresult cuDeviceCanAccessPeer(int *canAccessPeer, CUdevice dev, CUde
 
 // TODO: test
 extern "C" CUresult cuDevicePrimaryCtxRetain(CUcontext *pctx, CUdevice dev) {
+    /* Retener/soltar/reiniciar el contexto primario puede cambiar el contexto en
+     * curso: se olvida lo cacheado. */
+    if (gvirtus_drqcache::enabled()) gvirtus_drqcache::ctx_invalidate();
     CudaDrFrontend::Prepare();
     CudaDrFrontend::AddVariableForArguments(dev);
     CudaDrFrontend::Execute("cuDevicePrimaryCtxRetain");
@@ -172,6 +188,9 @@ extern "C" CUresult cuDevicePrimaryCtxRetain(CUcontext *pctx, CUdevice dev) {
 
 // TODO: test
 extern "C" CUresult cuDevicePrimaryCtxRelease_v2(CUdevice dev) {
+    /* Retener/soltar/reiniciar el contexto primario puede cambiar el contexto en
+     * curso: se olvida lo cacheado. */
+    if (gvirtus_drqcache::enabled()) gvirtus_drqcache::ctx_invalidate();
     CudaDrFrontend::Prepare();
     CudaDrFrontend::AddVariableForArguments(dev);
     CudaDrFrontend::Execute("cuDevicePrimaryCtxRelease");
@@ -180,6 +199,9 @@ extern "C" CUresult cuDevicePrimaryCtxRelease_v2(CUdevice dev) {
 
 // TODO: test
 extern "C" CUresult cuDevicePrimaryCtxReset_v2(CUdevice dev) {
+    /* Retener/soltar/reiniciar el contexto primario puede cambiar el contexto en
+     * curso: se olvida lo cacheado. */
+    if (gvirtus_drqcache::enabled()) gvirtus_drqcache::ctx_invalidate();
     CudaDrFrontend::Prepare();
     CudaDrFrontend::AddVariableForArguments(dev);
     CudaDrFrontend::Execute("cuDevicePrimaryCtxReset");
@@ -199,15 +221,21 @@ extern "C" CUresult cuDevicePrimaryCtxGetState(CUdevice dev, unsigned int *flags
 }
 
 extern "C" CUresult cuCtxGetCurrent(CUcontext *pctx) {
+    if (gvirtus_drqcache::enabled() && gvirtus_drqcache::ctx_get_current(pctx)) {
+        return CUDA_SUCCESS;
+    }
     CudaDrFrontend::Prepare();
     CudaDrFrontend::Execute("cuCtxGetCurrent");
     if (CudaDrFrontend::Success()) {
         *pctx = (CUcontext)(CudaDrFrontend::GetOutputDevicePointer());
+        if (gvirtus_drqcache::enabled()) gvirtus_drqcache::ctx_put_current(*pctx);
     }
     return CudaDrFrontend::GetExitCode();
 }
 
 extern "C" CUresult cuCtxSetCurrent(CUcontext ctx) {
+    /* El contexto en curso puede cambiar aqui: se olvida lo cacheado. */
+    if (gvirtus_drqcache::enabled()) gvirtus_drqcache::ctx_invalidate();
     CudaDrFrontend::Prepare();
     CudaDrFrontend::AddDevicePointerForArguments(ctx);
     CudaDrFrontend::Execute("cuCtxSetCurrent");

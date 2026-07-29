@@ -110,7 +110,10 @@ extern "C" CUresult cuMemcpyHtoD(CUdeviceptr dstDevice, const void *srcHost, siz
      * envoltorio en CudaDrFrontend.h. */
     CudaDrFrontend::AddHostPointerForArgumentsDirect<char>(
         static_cast<const char *>(srcHost), ByteCount);
-    CudaDrFrontend::Execute("cuMemcpyHtoD");
+    /* Fire-and-forget cuando la puerta esta abierta: un H2D no devuelve datos, y el
+     * envio local ya ha drenado el RDMA read del origen cuando esto vuelve, asi que el
+     * llamante puede reutilizar srcHost de inmediato. */
+    CudaDrFrontend::ExecuteMaybeAsync("cuMemcpyHtoD");
     return CudaDrFrontend::GetExitCode();
 }
 

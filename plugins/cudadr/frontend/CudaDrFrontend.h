@@ -125,6 +125,48 @@ class CudaDrFrontend {
      *       memmove(dst, GetOutputHostPointer<char>(count), count);
      *   ClearOutputDestination();
      */
+    /* Despacho fire-and-forget, replicando el de cudart. Solo debe usarse en rutinas
+     * ordenadas por stream y SIN salida que el llamante consuma: el codigo de retorno
+     * pasa a ser optimista y los fallos los pliega el backend sobre la siguiente llamada
+     * sincrona. */
+    static inline void ExecuteAsync(const char *routine,
+                                    const gvirtus::communicators::Buffer *input_buffer = NULL) {
+        try {
+            gvirtus::frontend::Frontend::GetFrontend()->ExecuteAsync(routine, input_buffer);
+        } catch (const std::exception &e) {
+            std::cerr << "Async execution exception: " << e.what() << std::endl;
+            std::exit(EXIT_FAILURE);
+        }
+    }
+
+    /* Misma variable que cudart, para que las dos APIs se comporten igual. Apagada por
+     * defecto: sin ella todo sigue siendo sincrono. Se lee una vez. */
+    static inline bool AsyncDispatchEnabled() {
+        static const bool enabled = []() {
+            const char *v = std::getenv("GVIRTUS_ASYNC_DISPATCH");
+            return v != nullptr && v[0] == '1' && v[1] == '\0';
+        }();
+        return enabled;
+    }
+
+    /* GVIRTUS_ASYNC_LAUNCH_ONLY=1 restringe el fire-and-forget a los lanzamientos. Aqui
+     * no hay lanzamientos en la lista, asi que en ese modo todo se queda sincrono. */
+    static inline bool AsyncLaunchOnly() {
+        static const bool v = []() {
+            const char *e = std::getenv("GVIRTUS_ASYNC_LAUNCH_ONLY");
+            return e != nullptr && e[0] == '1' && e[1] == '\0';
+        }();
+        return v;
+    }
+
+    static inline void ExecuteMaybeAsync(const char *routine,
+                                         const gvirtus::communicators::Buffer *input_buffer = NULL) {
+        if (AsyncDispatchEnabled() && !AsyncLaunchOnly())
+            ExecuteAsync(routine, input_buffer);
+        else
+            Execute(routine, input_buffer);
+    }
+
     /* Empalma el bufer del usuario en el iov en vez de copiarlo al bufer de
      * serializacion. Sobre UCX evita una copia host-a-host completa por llamada --
      * medido: cuMemcpyHtoD iba 3,11x mas lento que el equivalente de cudart por esto--

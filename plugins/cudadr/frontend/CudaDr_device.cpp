@@ -27,6 +27,7 @@
  */
 
 #include "CudaDr.h"
+#include "CudaDr_querycache.h"
 
 using namespace std;
 
@@ -58,12 +59,20 @@ extern "C" CUresult cuDeviceGet(CUdevice *device, int ordinal) {
 
 /*Returns information about the device*/
 extern "C" CUresult cuDeviceGetAttribute(int *pi, CUdevice_attribute attrib, CUdevice dev) {
+    /* Los atributos de un dispositivo son inmutables durante la vida del proceso:
+     * se responden en local sin invalidacion posible. */
+    if (gvirtus_drqcache::enabled() && gvirtus_drqcache::attr_get((int)attrib, (int)dev, pi)) {
+        return CUDA_SUCCESS;
+    }
     CudaDrFrontend::Prepare();
     CudaDrFrontend::AddHostPointerForArguments(pi);
     CudaDrFrontend::AddVariableForArguments(attrib);
     CudaDrFrontend::AddVariableForArguments(dev);
     CudaDrFrontend::Execute("cuDeviceGetAttribute");
-    if (CudaDrFrontend::Success()) *pi = *(CudaDrFrontend::GetOutputHostPointer<int>());
+    if (CudaDrFrontend::Success()) {
+        *pi = *(CudaDrFrontend::GetOutputHostPointer<int>());
+        if (gvirtus_drqcache::enabled()) gvirtus_drqcache::attr_put((int)attrib, (int)dev, *pi);
+    }
     return CudaDrFrontend::GetExitCode();
 }
 
