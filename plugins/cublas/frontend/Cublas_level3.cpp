@@ -56,7 +56,7 @@ cublasSgemm_v2(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_
     CublasFrontend::AddHostPointerForArguments<const float>(beta);
     CublasFrontend::AddDevicePointerForArguments(C);
     CublasFrontend::AddVariableForArguments<int>(ldc);
-    CublasFrontend::Execute("cublasSgemm_v2");
+    CublasFrontend::ExecuteMaybeAsync("cublasSgemm_v2");
     return CublasFrontend::GetExitCode();
 }
 
@@ -85,7 +85,7 @@ extern "C" CUBLASAPI cublasStatus_t CUBLASWINAPI cublasSgemmBatched(
     CublasFrontend::AddDevicePointerForArguments(Carray);
     CublasFrontend::AddVariableForArguments<int>(ldc);
     CublasFrontend::AddVariableForArguments<int>(batchCount);
-    CublasFrontend::Execute("cublasSgemmBatched_v2");
+    CublasFrontend::ExecuteMaybeAsync("cublasSgemmBatched_v2");
     if (CublasFrontend::Success()) Carray = (float **)CublasFrontend::GetOutputDevicePointer();
     return CublasFrontend::GetExitCode();
 }
@@ -113,7 +113,7 @@ cublasDgemm_v2(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_
     CublasFrontend::AddDevicePointerForArguments(C);
     CublasFrontend::AddVariableForArguments<int>(ldc);
 
-    CublasFrontend::Execute("cublasDgemm_v2");
+    CublasFrontend::ExecuteMaybeAsync("cublasDgemm_v2");
     return CublasFrontend::GetExitCode();
 }
 
@@ -142,7 +142,7 @@ extern "C" CUBLASAPI cublasStatus_t CUBLASWINAPI cublasDgemmBatched(
     CublasFrontend::AddDevicePointerForArguments(Carray);
     CublasFrontend::AddVariableForArguments<int>(ldc);
     CublasFrontend::AddVariableForArguments<int>(batchCount);
-    CublasFrontend::Execute("cublasDgemmBatched_v2");
+    CublasFrontend::ExecuteMaybeAsync("cublasDgemmBatched_v2");
     if (CublasFrontend::Success()) Carray = (double **)CublasFrontend::GetOutputDevicePointer();
     return CublasFrontend::GetExitCode();
 }
@@ -173,7 +173,7 @@ cublasCgemm_v2(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_
     CublasFrontend::AddDevicePointerForArguments(C);
     CublasFrontend::AddVariableForArguments<int>(ldc);
 
-    CublasFrontend::Execute("cublasCgemm_v2");
+    CublasFrontend::ExecuteMaybeAsync("cublasCgemm_v2");
     if (CublasFrontend::Success()) C = (cuComplex *)CublasFrontend::GetOutputDevicePointer();
     return CublasFrontend::GetExitCode();
 }
@@ -204,7 +204,7 @@ cublasCgemmBatched(cublasHandle_t handle, cublasOperation_t transa, cublasOperat
     CublasFrontend::AddDevicePointerForArguments(Carray);
     CublasFrontend::AddVariableForArguments<int>(ldc);
     CublasFrontend::AddVariableForArguments<int>(batchCount);
-    CublasFrontend::Execute("cublasCgemmBatched_v2");
+    CublasFrontend::ExecuteMaybeAsync("cublasCgemmBatched_v2");
     if (CublasFrontend::Success()) Carray = (cuComplex **)CublasFrontend::GetOutputDevicePointer();
     return CublasFrontend::GetExitCode();
 }
@@ -235,7 +235,7 @@ cublasZgemm_v2(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_
     CublasFrontend::AddDevicePointerForArguments(C);
     CublasFrontend::AddVariableForArguments<int>(ldc);
 
-    CublasFrontend::Execute("cublasZgemm_v2");
+    CublasFrontend::ExecuteMaybeAsync("cublasZgemm_v2");
     if (CublasFrontend::Success()) C = (cuDoubleComplex *)CublasFrontend::GetOutputDevicePointer();
     return CublasFrontend::GetExitCode();
 }
@@ -266,7 +266,7 @@ extern "C" CUBLASAPI cublasStatus_t CUBLASWINAPI cublasZgemmBatched(
     CublasFrontend::AddDevicePointerForArguments(Carray);
     CublasFrontend::AddVariableForArguments<int>(ldc);
     CublasFrontend::AddVariableForArguments<int>(batchCount);
-    CublasFrontend::Execute("cublasZgemmBatched_v2");
+    CublasFrontend::ExecuteMaybeAsync("cublasZgemmBatched_v2");
     if (CublasFrontend::Success())
         Carray = (cuDoubleComplex **)CublasFrontend::GetOutputDevicePointer();
     return CublasFrontend::GetExitCode();
@@ -1067,7 +1067,7 @@ cublasHgemm(cublasHandle_t handle, cublasOperation_t transa, cublasOperation_t t
             int k, const __half *alpha, const __half *A, int lda, const __half *B, int ldb,
             const __half *beta, __half *C, int ldc) {
     CublasFrontend::Prepare();
-    CublasFrontend::Execute("cublasHgemm");
+    CublasFrontend::ExecuteMaybeAsync("cublasHgemm");
     return CublasFrontend::GetExitCode();
 }
 
@@ -1078,7 +1078,7 @@ extern "C" CUBLASAPI cublasStatus_t CUBLASWINAPI cublasHgemmStridedBatched(
     long long int strideB, const __half *beta, __half *C, int ldc, long long int strideC,
     int batchCount) {
     CublasFrontend::Prepare();
-    CublasFrontend::Execute("cublasHgemmStridedBatched");
+    CublasFrontend::ExecuteMaybeAsync("cublasHgemmStridedBatched");
     return CublasFrontend::GetExitCode();
 }
 
@@ -1088,7 +1088,7 @@ extern "C" CUBLASAPI cublasStatus_t CUBLASWINAPI cublasHgemmBatched(
     const __half *alpha, const __half *const Aarray[], int lda, const __half *const Barray[],
     int ldb, const __half *beta, __half *const Carray[], int ldc, int batchCount) {
     CublasFrontend::Prepare();
-    CublasFrontend::Execute("cublasHgemmBatched");
+    CublasFrontend::ExecuteMaybeAsync("cublasHgemmBatched");
     return CublasFrontend::GetExitCode();
 }
 
@@ -1116,6 +1116,6 @@ extern "C" CUBLASAPI cublasStatus_t CUBLASWINAPI cublasSgemmStridedBatched(
     CublasFrontend::AddVariableForArguments<int>(ldc);
     CublasFrontend::AddVariableForArguments<long long int>(strideC);
     CublasFrontend::AddVariableForArguments<int>(batchCount);
-    CublasFrontend::Execute("cublasSgemmStridedBatched");
+    CublasFrontend::ExecuteMaybeAsync("cublasSgemmStridedBatched");
     return CublasFrontend::GetExitCode();
 }

@@ -29,6 +29,7 @@
 #include <CudaRt_internal.h>
 
 #include "CudaRt.h"
+#include "CudaRt_lazyfatbin.h"
 
 using namespace std;
 
@@ -47,6 +48,9 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaConfigureCall(dim3 gridDim, dim3 b
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaFuncGetAttributes(struct cudaFuncAttributes *attr,
                                                                 const void *func) {
+    // Consultar atributos no pasa por el lanzamiento: si el fatbin sigue pendiente hay
+    // que enviarlo antes o el backend no conoce la funcion.
+    if (gvirtus_lazyfat::enabled()) gvirtus_lazyfat::ensure_for_hostfun(func);
     CudaRtFrontend::Prepare();
     CudaRtFrontend::AddHostPointerForArguments(attr);
     CudaRtFrontend::AddVariableForArguments((gvirtus::common::pointer_t)func);
@@ -117,6 +121,7 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaSetupArgument(const void *arg, siz
 // TODO: needs testing
 extern "C" __host__ cudaError_t cudaLaunchKernelExC(const cudaLaunchConfig_t *config,
                                                     const void *func, void **args) {
+    if (gvirtus_lazyfat::enabled()) gvirtus_lazyfat::ensure_for_hostfun(func);
     CudaRtFrontend::Prepare();
 
     // A vector with the mapped pointers to be marshalled and unmarshalled
@@ -179,6 +184,7 @@ extern "C" __host__ cudaError_t cudaLaunchHostFunc(cudaStream_t stream, cudaHost
 extern "C" __host__ cudaError_t cudaLaunchKernel(const void *func, dim3 gridDim, dim3 blockDim,
                                                  void **args, size_t sharedMem,
                                                  cudaStream_t stream) {
+    if (gvirtus_lazyfat::enabled()) gvirtus_lazyfat::ensure_for_hostfun(func);
     CudaRtFrontend::Prepare();
     CudaRtFrontend::AddDevicePointerForArguments(func);
     CudaRtFrontend::AddVariableForArguments(gridDim);

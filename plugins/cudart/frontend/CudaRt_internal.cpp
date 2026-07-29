@@ -35,6 +35,7 @@
 #include <stack>
 
 #include "CudaRt.h"
+#include "CudaRt_lazyfatbin.h"
 
 // Helper: allocate and copy section headers table
 Elf64_Shdr *copySectionHeaders(const Elf64_Ehdr *eh) {
@@ -235,6 +236,13 @@ extern "C" __host__ void **__cudaRegisterFatBinary(void *fatCubin) {
         remaining_size -= (fatBinData->headerSize + fatBinData->paddedPayloadSize);
     }
 
+    // El analisis local de arriba se conserva: de el salen las tablas de parametros de
+    // kernel que necesita el lanzamiento. Lo que se difiere es el ENVIO.
+    if (gvirtus_lazyfat::enabled()) {
+        gvirtus_lazyfat::note_fatbin((void **)fatCubin, bin);
+        return (void **)fatCubin;
+    }
+
     Buffer *input_buffer = new Buffer();
     input_buffer->AddString(CudaUtil::MarshalHostPointer((void **)bin));
     input_buffer = CudaUtil::MarshalFatCudaBinary(bin, input_buffer);
@@ -255,6 +263,11 @@ extern "C" __host__ void **__cudaRegisterFatBinaryEnd(void *fatCubin) {
     input_buffer->AddString(CudaUtil::MarshalHostPointer((void **)bin));
     input_buffer = CudaUtil::MarshalFatCudaBinary(bin, input_buffer);
 
+    if (gvirtus_lazyfat::enabled()) {
+        gvirtus_lazyfat::note_fatbin_end((void **)fatCubin, bin);
+        return (void **)fatCubin;
+    }
+
     CudaRtFrontend::Prepare();
     CudaRtFrontend::Execute("cudaRegisterFatBinaryEnd", input_buffer);
     if (CudaRtFrontend::Success()) return (void **)fatCubin;
@@ -271,6 +284,15 @@ extern "C" __host__ void __cudaRegisterFunction(void **fatCubinHandle, const cha
                                                 char *deviceFun, const char *deviceName,
                                                 int thread_limit, uint3 *tid, uint3 *bid,
                                                 dim3 *bDim, dim3 *gDim, int *wSize) {
+    // note_function devuelve false si el handle no estaba diferido; en ese caso hay que
+    // caer a la via normal. Retornar incondicionalmente perdia esas registraciones en
+    // silencio y su kernel fallaba luego con cudaErrorInvalidDeviceFunction.
+    if (gvirtus_lazyfat::enabled() &&
+        gvirtus_lazyfat::note_function(fatCubinHandle, (const void *)hostFun, deviceFun,
+                                       deviceName, thread_limit, tid, bid, bDim, gDim, wSize)) {
+        CudaRtFrontend::addHost2DeviceFunc((void *)hostFun, deviceFun);
+        return;
+    }
     CudaRtFrontend::Prepare();
     CudaRtFrontend::AddStringForArguments(CudaUtil::MarshalHostPointer(fatCubinHandle));
 
@@ -299,6 +321,11 @@ extern "C" __host__ void __cudaRegisterFunction(void **fatCubinHandle, const cha
 extern "C" __host__ void __cudaRegisterVar(void **fatCubinHandle, char *hostVar,
                                            char *deviceAddress, const char *deviceName, int ext,
                                            int size, int constant, int global) {
+    if (gvirtus_lazyfat::enabled() &&
+        gvirtus_lazyfat::note_var(fatCubinHandle, hostVar, deviceAddress, deviceName, ext, size,
+                                  constant, global)) {
+        return;
+    }
     CudaRtFrontend::Prepare();
     CudaRtFrontend::AddStringForArguments(CudaUtil::MarshalHostPointer(fatCubinHandle));
     CudaRtFrontend::AddStringForArguments(CudaUtil::MarshalHostPointer(hostVar));

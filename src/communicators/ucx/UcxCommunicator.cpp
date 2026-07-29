@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <dlfcn.h>
+#include <ucm/api/ucm.h>
 #include <limits>
 #include <malloc.h>
 #include <mutex>
@@ -299,6 +300,84 @@ struct SrcRegHookRegistrar {
 };
 SrcRegHookRegistrar g_src_reg_hook_registrar;
 
+// ---------------------------------------------------------------------------------
+// Invalidacion por UCM: poder cachear destinos que NO asignamos nosotros.
+//
+// La cache de registros solo admite buferes cuyo free nos llega (cudaFree/cudaFreeHost).
+// Un array de numpy no cumple eso, asi que se registra en cada llamada. Con UCM nos
+// enteramos de los unmap que ocurren DENTRO de glibc, cosa que interponer munmap por
+// LD_PRELOAD no consigue (medido: dispara con un mmap/munmap explicito y nunca con los
+// free de numpy, porque glibc desmapea por una ruta que no pasa por la PLT).
+//
+// El unmap real va DIFERIDO: el callback corre dentro de free(), potencialmente con los
+// cerrojos del asignador tomados, asi que solo saca la entrada del mapa y encola el
+// memh. Igual que hace el rcache de UCX con su lista de basura.
+//
+// RESULTADO MEDIDO: cierra el ancho de banda (pageable 11,4 -> 23,0 GB/s) pero EMPEORA
+// el ETL de cuDF, porque to_pandas libera su destino en cada batch y la correccion
+// obliga a invalidar al liberar => la cache no puede acertar nunca. Se deja apagado.
+// ---------------------------------------------------------------------------------
+
+// Protegida por g_src_reg_mu.
+std::vector<std::pair<ucp_context_h, ucp_mem_h>> g_reg_garbage;
+
+void drain_reg_garbage() {
+    std::vector<std::pair<ucp_context_h, ucp_mem_h>> local;
+    {
+        std::lock_guard<std::mutex> lk(g_src_reg_mu);
+        if (g_reg_garbage.empty()) return;
+        local.swap(g_reg_garbage);
+    }
+    for (auto &d : local) ucp_mem_unmap(d.first, d.second);
+}
+
+// Se llama DESDE free(): nada de logs, nada de UCX, solo mover punteros.
+void src_reg_invalidate_range(const void *addr, size_t len) {
+    if (addr == nullptr || len == 0) return;
+    const uintptr_t lo = reinterpret_cast<uintptr_t>(addr);
+    const uintptr_t hi = lo + len;
+    std::lock_guard<std::mutex> lk(g_src_reg_mu);
+    for (auto it = g_src_regs.begin(); it != g_src_regs.end();) {
+        const uintptr_t a = reinterpret_cast<uintptr_t>(it->first.addr);
+        const uintptr_t b = a + it->second.len;
+        if (a < hi && lo < b) {
+            g_reg_garbage.emplace_back(it->first.ctx, it->second.memh);
+            it = g_src_regs.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+// Modo 2, solo diagnostico: handler instalado pero sin hacer nada y sin activar el
+// cacheo, para separar el coste de la maquinaria de UCM del de nuestro callback.
+bool g_ucm_noop = false;
+
+void gvs_ucm_unmapped_cb(ucm_event_type_t type, ucm_event_t *event, void *arg) {
+    (void)arg;
+    if (g_ucm_noop) return;
+    if ((type & UCM_EVENT_VM_UNMAPPED) == 0) return;
+    src_reg_invalidate_range(event->vm_unmapped.address, event->vm_unmapped.size);
+}
+
+struct UcmInvalidateRegistrar {
+    UcmInvalidateRegistrar() {
+        const char *v = std::getenv("GVIRTUS_UCM_INVALIDATE");
+        if (v == nullptr) return;
+        if (v[0] == '2') g_ucm_noop = true;
+        else if (v[0] != '1') return;
+        ucs_status_t st = ucm_set_event_handler(UCM_EVENT_VM_UNMAPPED, 0,
+                                                gvs_ucm_unmapped_cb, nullptr);
+        if (st == UCS_OK) {
+            if (!g_ucm_noop) gvirtus::communicators::SetHostUnmapTrackingActive(true);
+            ucx_debug_log("UCM: handler de VM_UNMAPPED instalado (noop=%d)", (int)g_ucm_noop);
+        } else {
+            ucx_debug_log("UCM: ucm_set_event_handler fallo (%d)", (int)st);
+        }
+    }
+};
+UcmInvalidateRegistrar g_ucm_invalidate_registrar;
+
 // Obtain a registration for an application buffer, shared by the H2D source and the
 // D2H destination -- ucp_mem_map is direction-agnostic and a buffer may well be both.
 //
@@ -310,6 +389,9 @@ ucp_mem_h acquire_app_registration(ucp_context_h ctx, const void *addr, size_t l
                                    bool cacheable, bool is_cuda, bool &out_owned) {
     out_owned = false;
     if (ctx == nullptr || addr == nullptr || len == 0) return nullptr;
+
+    // Contexto seguro para soltar lo que invalido el callback de UCM (ver arriba).
+    drain_reg_garbage();
 
     auto fill = [&](ucp_mem_map_params_t &mp) {
         mp.field_mask = UCP_MEM_MAP_PARAM_FIELD_ADDRESS | UCP_MEM_MAP_PARAM_FIELD_LENGTH;
@@ -2462,6 +2544,48 @@ bool UcxCommunicator::PrepareGpuGet(void *gpu_addr, size_t len,
 // into `dst_host` (the caller's pinned host buffer — UCX registers it on the
 // fly; the client-side rcache works). Single-threaded per connection (same
 // contract as WriteIovRma), so no worker_mutex_ needed. Returns false on error.
+// Desglose por fases del GET (GVIRTUS_D2H_PHASES=1).
+//
+// Las trazas de perfil situan el 94,6 % del coste del D2H dentro de esta funcion: 9,3 ms
+// por columna de 62,5 MiB cuando la transferencia pura son 2,7 ms a los 23 GB/s medidos
+// con ib_read_bw. Esto reparte esos 9,3 ms entre registrar el destino, transferir y
+// desregistrar, para saber cuanto es recuperable y cuanto es fisica.
+//
+// Se acumula y se imprime cada 64 llamadas: un fprintf por transferencia falsearia justo
+// lo que se quiere medir.
+namespace {
+struct D2hPhases {
+    std::atomic<long> n{0}, reg{0}, xfer{0}, dereg{0};
+};
+D2hPhases &d2h_phases() { static D2hPhases p; return p; }
+
+bool d2h_phases_on() {
+    static const bool on = [] {
+        const char *v = std::getenv("GVIRTUS_D2H_PHASES");
+        return v != nullptr && v[0] == '1';
+    }();
+    return on;
+}
+
+inline long d2h_us(const std::chrono::steady_clock::time_point &a,
+                   const std::chrono::steady_clock::time_point &b) {
+    return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count();
+}
+
+void d2h_phases_report(long reg, long xfer, long dereg) {
+    auto &p = d2h_phases();
+    p.reg.fetch_add(reg); p.xfer.fetch_add(xfer); p.dereg.fetch_add(dereg);
+    const long n = p.n.fetch_add(1) + 1;
+    if (n % 64 != 0) return;
+    std::fprintf(stderr,
+                 "[GVS D2H FASES] n=%ld reg=%.0fus xfer=%.0fus dereg=%.0fus total=%.0fus\n",
+                 n, (double)p.reg.load()/n, (double)p.xfer.load()/n,
+                 (double)p.dereg.load()/n,
+                 (double)(p.reg.load()+p.xfer.load()+p.dereg.load())/n);
+    std::fflush(stderr);
+}
+}  // namespace
+
 bool UcxCommunicator::GetFromRemoteGpu(void *dst_host, std::uint64_t remote_addr,
                                        const void *rkey_blob, size_t rkey_len,
                                        size_t count) {
@@ -2514,6 +2638,8 @@ bool UcxCommunicator::GetFromRemoteGpu(void *dst_host, std::uint64_t remote_addr
     // right one, and is what the H2D source ended up doing. Same registry, same
     // invalidation on cudaFreeHost/cudaFree, same "only cache what we will be told
     // about" rule -- a pageable destination is still registered per call.
+    const bool ph = d2h_phases_on();
+    const auto t_reg0 = std::chrono::steady_clock::now();
     bool dst_memh_owned = false;
     ucp_mem_h dst_memh = acquire_app_registration(
         context_, dst_host, count,
@@ -2524,6 +2650,8 @@ bool UcxCommunicator::GetFromRemoteGpu(void *dst_host, std::uint64_t remote_addr
                       "(falling back to on-the-fly reg)");
     }
 
+    const auto t_reg1 = std::chrono::steady_clock::now();
+
     ucp_request_param_t param{};
     if (dst_memh != nullptr) {
         param.op_attr_mask = UCP_OP_ATTR_FIELD_MEMH;
@@ -2531,6 +2659,7 @@ bool UcxCommunicator::GetFromRemoteGpu(void *dst_host, std::uint64_t remote_addr
     } else {
         param.op_attr_mask = 0;
     }
+    const auto t_xfer0 = std::chrono::steady_clock::now();
     void *req = ucp_get_nbx(endpoint_, dst_host, count, remote_addr, rkey, &param);
     try {
         wait_request_completion(req, "d2h_get");
@@ -2544,8 +2673,14 @@ bool UcxCommunicator::GetFromRemoteGpu(void *dst_host, std::uint64_t remote_addr
     // reintroduce exactly the stale-address hazard this call was changed to avoid, and
     // it also stops the process accumulating registrations for buffers it has freed
     // (which is what made teardown corrupt the heap).
+    const auto t_xfer1 = std::chrono::steady_clock::now();
     if (dst_memh_owned) ucp_mem_unmap(context_, dst_memh);
+    const auto t_dereg1 = std::chrono::steady_clock::now();
     ucp_rkey_destroy(rkey);
+    if (ph) {
+        d2h_phases_report(d2h_us(t_reg0, t_reg1), d2h_us(t_xfer0, t_xfer1),
+                          d2h_us(t_xfer1, t_dereg1));
+    }
     return true;
 }
 

@@ -27,6 +27,8 @@
  */
 
 #include "CudaRt.h"
+#include "CudaRt_lazyfatbin.h"
+#include <dlfcn.h>
 
 #include <cstdint>
 #include <map>
@@ -98,7 +100,12 @@ bool gvirtus_is_pinned(const void *dst, size_t count) {
 static bool gvirtus_registration_cacheable(const void *addr, size_t len) {
     if (addr == nullptr || len == 0) return false;
     if (CudaRtFrontend::isDevicePointer(const_cast<void *>(addr))) return true;
-    return gvirtus_is_pinned(addr, len);
+    if (gvirtus_is_pinned(addr, len)) return true;
+    // Host pageable: cacheable SOLO si el transporte instalo el hook de UCM y por tanto
+    // se entera de los free que no pasan por nosotros. Sin el, seguimos respondiendo
+    // false y se registra por llamada, que es lo correcto para una direccion cuya vida
+    // no controlamos. Ver Communicator.h.
+    return gvirtus::communicators::HostUnmapTrackingActive();
 }
 
 namespace {
@@ -110,7 +117,24 @@ struct RegCacheableRegistrar {
 RegCacheableRegistrar g_reg_cacheable_registrar;
 }  // namespace
 
-cudaMemcpyKind inferMemcpyKind(void *dst, const void *src) {
+
+/* Clasifica un puntero preguntando al Driver API. Devuelve true si el driver lo
+ * reconoce, y deja en *is_host si es memoria de host. Resuelto por dlsym: sin
+ * dependencia de enlace entre libcudart y libcuda. */
+static bool gvs_pointer_is_host(const void *p, bool *is_host) {
+    typedef int (*gvs_pga_t)(void *, int, unsigned long long);
+    static gvs_pga_t pga =
+        reinterpret_cast<gvs_pga_t>(dlsym(RTLD_DEFAULT, "cuPointerGetAttribute"));
+    if (pga == nullptr || p == nullptr) return false;
+    unsigned int memtype = 0;
+    /* CU_POINTER_ATTRIBUTE_MEMORY_TYPE = 2, CU_MEMORYTYPE_HOST = 1 */
+    if (pga(&memtype, 2, static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(p))) != 0)
+        return false;
+    *is_host = (memtype == 1u);
+    return true;
+}
+
+static cudaMemcpyKind inferMemcpyKind_impl(void *dst, const void *src) {
     if (CudaRtFrontend::isDevicePointer(dst) && CudaRtFrontend::isDevicePointer(src)) {
         return cudaMemcpyDeviceToDevice;
     } else if (CudaRtFrontend::isDevicePointer(dst) && !CudaRtFrontend::isDevicePointer(src)) {
@@ -127,8 +151,74 @@ cudaMemcpyKind inferMemcpyKind(void *dst, const void *src) {
         bool srcDev = CudaRtFrontend::isInDeviceRange(src);
         if (srcDev && !dstDev) return cudaMemcpyDeviceToHost;
         if (dstDev && !srcDev) return cudaMemcpyHostToDevice;
+
+        // Antes de conjeturar D2D, preguntar al driver. La memoria host de
+        // cuMemHostAlloc (Driver API) no esta en NINGUN registro del runtime, y
+        // asumirla device hacia que el backend recibiera un puntero host como
+        // si fuera de dispositivo -> cudaErrorInvalidValue. Tumbaba 12 de las
+        // 22 consultas de PDS-H (2026-07-28).
+        bool dstHost = false, srcHost = false;
+        const bool dstKnown = gvs_pointer_is_host(dst, &dstHost);
+        const bool srcKnown = gvs_pointer_is_host(src, &srcHost);
+        if (dstKnown && srcKnown) {
+            if (dstHost && srcHost) return cudaMemcpyHostToHost;
+            if (dstHost && !srcHost) return cudaMemcpyDeviceToHost;
+            if (!dstHost && srcHost) return cudaMemcpyHostToDevice;
+            return cudaMemcpyDeviceToDevice;
+        }
+        // Un solo extremo reconocido: ese manda, el otro es el contrario.
+        // Faltaban las dos ramas de abajo (driver dice DEVICE), que son
+        // precisamente las que aparecen en PDS-H.
+        if (dstKnown && !srcKnown) {
+            return dstHost ? cudaMemcpyDeviceToHost : cudaMemcpyHostToDevice;
+        }
+        if (srcKnown && !dstKnown) {
+            return srcHost ? cudaMemcpyHostToDevice : cudaMemcpyDeviceToHost;
+        }
+
         return cudaMemcpyDeviceToDevice;
     }
+}
+
+
+static bool gvs_memcpy_trace() {
+    static const bool on = [] {
+        const char *v = getenv("GVIRTUS_MEMCPY_TRACE");
+        return v != nullptr && v[0] == '1' && v[1] == '\0';
+    }();
+    return on;
+}
+
+static const char *gvs_kind_name(cudaMemcpyKind k) {
+    switch (k) {
+        case cudaMemcpyHostToHost:     return "H2H";
+        case cudaMemcpyHostToDevice:   return "H2D";
+        case cudaMemcpyDeviceToHost:   return "D2H";
+        case cudaMemcpyDeviceToDevice: return "D2D";
+        case cudaMemcpyDefault:        return "DEFAULT";
+        default:                       return "?";
+    }
+}
+
+cudaMemcpyKind inferMemcpyKind(void *dst, const void *src) {
+    const cudaMemcpyKind k = inferMemcpyKind_impl(dst, src);
+    if (gvs_memcpy_trace()) {
+        bool dh = false, sh = false;
+        const bool dk = gvs_pointer_is_host(dst, &dh);
+        const bool sk = gvs_pointer_is_host(src, &sh);
+        fprintf(stderr,
+                "[GVS MEMCPY] dst=%p src=%p -> %s | registro: dst=%d src=%d | "
+                "rango: dst=%d src=%d | driver: dst=%s src=%s\n",
+                dst, src, gvs_kind_name(k),
+                (int)CudaRtFrontend::isDevicePointer(dst),
+                (int)CudaRtFrontend::isDevicePointer(src),
+                (int)CudaRtFrontend::isInDeviceRange(dst),
+                (int)CudaRtFrontend::isInDeviceRange(src),
+                dk ? (dh ? "HOST" : "DEV") : "desconocido",
+                sk ? (sh ? "HOST" : "DEV") : "desconocido");
+        fflush(stderr);
+    }
+    return k;
 }
 
 cudaMemcpyKind inferMemcpyKindFromDevice(void *dst) {
@@ -198,6 +288,10 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaFreeHost(void *ptr) {
 }
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaGetSymbolAddress(void **devPtr, const void *symbol) {
+    // Ruta de simbolo: no pasa por un lanzamiento, asi que no sabemos a que
+    // fatbin toca. Se envian todos: conservador, pero nunca se consulta un
+    // modulo que el backend no conoce.
+    if (gvirtus_lazyfat::enabled()) gvirtus_lazyfat::flush_all();
     CudaRtFrontend::Prepare();
     // Achtung: skip adding devPtr
     CudaRtFrontend::AddSymbolForArguments((char *)symbol);
@@ -208,6 +302,10 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaGetSymbolAddress(void **devPtr, co
 }
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaGetSymbolSize(size_t *size, const void *symbol) {
+    // Ruta de simbolo: no pasa por un lanzamiento, asi que no sabemos a que
+    // fatbin toca. Se envian todos: conservador, pero nunca se consulta un
+    // modulo que el backend no conoce.
+    if (gvirtus_lazyfat::enabled()) gvirtus_lazyfat::flush_all();
     CudaRtFrontend::Prepare();
     CudaRtFrontend::AddHostPointerForArguments(size);
     CudaRtFrontend::AddSymbolForArguments((char *)symbol);
@@ -745,10 +843,17 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpyAsync(void *dst, const void 
                 // at every synchronization point before the caller observes dst.
                 CudaRtFrontend::ExecuteDeferredD2H("cudaMemcpyAsync", dst, count);
             } else {
+                // Registrar el destino igual que la ruta sincrona. El backend
+                // activa el camino client-GET segun el payload y la conexion, sin
+                // saber si el cliente registro destino; sin esto, con GPUDirect
+                // llegaba el descriptor y no habia donde depositarlo
+                // ("D2H-GET response without output destination", q10 de PDS-H).
+                CudaRtFrontend::SetOutputDestination(dst, count);
                 CudaRtFrontend::Execute("cudaMemcpyAsync");
-                if (CudaRtFrontend::Success()) {
+                if (CudaRtFrontend::Success() && !CudaRtFrontend::DirectOutputConsumed()) {
                     memmove(dst, CudaRtFrontend::GetOutputHostPointer<char>(count), count);
                 }
+                CudaRtFrontend::ClearOutputDestination();
             }
             break;
         case cudaMemcpyDeviceToDevice:

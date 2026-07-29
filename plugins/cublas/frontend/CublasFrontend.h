@@ -38,12 +38,48 @@
 #include <cublasLt.h>
 #include <cublas_v2.h>
 #include <gvirtus/frontend/Frontend.h>
+#include <cstdlib>
+#include <cstring>
 
 class CublasFrontend {
    public:
     static inline void Execute(const char *routine,
                                const gvirtus::communicators::Buffer *input_buffer = NULL) {
         gvirtus::frontend::Frontend::GetFrontend()->Execute(routine, input_buffer);
+    }
+
+    // Fire-and-forget dispatch for the level-3 GEMM family (GVIRTUS_CUBLAS_ASYNC=1).
+    //
+    // WHY. Prefill in llama.cpp goes through cuBLAS (ggml-cuda.cu calls cublasSgemm /
+    // cublasGemmEx / cublasGemmStridedBatchedEx for matrix-matrix work), while decode uses
+    // ggml's own kernels -- which are already on the cudart async allowlist AND collapsed
+    // into a CUDA graph. That asymmetry is measurable: enabling graphs improves TPOT 3.8x
+    // (70.4 -> 18.7 ms) but TTFT only 15% (284 -> 241 ms), because no cuBLAS call was ever
+    // async, so every GEMM paid a full 18.5 us round trip. Prefill is therefore the phase
+    // still fully exposed to the per-RPC floor, and it is what drags effective batch from
+    // 7.80 (baremetal) to 6.32 and costs ~11% goodput at C8.
+    //
+    // WHY IT IS SAFE. These stubs are the same shape as cudaLaunchKernel, which has been
+    // fire-and-forget for a while: every argument is an input, the result lands in device
+    // memory, and the stub returns only a status (`return GetExitCode()`), reading no output
+    // buffer. Errors fold into the next synchronous call exactly as they do for launches.
+    //
+    // DEFAULT OFF. Separate gate from GVIRTUS_ASYNC_DISPATCH so it can be ablated on its own
+    // and so a backend rebuilt mid-campaign keeps its previous behaviour untouched.
+    static inline bool AsyncGemmEnabled() {
+        static const bool enabled = []() {
+            const char *v = std::getenv("GVIRTUS_CUBLAS_ASYNC");
+            return v != nullptr && v[0] == '1' && v[1] == '\0';
+        }();
+        return enabled;
+    }
+
+    static inline void ExecuteMaybeAsync(const char *routine,
+                                         const gvirtus::communicators::Buffer *input_buffer = NULL) {
+        if (AsyncGemmEnabled())
+            gvirtus::frontend::Frontend::GetFrontend()->ExecuteAsync(routine, input_buffer);
+        else
+            gvirtus::frontend::Frontend::GetFrontend()->Execute(routine, input_buffer);
     }
 
     /**

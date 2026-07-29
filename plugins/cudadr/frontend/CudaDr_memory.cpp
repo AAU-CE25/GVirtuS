@@ -79,9 +79,25 @@ extern "C" CUresult cuMemcpyDtoH(void *dstHost, CUdeviceptr srcDevice, size_t By
     CudaDrFrontend::Prepare();
     CudaDrFrontend::AddVariableForArguments(srcDevice);
     CudaDrFrontend::AddVariableForArguments(ByteCount);
+    /* Registrar el destino habilita las dos rutas rapidas del Frontend generico,
+     * segun lo que devuelva el backend:
+     *   - si adjunta payload de GPU, el RDMA GET escribe DIRECTAMENTE aqui, sin
+     *     que los bytes crucen la red como carga util del mensaje;
+     *   - si no, la copia directa de Fase 4 se ahorra una de las dos copias de
+     *     62,5 MiB por columna.
+     * Cuando ninguna aplica, DirectOutputConsumed() sigue en false y el memmove
+     * de siempre hace su trabajo.
+     *
+     * Este registro no es opcional una vez el backend sabe adjuntar payload: sin
+     * el, Execute() lanza "D2H-GET response without output destination". Falla
+     * ruidosamente en vez de leer basura, que es lo que se quiere, pero falla. */
+    CudaDrFrontend::SetOutputDestination(dstHost, ByteCount);
     CudaDrFrontend::Execute("cuMemcpyDtoH");
-    if (CudaDrFrontend::Success())
+    if (CudaDrFrontend::Success() && !CudaDrFrontend::DirectOutputConsumed())
         memmove(dstHost, CudaDrFrontend::GetOutputHostPointer<char>(ByteCount), ByteCount);
+    /* Limpiar SIEMPRE, tambien tras un fallo: el destino es estado por hilo del
+     * Frontend y una llamada posterior lo heredaria. */
+    CudaDrFrontend::ClearOutputDestination();
     return CudaDrFrontend::GetExitCode();
 }
 
@@ -163,7 +179,13 @@ extern "C" CUresult cuMemGetAddressRange(CUdeviceptr *pbase, size_t *psize, CUde
     CudaDrFrontend::Execute("cuMemGetAddressRange");
     if (CudaDrFrontend::Success()) {
         *pbase = (CUdeviceptr)(CudaDrFrontend::GetOutputDevicePointer());
-        *psize = *(CudaDrFrontend::GetOutputHostPointer<size_t>());
+        // El backend hace out->Add(psize), que escribe el escalar CRUDO.
+        // GetOutputHostPointer<T>() espera el formato de Add(puntero, n) --con
+        // prefijo de longitud-- asi que tomaba el propio tamano como longitud y
+        // leia fuera del buffer: "Buffer::Assign(n): Can't read unsigned long".
+        // Mismo fallo que ya tuvo cuMemGetInfo, corregido del mismo modo.
+        // Alcanzado por el lector de Parquet de cuDF (2026-07-28).
+        *psize = CudaDrFrontend::GetOutputVariable<size_t>();
     }
     return CudaDrFrontend::GetExitCode();
 }
@@ -197,12 +219,8 @@ extern "C" CUresult cuArrayGetDescriptor(CUDA_ARRAY_DESCRIPTOR *pArrayDescriptor
     return (CUresult)1;
 }
 
-extern "C" CUresult cuMemAllocHost(void **pp, size_t bytesize) {
-    // FIXME: implement
-    cerr << "*** Error: cuMemAllocHost() not yet implemented!" << endl;
-    return (CUresult)1;
-}
-
+/* cuMemAllocHost: implementada en CudaDr_hostmem.cpp (2026-07-28). Se retira de
+ * aqui para que exista una unica definicion exportada del simbolo. */
 extern "C" CUresult cuMemcpy2DAsync(const CUDA_MEMCPY2D *pCopy, CUstream hStream) {
     // FIXME: implement
     cerr << "*** Error: cuMemcpy2Dasync() not yet implemented!" << endl;
@@ -275,13 +293,8 @@ extern "C" CUresult cuMemcpyDtoDAsync(CUdeviceptr dstDevice, CUdeviceptr srcDevi
     return (CUresult)1;
 }
 
-extern "C" CUresult cuMemcpyDtoHAsync(void *dstHost, CUdeviceptr srcDevice, size_t ByteCount,
-                                      CUstream hStream) {
-    // FIXME: implement
-    cerr << "*** Error: cuMemcpyDtoHAsync() not yet implemented!" << endl;
-    return (CUresult)1;
-}
-
+/* cuMemcpyDtoHAsync: implementada en CudaDr_hostmem.cpp (2026-07-28). Se retira de
+ * aqui para que exista una unica definicion exportada del simbolo. */
 extern "C" CUresult cuMemcpyHtoA(CUarray dstArray, size_t dstIndex, const void *pSrc,
                                  size_t ByteCount) {
     // FIXME: implement
@@ -296,37 +309,20 @@ extern "C" CUresult cuMemcpyHtoAAsync(CUarray dstArray, size_t dstIndex, const v
     return (CUresult)1;
 }
 
-extern "C" CUresult cuMemcpyHtoDAsync(CUdeviceptr dstDevice, const void *srcHost, size_t ByteCount,
-                                      CUstream hStream) {
-    // FIXME: implement
-    cerr << "*** Error: cuMemcpyHtoDAsync() not yet implemented!" << endl;
-    return (CUresult)1;
-}
-
-extern "C" CUresult cuMemFreeHost(void *p) {
-    // FIXME: implement
-    cerr << "*** Error: cuMemFreeHost() not yet implemented!" << endl;
-    return (CUresult)1;
-}
-
-extern "C" CUresult cuMemHostAlloc(void **pp, size_t bytesize, unsigned int Flags) {
-    // FIXME: implement
-    cerr << "*** Error: cuMemHostAlloc() not yet implemented!" << endl;
-    return (CUresult)1;
-}
-
+/* cuMemcpyHtoDAsync: implementada en CudaDr_hostmem.cpp (2026-07-28). Se retira de
+ * aqui para que exista una unica definicion exportada del simbolo. */
+/* cuMemFreeHost: implementada en CudaDr_hostmem.cpp (2026-07-28). Se retira de
+ * aqui para que exista una unica definicion exportada del simbolo. */
+/* cuMemHostAlloc: implementada en CudaDr_hostmem.cpp (2026-07-28). Se retira de
+ * aqui para que exista una unica definicion exportada del simbolo. */
 extern "C" CUresult cuMemHostGetDevicePointer(CUdeviceptr *pdptr, void *p, unsigned int Flags) {
     // FIXME: implement
     cerr << "*** Error: cuMemHostGetDevicePointer() not yet implemented!" << endl;
     return (CUresult)1;
 }
 
-extern "C" CUresult cuMemHostGetFlags(unsigned int *pFlags, void *p) {
-    // FIXME: implement
-    cerr << "*** Error: cuMemHostGetFlags() not yet implemented!" << endl;
-    return (CUresult)1;
-}
-
+/* cuMemHostGetFlags: implementada en CudaDr_hostmem.cpp (2026-07-28). Se retira de
+ * aqui para que exista una unica definicion exportada del simbolo. */
 extern "C" CUresult cuMemsetD16(CUdeviceptr dstDevice, unsigned short us, size_t N) {
     // FIXME: implement
     cerr << "*** Error: cuMemsetD16() not yet implemented!" << endl;

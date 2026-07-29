@@ -35,7 +35,7 @@ extern "C" CUBLASAPI cublasStatus_t CUBLASWINAPI cublasGemmEx(
     CublasFrontend::AddVariableForArguments<int>(ldc);
     CublasFrontend::AddVariableForArguments<cublasComputeType_t>(computeType);
     CublasFrontend::AddVariableForArguments<cublasGemmAlgo_t>(algo);
-    CublasFrontend::Execute("cublasGemmEx");
+    CublasFrontend::ExecuteMaybeAsync("cublasGemmEx");
     return CublasFrontend::GetExitCode();
 }
 
@@ -69,6 +69,6 @@ extern "C" CUBLASAPI cublasStatus_t CUBLASWINAPI cublasGemmStridedBatchedEx(
     CublasFrontend::AddVariableForArguments<int>(batchCount);
     CublasFrontend::AddVariableForArguments<cublasComputeType_t>(computeType);
     CublasFrontend::AddVariableForArguments<cublasGemmAlgo_t>(algo);
-    CublasFrontend::Execute("cublasGemmStridedBatchedEx");
+    CublasFrontend::ExecuteMaybeAsync("cublasGemmStridedBatchedEx");
     return CublasFrontend::GetExitCode();
 }

@@ -46,6 +46,7 @@ gvirtus_add_frontend(cudart ${CUDA_VERSION}
         frontend/CudaRt_graph.cpp
         frontend/CudaRtFrontend.cpp
         frontend/CudaRt_internal.cpp
+        frontend/CudaRt_lazyfatbin.cpp
         frontend/CudaRt_memory.cpp
         frontend/CudaRt_occupancy.cpp
         frontend/CudaRt_opengl.cpp

@@ -288,6 +288,24 @@ using RegistrationCacheableFn = bool (*)(const void *addr, size_t len);
 void SetRegistrationCacheableHook(RegistrationCacheableFn fn);
 bool RegistrationCacheable(const void *addr, size_t len);
 
+// True once the transport has installed a hook that reports the unmapping of ANY host
+// mapping, not just the allocations this frontend owns.
+//
+// Why it exists. RegistrationCacheable() answers "will we be told when this buffer is
+// freed?", and until now the only honest answer for a plain malloc'd buffer was no:
+// cudaFreeHost comes through us, free() does not. That forced a per-call registration
+// on exactly the destinations cuDF uses (numpy arrays out of to_pandas), which measured
+// 11.3 GB/s against 23.0 for a cacheable one.
+//
+// UCM (UCX's memory hooks) reports vm-unmapped events from *inside* glibc, which plain
+// LD_PRELOAD interposition of munmap cannot do -- measured: interposing munmap fires for
+// an explicit mmap/munmap and never for numpy's free, because glibc unmaps through an
+// internal path that skips the PLT. When the UCX communicator manages to install that
+// handler it flips this flag, and only then may a pageable host buffer be cached.
+// Defaults to false so that a build or deployment without UCM keeps the safe behaviour.
+void SetHostUnmapTrackingActive(bool active);
+bool HostUnmapTrackingActive();
+
 // --- Connection teardown ---------------------------------------------------
 // The backend serves every connection as a detached std::thread sharing one CUDA
 // context, and the plugin handlers are built ONCE per process, not per connection.

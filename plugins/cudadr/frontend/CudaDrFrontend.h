@@ -114,6 +114,27 @@ class CudaDrFrontend {
         return gvirtus::frontend::Frontend::GetFrontend()->Success(CUDA_SUCCESS);
     }
 
+    /* Destino directo para la respuesta de un D2H. El plugin cudart expone estos
+     * tres envoltorios desde hace tiempo; en cudadr faltaban, y sin ellos
+     * cuMemcpyDtoH no puede pedir ni el GET por RDMA ni la copia directa de
+     * Fase 4. Patron de uso:
+     *
+     *   SetOutputDestination(dst, count);
+     *   Execute("...");
+     *   if (Success() && !DirectOutputConsumed())
+     *       memmove(dst, GetOutputHostPointer<char>(count), count);
+     *   ClearOutputDestination();
+     */
+    static inline void SetOutputDestination(void *dst, size_t count) {
+        gvirtus::frontend::Frontend::GetFrontend()->SetOutputDestination(dst, count);
+    }
+    static inline void ClearOutputDestination() {
+        gvirtus::frontend::Frontend::GetFrontend()->ClearOutputDestination();
+    }
+    static inline bool DirectOutputConsumed() {
+        return gvirtus::frontend::Frontend::GetFrontend()->DirectOutputConsumed();
+    }
+
     template <class T>
     static inline T GetOutputVariable() {
         return gvirtus::frontend::Frontend::GetFrontend()->GetOutputBuffer()->Get<T>();

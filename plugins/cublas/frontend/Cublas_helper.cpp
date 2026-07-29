@@ -285,7 +285,7 @@ extern "C" CUBLASAPI cublasStatus_t CUBLASWINAPI cublasCgemmStridedBatched(
     CublasFrontend::AddVariableForArguments<long long int>(strideC);
     CublasFrontend::AddVariableForArguments<int>(batchCount);
 
-    CublasFrontend::Execute("cublasCgemmStridedBatched");
+    CublasFrontend::ExecuteMaybeAsync("cublasCgemmStridedBatched");
     return CublasFrontend::GetExitCode();
 }
 
@@ -528,7 +528,7 @@ extern "C" CUBLASAPI cublasStatus_t CUBLASWINAPI cublasDgemmStridedBatched(
     CublasFrontend::AddVariableForArguments<int>(ldc);
     CublasFrontend::AddVariableForArguments<long long int>(strideC);
     CublasFrontend::AddVariableForArguments<int>(batchCount);
-    CublasFrontend::Execute("cublasDgemmStridedBatched");
+    CublasFrontend::ExecuteMaybeAsync("cublasDgemmStridedBatched");
     return CublasFrontend::GetExitCode();
 }
 
@@ -613,7 +613,7 @@ extern "C" CUBLASAPI cublasStatus_t CUBLASWINAPI cublasSgemmEx(
     CublasFrontend::AddVariableForArguments<int>(ldc);
     // Add the necessary arguments for cublasSgemmEx
     // This is a placeholder as the actual implementation is not provided
-    CublasFrontend::Execute("cublasSgemmEx");
+    CublasFrontend::ExecuteMaybeAsync("cublasSgemmEx");
     return CublasFrontend::GetExitCode();
 }
 
@@ -641,7 +641,7 @@ extern "C" CUBLASAPI cublasStatus_t CUBLASWINAPI cublasZgemmStridedBatched(
     CublasFrontend::AddVariableForArguments<int>(ldc);
     CublasFrontend::AddVariableForArguments<long long int>(strideC);
     CublasFrontend::AddVariableForArguments<int>(batchCount);
-    CublasFrontend::Execute("cublasZgemmStridedBatched");
+    CublasFrontend::ExecuteMaybeAsync("cublasZgemmStridedBatched");
     return CublasFrontend::GetExitCode();
 }
 

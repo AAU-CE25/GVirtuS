@@ -101,6 +101,8 @@ function(configure_cudadr_plugin)
         frontend/CudaDr_tensormap.cpp
         frontend/CudaDr_texture.cpp
         frontend/CudaDr_unified.cpp
+        frontend/CudaDr_hostmem.cpp
+        frontend/CudaDr_asyncmem.cpp
         frontend/CudaDr_version.cpp
         frontend/CudaDr_virtmemory.cpp
         frontend/CudaDrFrontend.cpp

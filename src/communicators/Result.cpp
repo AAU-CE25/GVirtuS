@@ -79,6 +79,17 @@ void SetRegistrationCacheableHook(RegistrationCacheableFn fn) {
     g_reg_cacheable_hook.store(fn, std::memory_order_release);
 }
 
+// See Communicator.h. Fails closed: no tracking installed -> pageable stays uncacheable.
+static std::atomic<bool> g_host_unmap_tracking{false};
+
+void SetHostUnmapTrackingActive(bool active) {
+    g_host_unmap_tracking.store(active, std::memory_order_release);
+}
+
+bool HostUnmapTrackingActive() {
+    return g_host_unmap_tracking.load(std::memory_order_acquire);
+}
+
 // Default when no frontend installed a hook: NOT cacheable. Failing closed keeps a
 // transport that cannot be told about frees from caching anything by accident.
 bool RegistrationCacheable(const void *addr, size_t len) {
