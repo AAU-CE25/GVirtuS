@@ -80,7 +80,15 @@ class TcpCommunicator : public Communicator {
     std::istream *mpInput;
     std::ostream *mpOutput;
     std::string mHostname;
-    char *mInAddr;
+    // Default-initialised because the per-connection constructor TcpCommunicator(int fd,
+    // const char *hostname) - the one Accept() uses for every accepted connection - never
+    // assigns it, while ~TcpCommunicator unconditionally does delete[] mInAddr. Every
+    // accepted connection therefore deleted an indeterminate pointer: harmless while that
+    // memory happened to be zero, and an abort ("munmap_chunk(): invalid pointer", taking
+    // the whole backend with it) once the allocator recycled memory holding anything else.
+    // That is the ~1-in-2 failure of 8-client TCP rounds, and why it fires at teardown
+    // rather than at connect.
+    char *mInAddr = nullptr;
     int mInAddrSize;
     short mPort;
     int mSocketFd;

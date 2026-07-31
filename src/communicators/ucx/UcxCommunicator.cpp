@@ -268,8 +268,81 @@ struct SrcReg {
     ucp_mem_h memh{nullptr};
     size_t len{0};
 };
+
+// Contadores de registros RDMA (2026-07-28, diagnostico de fuga de MRs).
+// GVIRTUS_MEMMAP_TRACE=1. Ver [[backend_mr_leak]].
+namespace {
+struct GvsMmSite { std::string name; std::atomic<long> maps{0}; std::atomic<long> unmaps{0}; };
+std::mutex gvs_mm_mu;
+std::vector<GvsMmSite *> gvs_mm_sites;
+
+inline bool gvs_mm_trace() {
+    static const bool on = [] {
+        const char *v = std::getenv("GVIRTUS_MEMMAP_TRACE");
+        return v != nullptr && v[0] == '1' && v[1] == '\0';
+    }();
+    return on;
+}
+
+inline void gvs_mm_count(const char *name, bool is_map) {
+    if (!gvs_mm_trace()) return;
+    static std::atomic<long> total{0};
+    GvsMmSite *site = nullptr;
+    {
+        std::lock_guard<std::mutex> lk(gvs_mm_mu);
+        for (auto *x : gvs_mm_sites) if (x->name == name) { site = x; break; }
+        if (site == nullptr) { site = new GvsMmSite{name}; gvs_mm_sites.push_back(site); }
+    }
+    if (is_map) site->maps.fetch_add(1); else site->unmaps.fetch_add(1);
+    const long n = total.fetch_add(1) + 1;
+    if (n % 2000 != 0) return;
+    std::lock_guard<std::mutex> lk(gvs_mm_mu);
+    std::fprintf(stderr, "[GVS MEMMAP] --- tras %ld operaciones ---\n", n);
+    for (auto *x : gvs_mm_sites) {
+        const long m = x->maps.load(), u = x->unmaps.load();
+        std::fprintf(stderr, "[GVS MEMMAP]   %-24s map=%-8ld unmap=%-8ld vivas=%ld%s\n",
+                     x->name.c_str(), m, u, m - u, (m - u > 500) ? "   <-- FUGA" : "");
+    }
+    std::fflush(stderr);
+}
+}  // namespace
+
 std::mutex g_src_reg_mu;
 std::unordered_map<SrcRegKey, SrcReg, SrcRegKeyHash> g_src_regs;
+
+
+// Instrumentacion (2026-07-28): confirmar si g_src_regs acumula registros de
+// conexiones ya cerradas. Se activa con GVIRTUS_SRCREG_TRACE=1.
+static bool gvs_srcreg_trace() {
+    static const bool on = [] {
+        const char *v = std::getenv("GVIRTUS_SRCREG_TRACE");
+        return v != nullptr && v[0] == '1' && v[1] == '\0';
+    }();
+    return on;
+}
+
+// Debe llamarse SIN g_src_reg_mu tomado.
+static void gvs_srcreg_report(const char *what) {
+    if (!gvs_srcreg_trace()) return;
+    size_t n = 0, bytes = 0, ctxs = 0;
+    {
+        std::lock_guard<std::mutex> lk(g_src_reg_mu);
+        n = g_src_regs.size();
+        std::vector<ucp_context_h> seen;
+        for (const auto &kv : g_src_regs) {
+            bytes += kv.second.len;
+            bool found = false;
+            for (auto c : seen) if (c == kv.first.ctx) { found = true; break; }
+            if (!found) seen.push_back(kv.first.ctx);
+        }
+        ctxs = seen.size();
+    }
+    std::fprintf(stderr,
+                 "[GVS SRCREG] %-22s entradas=%zu  bytes=%.1f MiB  contextos_distintos=%zu\n",
+                 what, n, bytes / 1048576.0, ctxs);
+    std::fflush(stderr);
+}
+
 
 // The application freed this address, so EVERY context's registration of it is stale --
 // drop them all, not just one.
@@ -286,6 +359,9 @@ void src_reg_invalidate(const void *addr) {
             }
         }
     }
+    gvs_mm_count("unmap:L360", false);
+    for (auto &d : doomed) ucp_mem_unmap(d.first, d.second);
+    if (!doomed.empty()) gvs_srcreg_report("tras invalidar");
     for (auto &d : doomed) ucp_mem_unmap(d.first, d.second);
     if (!doomed.empty()) {
         ucx_debug_log("src_reg: invalidated %zu registration(s) for %p (freed by the app)",
@@ -408,6 +484,7 @@ ucp_mem_h acquire_app_registration(ucp_context_h ctx, const void *addr, size_t l
         std::lock_guard<std::mutex> lk(g_src_reg_mu);
         auto it = g_src_regs.find(key);
         if (it != g_src_regs.end() && it->second.len < len) {
+            gvs_mm_count("unmap:L402", false);
             ucp_mem_unmap(ctx, it->second.memh);
             g_src_regs.erase(it);
             it = g_src_regs.end();
@@ -417,6 +494,7 @@ ucp_mem_h acquire_app_registration(ucp_context_h ctx, const void *addr, size_t l
         ucp_mem_map_params_t mp{};
         fill(mp);
         ucp_mem_h m = nullptr;
+        gvs_mm_count("map:L411", true);
         if (ucp_mem_map(ctx, &mp, &m) != UCS_OK) return nullptr;
         g_src_regs.emplace(key, SrcReg{m, len});
         return m;
@@ -425,6 +503,7 @@ ucp_mem_h acquire_app_registration(ucp_context_h ctx, const void *addr, size_t l
     ucp_mem_map_params_t mp{};
     fill(mp);
     ucp_mem_h m = nullptr;
+    gvs_mm_count("map:L419", true);
     if (ucp_mem_map(ctx, &mp, &m) != UCS_OK) return nullptr;
     out_owned = true;
     return m;
@@ -453,6 +532,7 @@ void release_registrations_for_context(ucp_context_h ctx) {
             }
         }
     }
+    gvs_mm_count("unmap:L447", false);
     for (ucp_mem_h m : doomed) ucp_mem_unmap(ctx, m);
     if (!doomed.empty()) {
         ucx_debug_log("teardown: unmapped %zu cached registrations", doomed.size());
@@ -518,6 +598,7 @@ bool probe_gpudirect(ucp_context_h ctx, std::string &reason) {
     p.memory_type = UCS_MEMORY_TYPE_CUDA;
 
     ucp_mem_h memh = nullptr;
+    gvs_mm_count("map:L512", true);
     ucs_status_t st = ucp_mem_map(ctx, &p, &memh);
     if (st != UCS_OK) {
         reason  = "ucp_mem_map(CUDA) failed: ";
@@ -525,6 +606,7 @@ bool probe_gpudirect(ucp_context_h ctx, std::string &reason) {
         cfree(gpu);
         return false;
     }
+    gvs_mm_count("unmap:L519", false);
     ucp_mem_unmap(ctx, memh);
     cfree(gpu);
     reason.clear();
@@ -572,6 +654,56 @@ void UcxCommunicator::endpoint_error_handler(void *arg, ucp_ep_h ep, ucs_status_
 }
 
 // UCX AM receive callback: copy (or rendezvous-receive) the payload into the AM queue.
+
+// ---------------------------------------------------------------------------------------
+// Limite de pared para los bucles de progreso.
+//
+// Nueve de los doce bucles de ucp_worker_progress ya comprueban endpoint_failed_, pero esa
+// bandera solo la pone endpoint_error_handler, y UCX solo invoca ese callback de forma fiable
+// con UCP_ERR_HANDLING_MODE_PEER -- que, medido el 2026-07-28, hace que UCX descarte los
+// transportes que no lo soportan y el plano de datos caiga a un TCP inalcanzable. Es decir:
+// las comprobaciones existen y estan bien colocadas, pero estan desactivadas de hecho.
+//
+// Mientras endpoint_failed_ no tenga otra fuente, este plazo es el UNICO mecanismo de liveness.
+// Apagado por defecto (0 = comportamiento original, espera indefinida).
+namespace {
+inline long gvs_progress_timeout_ns() {
+    static const long v = [] {
+        const char *e = std::getenv("GVIRTUS_UCX_PROGRESS_TIMEOUT_MS");
+        return e ? std::strtol(e, nullptr, 10) * 1000000L : 0L;
+    }();
+    return v;
+}
+inline bool gvs_deadline_exceeded(const std::chrono::steady_clock::time_point &t0,
+                                  unsigned long &spins) {
+    const long lim = gvs_progress_timeout_ns();
+    if (lim <= 0) return false;
+    if ((++spins & 4095u) != 0) return false;   // consultar el reloj cada 4096 vueltas
+    return std::chrono::steady_clock::now() - t0 > std::chrono::nanoseconds(lim);
+}
+}  // namespace
+
+
+// --- Trazas de diagnostico del camino RmaSetup -> construccion del pool -------------------
+// GVIRTUS_RMA_TRACE=1 las enciende. Apagadas por defecto: son fprintf sincronos y falsearian
+// cualquier medida de latencia.
+namespace {
+inline bool gvs_rma_trace() {
+    static const bool on = [] {
+        const char *v = std::getenv("GVIRTUS_RMA_TRACE");
+        return v != nullptr && v[0] == '1' && v[1] == '\0';
+    }();
+    return on;
+}
+}  // namespace
+#define GVS_RTRACE(fmt, ...)                                                    \
+    do {                                                                        \
+        if (gvs_rma_trace()) {                                                  \
+            std::fprintf(stderr, "[GVS RTRACE] " fmt "\n", ##__VA_ARGS__);      \
+            std::fflush(stderr);                                                \
+        }                                                                       \
+    } while (0)
+
 ucs_status_t UcxCommunicator::am_recv_handler(void *arg, const void *header,
                                               size_t header_length, void *data,
                                               size_t length,
@@ -985,6 +1117,7 @@ void UcxCommunicator::destroy_ucx() {
 
     initialized_ = false;
     endpoint_failed_.store(false);
+    gvs_srcreg_report("al cerrar conexion");
     ucx_debug_log("destroy_ucx completed");
 }
 
@@ -1035,6 +1168,12 @@ void UcxCommunicator::wait_request_completion(void *request, const char *op_name
     }
 
     bool cancel_issued = false;
+    unsigned long spins = 0;
+    static const long progress_timeout_ns = [] {
+        const char *v = std::getenv("GVIRTUS_UCX_PROGRESS_TIMEOUT_MS");
+        return v ? std::strtol(v, nullptr, 10) * 1000000L : 0L;
+    }();
+    const auto t_start = std::chrono::steady_clock::now();
     while (ucp_request_check_status(request) == UCS_INPROGRESS) {
         if (worker_ != nullptr) {
             ucp_worker_progress(worker_);
@@ -1048,7 +1187,28 @@ void UcxCommunicator::wait_request_completion(void *request, const char *op_name
             ucp_request_cancel(worker_, request);
             cancel_issued = true;
         }
-
+        // La condicion del while es UNICAMENTE que la peticion siga UCS_INPROGRESS, de modo
+        // que cancelar no basta: si ucp_request_cancel no la completa -- y con un endpoint ya
+        // reseteado por el par es justo el caso en que puede no hacerlo -- el bucle gira para
+        // siempre. Salir explicitamente tras la cancelacion convierte un cuelgue silencioso
+        // que quema CPU en un error que el llamante puede desenrollar.
+        if (cancel_issued && endpoint_failed_.load()) {
+            ucp_request_free(request);
+            throw std::runtime_error(std::string("UcxCommunicator: ") + op_name +
+                                     " abortado: el endpoint fallo (par reseteado)");
+        }
+        // Limite de seguridad, apagado por defecto. No es un arreglo: es una red para que
+        // ningun bucle de progreso pueda girar indefinidamente durante las pruebas aunque la
+        // causa del bloqueo sea otra distinta del fallo de endpoint.
+        if (progress_timeout_ns > 0) {
+            if (++spins % 4096 == 0 &&
+                std::chrono::steady_clock::now() - t_start >
+                    std::chrono::nanoseconds(progress_timeout_ns)) {
+                ucp_request_free(request);
+                throw std::runtime_error(std::string("UcxCommunicator: ") + op_name +
+                                         " abortado: GVIRTUS_UCX_PROGRESS_TIMEOUT_MS agotado");
+            }
+        }
     }
 
     const ucs_status_t final_status = ucp_request_check_status(request);
@@ -1201,6 +1361,16 @@ const gvirtus::communicators::Communicator *const UcxCommunicator::Accept() cons
     }
 
     ucp_ep_params_t ep_params{};
+    // ERR_HANDLING_MODE_PEER es obligatorio para que UCX invoque err_handler.cb de forma
+    // fiable ante un fallo del par. Sin el, el callback puede no dispararse nunca, con lo que
+    // endpoint_failed_ no se pone y la comprobacion del bucle de progreso jamas se evalua:
+    // el frontend se queda girando en ucp_worker_progress al 100 % de un nucleo. Medido con
+    // cuDF: 48.279 ticks de CPU en un proceso que no habia ejecutado ni una consulta.
+    // ERR_HANDLING_MODE_PEER NO se pide: medido el 2026-07-28, hace que UCX descarte los
+    // transportes que no lo soportan y el plano de datos cae a tcp hacia un puerto efimero
+    // inalcanzable ("Destination is unreachable" + assertion en stubs.c). El manejador de
+    // error si se disparaba con el, pero a costa de perder la ruta RoCE entera. La liveness
+    // se consigue con la salida explicita del bucle de progreso, que no altera el transporte.
     ep_params.field_mask = UCP_EP_PARAM_FIELD_CONN_REQUEST |
                            UCP_EP_PARAM_FIELD_ERR_HANDLER;
     ep_params.conn_request = req;
@@ -1257,6 +1427,7 @@ void UcxCommunicator::Connect() {
     ep_params.field_mask = UCP_EP_PARAM_FIELD_FLAGS |
                            UCP_EP_PARAM_FIELD_SOCK_ADDR |
                            UCP_EP_PARAM_FIELD_ERR_HANDLER;
+    // Ver la nota del lado Accept sobre ERR_HANDLING_MODE_PEER.
     ep_params.flags = UCP_EP_PARAMS_FLAGS_CLIENT_SERVER;
     ep_params.sockaddr.addr = reinterpret_cast<const struct sockaddr *>(&ss);
     ep_params.sockaddr.addrlen = sizeof(sockaddr_in);
@@ -1318,6 +1489,7 @@ size_t UcxCommunicator::Read(char *buffer, size_t size) {
     // Also fires for a REGROW, not just the first build: rma_pool_requested_ is set
     // again whenever a message arrives eagerly that the current slots cannot hold.
     if (rma_pool_requested_.load(std::memory_order_acquire)) {
+        GVS_RTRACE("disparo diferido: entrando a materialise_rma_pool");
         materialise_rma_pool();
     }
     // Safe point for releasing superseded slots (see reclaim_retired_slots).
@@ -1328,6 +1500,8 @@ size_t UcxCommunicator::Read(char *buffer, size_t size) {
     // Drain AM queue into the caller buffer, preserving stream semantics.
     // Busy-poll to keep ucp_worker_progress() running continuously.
     size_t copied = 0;
+    const auto gvs_t0_read = std::chrono::steady_clock::now();
+    unsigned long gvs_spins_read = 0;
     while (copied < size) {
         if (pending_msg_.data != nullptr &&
             pending_read_offset_ < pending_msg_.size) {
@@ -1366,6 +1540,12 @@ size_t UcxCommunicator::Read(char *buffer, size_t size) {
 
         progress_am_rndv();
 
+        if (gvs_deadline_exceeded(gvs_t0_read, gvs_spins_read)) {
+            std::fprintf(stderr, "[GVS] Read: GVIRTUS_UCX_PROGRESS_TIMEOUT_MS agotado "
+                                 "(%zu/%zu bytes)\n", copied, size);
+            std::fflush(stderr);
+            return copied == 0 ? 0 : copied;
+        }
         if (endpoint_failed_.load()) {
             return copied == 0 ? 0 : copied;
         }
@@ -1384,6 +1564,7 @@ bool UcxCommunicator::TryAcquireFrame(const unsigned char *&data, size_t &size) 
     // Also fires for a REGROW, not just the first build: rma_pool_requested_ is set
     // again whenever a message arrives eagerly that the current slots cannot hold.
     if (rma_pool_requested_.load(std::memory_order_acquire)) {
+        GVS_RTRACE("disparo diferido: entrando a materialise_rma_pool");
         materialise_rma_pool();
     }
     // Safe point for releasing superseded slots (see reclaim_retired_slots).
@@ -1399,6 +1580,8 @@ bool UcxCommunicator::TryAcquireFrame(const unsigned char *&data, size_t &size) 
 
     // Drain into current_frame_ once a message is available, busy-polling
     // the worker the same way Read() does.
+    const auto gvs_t0_taf = std::chrono::steady_clock::now();
+    unsigned long gvs_spins_taf = 0;
     for (;;) {
         if (current_frame_.data != nullptr) {
             data = current_frame_.data;
@@ -1429,6 +1612,11 @@ bool UcxCommunicator::TryAcquireFrame(const unsigned char *&data, size_t &size) 
         }
         progress_am_rndv();
 
+        if (gvs_deadline_exceeded(gvs_t0_taf, gvs_spins_taf)) {
+            std::fprintf(stderr, "[GVS] TryAcquireFrame: GVIRTUS_UCX_PROGRESS_TIMEOUT_MS agotado\n");
+            std::fflush(stderr);
+            return false;
+        }
         if (endpoint_failed_.load()) return false;
     }
 }
@@ -1531,6 +1719,7 @@ void UcxCommunicator::map_slot_to_ucp(ucp_context_h ctx, PinnedSlot &slot) {
                                 UCP_MEM_MAP_PARAM_FIELD_LENGTH;
         map_params.address = slot.addr;
         map_params.length  = slot.capacity;
+        gvs_mm_count("map:L1631", true);
         ucs_status_t st = ucp_mem_map(ctx, &map_params, &slot.memh);
         if (st != UCS_OK) {
             slot.memh = nullptr;  // continue without — UCX rcache will register on first use
@@ -1546,6 +1735,7 @@ void UcxCommunicator::map_slot_to_ucp(ucp_context_h ctx, PinnedSlot &slot) {
         gpu_params.address     = slot.gpu_addr;
         gpu_params.length      = slot.gpu_capacity;
         gpu_params.memory_type = UCS_MEMORY_TYPE_CUDA;
+        gvs_mm_count("map:L1646", true);
         ucs_status_t st = ucp_mem_map(ctx, &gpu_params, &slot.gpu_memh);
         if (st != UCS_OK) {
             slot.gpu_memh = nullptr;
@@ -1557,10 +1747,12 @@ void UcxCommunicator::map_slot_to_ucp(ucp_context_h ctx, PinnedSlot &slot) {
 
 void UcxCommunicator::unmap_slot_from_ucp(ucp_context_h ctx, PinnedSlot &slot) {
     if (ctx != nullptr && slot.memh != nullptr) {
+        gvs_mm_count("unmap:L1657", false);
         ucp_mem_unmap(ctx, slot.memh);
         slot.memh = nullptr;
     }
     if (ctx != nullptr && slot.gpu_memh != nullptr) {
+        gvs_mm_count("unmap:L1661", false);
         ucp_mem_unmap(ctx, slot.gpu_memh);
         slot.gpu_memh = nullptr;
     }
@@ -1643,6 +1835,36 @@ void UcxCommunicator::retire_and_free_locked(std::uint32_t now_epoch) {
         const bool peer_moved_on = acked >= sl.rma_epoch;
         const bool grace_expired = now_epoch > sl.rma_epoch + 1;
         if (!peer_moved_on && !grace_expired) continue;
+        // GVIRTUS_RMA_KEEP_RETIRED=1: retencion controlada para el experimento causal.
+        //
+        // NINGUNA de las dos condiciones de arriba demuestra DRENAJE. Que el par haya
+        // reconocido la epoca E prueba que recibio la metadata, no que sus PUT contra E
+        // hayan alcanzado completado remoto; y grace_expired libera memoria registrada por
+        // el simple paso de dos numeros de epoca, sin prueba ninguna. cuDF dispara varios
+        // resizes seguidos y en epoch 3 la conexion se resetea: es el sintoma de un
+        // use-after-unmap, y esta variable lo aisla sin cambiar el protocolo.
+        //
+        // Con ella el slot deja de anunciarse y de aceptar operaciones nuevas, pero NO se
+        // desmapea, NO se libera la memoria host, NO se libera el shadow GPU y NO se destruye
+        // su metadata: se conserva hasta el teardown de la conexion. Retiene memoria durante
+        // la sesion a proposito. Si el fallo desaparece con esto, la causa es el lifetime.
+        static const bool keep_retired = [] {
+            const char *v = std::getenv("GVIRTUS_RMA_KEEP_RETIRED");
+            return v != nullptr && v[0] == '1' && v[1] == '\0';
+        }();
+        if (keep_retired) {
+            static std::atomic<unsigned long> kept{0};
+            const unsigned long n = ++kept;
+            if (n == 1 || n % 16 == 0) {
+                std::fprintf(stderr,
+                             "[GVS] rx_pool: KEEP_RETIRED conserva slot (%zu B host%s, "
+                             "retirado en epoch %u, acked %u) -- %lu conservados\n",
+                             sl.capacity, sl.gpu_addr ? " + GPU shadow" : "", sl.rma_epoch,
+                             acked, n);
+                std::fflush(stderr);
+            }
+            continue;   // sigue retirado: no se anuncia, pero su registro sobrevive
+        }
         std::fprintf(stderr,
                      "[GVS] rx_pool: releasing superseded slot (%zu B host%s, retired at "
                      "epoch %u, peer acked %u)\n",
@@ -1759,7 +1981,9 @@ void UcxCommunicator::init_rx_pool() {
     rx_pool_->slots.resize(base + (kInitialSlotCount - full_slots));
     for (size_t i = base; i < rx_pool_->slots.size(); ++i) {
         bool is_cuda = false;
+        GVS_RTRACE("alloc_pinned_host: pidiendo %zu B (slot %zu)", kInitialSlotCap, i);
         unsigned char *p = alloc_pinned_host(kInitialSlotCap, is_cuda);
+        GVS_RTRACE("alloc_pinned_host: VOLVIO (%p)", (void *)p);
         if (p == nullptr) {
             throw std::runtime_error("UcxCommunicator: failed to allocate RX pool slot");
         }
@@ -1768,7 +1992,9 @@ void UcxCommunicator::init_rx_pool() {
         rx_pool_->slots[i].rma_epoch = new_epoch;
 
         if (gpudirect_active) {
+            GVS_RTRACE("alloc_gpu_slot: pidiendo %zu B", kInitialSlotCap);
             unsigned char *gp = alloc_gpu_slot(kInitialSlotCap);
+            GVS_RTRACE("alloc_gpu_slot: VOLVIO (%p)", (void *)gp);
             if (gp != nullptr) {
                 rx_pool_->slots[i].gpu_addr = gp;
                 rx_pool_->slots[i].gpu_capacity = kInitialSlotCap;
@@ -1826,6 +2052,8 @@ void UcxCommunicator::NoteDeviceDestinedPayload(size_t bytes) {
 // does not hold worker_mutex_: send_rma_setup() takes it, and the allocation itself
 // would stall ucp_worker_progress for ~150 ms if it ran in the AM callback.
 void UcxCommunicator::materialise_rma_pool() {
+    GVS_RTRACE("materialise_rma_pool: ENTRADA");
+    struct GvsExitTrace { ~GvsExitTrace() { GVS_RTRACE("materialise_rma_pool: SALIDA"); } } gvs_et;
     // Re-entrant by design: the pool is built the first time a large message arrives
     // and REBUILT, larger, if a later message turns out not to fit. The build and the
     // advertisement must be atomic with respect to a second grow request, or two
@@ -2374,6 +2602,7 @@ void UcxCommunicator::handle_rma_setup_am(const void *data, size_t length) {
                     if (rs.gpu_rkey != nullptr) ucp_rkey_destroy(rs.gpu_rkey);
                 }
             }
+            GVS_RTRACE("handler: instalando epoch %u (%zu slots)", new_epoch, pending_slots_.size());
             pending_slots_ = std::move(new_slots);
             pending_epoch_ = new_epoch;
             rma_swap_pending_ = true;
@@ -2392,6 +2621,7 @@ void UcxCommunicator::handle_rma_setup_am(const void *data, size_t length) {
             pending_epoch_ = new_epoch;
             rma_swap_pending_ = true;
             apply_pending_slots_locked();
+            GVS_RTRACE("handler: apply_pending_slots_locked VOLVIO (epoch %u)", new_epoch);
             applied = true;
         }
         rma_setup_received_.store(true);
@@ -2456,6 +2686,7 @@ void UcxCommunicator::destroy_rma_state() {
     release_registrations_for_context(context_);
     {
         std::lock_guard<std::mutex> lk(gpu_get_mu_);
+        gvs_mm_count("unmap:L2594", false);
         for (auto &kv : gpu_get_regs_) ucp_mem_unmap(context_, kv.second.memh);
         gpu_get_regs_.clear();
     }
@@ -2493,6 +2724,7 @@ bool UcxCommunicator::PrepareGpuGet(void *gpu_addr, size_t len,
         // Same base address, larger transfer than we registered: remap. This is also
         // what covers the scratch growing (cudaFree + cudaMalloc), so no cross-thread
         // invalidation is needed -- and must not be used, see the header.
+        gvs_mm_count("unmap:L2631", false);
         ucp_mem_unmap(context_, it->second.memh);
         gpu_get_regs_.erase(it);
         it = gpu_get_regs_.end();
@@ -2515,6 +2747,7 @@ bool UcxCommunicator::PrepareGpuGet(void *gpu_addr, size_t len,
             p.memory_type = UCS_MEMORY_TYPE_CUDA;
         }
         ucp_mem_h m = nullptr;
+        gvs_mm_count("map:L2653", true);
         ucs_status_t mst = ucp_mem_map(context_, &p, &m);
         if (mst != UCS_OK) {
             ucx_debug_log("PrepareGpuGet: ucp_mem_map(%s) failed: %s",
@@ -2665,6 +2898,7 @@ bool UcxCommunicator::GetFromRemoteGpu(void *dst_host, std::uint64_t remote_addr
         wait_request_completion(req, "d2h_get");
     } catch (const std::exception &e) {
         ucx_debug_log("GetFromRemoteGpu: %s", e.what());
+        gvs_mm_count("unmap:L2756", false);
         if (dst_memh_owned) ucp_mem_unmap(context_, dst_memh);
         ucp_rkey_destroy(rkey);
         return false;
@@ -2673,6 +2907,8 @@ bool UcxCommunicator::GetFromRemoteGpu(void *dst_host, std::uint64_t remote_addr
     // reintroduce exactly the stale-address hazard this call was changed to avoid, and
     // it also stops the process accumulating registrations for buffers it has freed
     // (which is what made teardown corrupt the heap).
+    gvs_mm_count("unmap:L2764", false);
+    if (dst_memh_owned) ucp_mem_unmap(context_, dst_memh);
     const auto t_xfer1 = std::chrono::steady_clock::now();
     if (dst_memh_owned) ucp_mem_unmap(context_, dst_memh);
     const auto t_dereg1 = std::chrono::steady_clock::now();
@@ -3090,6 +3326,7 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
             // A cached entry that is too small for this transfer describes the wrong
             // extent: drop and re-register rather than put past its end.
             if (cit != g_src_regs.end() && cit->second.len < big_size) {
+                gvs_mm_count("unmap:L3175", false);
                 ucp_mem_unmap(context_, cit->second.memh);
                 g_src_regs.erase(cit);
                 cit = g_src_regs.end();
@@ -3100,6 +3337,7 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
                 ucp_mem_map_params_t mp{};
                 fill_mp(mp);
 
+                gvs_mm_count("map:L3185", true);
                 if (ucp_mem_map(context_, &mp, &user_memh) == UCS_OK) {
                     g_src_regs.emplace(key, SrcReg{user_memh, big_size});
                 } else {
@@ -3111,6 +3349,7 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
             ucp_mem_map_params_t mp{};
             fill_mp(mp);
 
+            gvs_mm_count("map:L3196", true);
             if (ucp_mem_map(context_, &mp, &user_memh) == UCS_OK) {
                 memh_owned = true;
             } else {
@@ -3216,6 +3455,7 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
         // call sees a clean state. Cached memh (>= kCacheThreshold) stays
         // mapped for amortization across calls.
         if (memh_owned && user_memh != nullptr) {
+            gvs_mm_count("unmap:L3301", false);
             ucp_mem_unmap(context_, user_memh);
         }
     } else {
@@ -3312,6 +3552,7 @@ void UcxCommunicator::ensure_tx_scratch_locked(size_t needed) {
 
     // Free previous registration + allocation if any.
     if (tx_scratch_.memh != nullptr && context_ != nullptr) {
+        gvs_mm_count("unmap:L3397", false);
         ucp_mem_unmap(context_, tx_scratch_.memh);
         tx_scratch_.memh = nullptr;
     }
@@ -3337,6 +3578,7 @@ void UcxCommunicator::ensure_tx_scratch_locked(size_t needed) {
     map_params.length = cap;
 
     ucp_mem_h memh = nullptr;
+    gvs_mm_count("map:L3422", true);
     ucs_status_t status = ucp_mem_map(context_, &map_params, &memh);
     if (status != UCS_OK) {
         std::free(addr);
@@ -3352,6 +3594,7 @@ void UcxCommunicator::ensure_tx_scratch_locked(size_t needed) {
 
 void UcxCommunicator::release_tx_scratch_locked() {
     if (tx_scratch_.memh != nullptr && context_ != nullptr) {
+        gvs_mm_count("unmap:L3437", false);
         ucp_mem_unmap(context_, tx_scratch_.memh);
         tx_scratch_.memh = nullptr;
     }

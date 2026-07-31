@@ -40,12 +40,91 @@ void gvirtus_untrack_device_alloc(void *p);
 #include <gvirtus/communicators/Communicator.h>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cstdio>
 #include <cstdlib>
+#include <mutex>
+#include <string>
+#include <thread>
 
 using namespace log4cplus;
 using namespace std;
 
 using gvirtus::common::mappedPointer;
+// ---------------------------------------------------------------------------
+// Path counters -- instrumentation only.
+//
+// End-to-end timings cannot say WHY one arm beats another. These answer it
+// directly: of the bytes a workload moves, how many crossed by peer-DMA
+// into/out of GPU memory and how many were staged through a host bounce
+// buffer. Under GPUDirect the host counters must be ~0 for the large sizes;
+// if they are not, the arm is not exercising the path it claims to.
+//
+// Cost when unconfigured: three relaxed atomic increments per memcpy. The
+// dumper thread is only created when GVIRTUS_PATHSTATS names an output file.
+// Nothing below reads these counters, so they cannot alter any data path.
+// ---------------------------------------------------------------------------
+namespace gvs_pathstats {
+
+enum Path { kH2dGpu = 0, kH2dHost = 1, kD2hGpu = 2, kD2hHost = 3, kNPaths = 4 };
+constexpr int kNBuckets = 8;
+
+std::atomic<unsigned long long> g_calls[kNPaths];
+std::atomic<unsigned long long> g_bytes[kNPaths];
+std::atomic<unsigned long long> g_hist[kNPaths][kNBuckets];
+
+const char *const kPathName[kNPaths] = {"h2d_gpudirect", "h2d_host",
+                                        "d2h_gpudirect", "d2h_host"};
+
+inline int bucket(size_t n) {
+    if (n <          4ull * 1024) return 0;
+    if (n <         64ull * 1024) return 1;
+    if (n <       1024ull * 1024) return 2;
+    if (n <   4ull * 1024 * 1024) return 3;
+    if (n <  16ull * 1024 * 1024) return 4;
+    if (n <  64ull * 1024 * 1024) return 5;
+    if (n < 256ull * 1024 * 1024) return 6;
+    return 7;
+}
+
+void dump(const std::string &path) {
+    const std::string tmp = path + ".tmp";
+    FILE *f = std::fopen(tmp.c_str(), "w");
+    if (f == nullptr) return;
+    std::fprintf(f, "path,calls,bytes,lt4K,lt64K,lt1M,lt4M,lt16M,lt64M,lt256M,ge256M\n");
+    for (int p = 0; p < kNPaths; ++p) {
+        std::fprintf(f, "%s,%llu,%llu", kPathName[p],
+                     g_calls[p].load(std::memory_order_relaxed),
+                     g_bytes[p].load(std::memory_order_relaxed));
+        for (int b = 0; b < kNBuckets; ++b)
+            std::fprintf(f, ",%llu", g_hist[p][b].load(std::memory_order_relaxed));
+        std::fprintf(f, "\n");
+    }
+    std::fclose(f);
+    std::rename(tmp.c_str(), path.c_str());  // readers never see a partial file
+}
+
+inline void count(Path p, size_t n) {
+    g_calls[p].fetch_add(1, std::memory_order_relaxed);
+    g_bytes[p].fetch_add(n, std::memory_order_relaxed);
+    g_hist[p][bucket(n)].fetch_add(1, std::memory_order_relaxed);
+
+    static std::once_flag once;
+    std::call_once(once, []() {
+        const char *out = std::getenv("GVIRTUS_PATHSTATS");
+        if (out == nullptr || out[0] == '\0') return;
+        const std::string dst(out);
+        std::thread([dst]() {
+            for (;;) {
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+                dump(dst);
+            }
+        }).detach();
+    });
+}
+
+}  // namespace gvs_pathstats
 
 namespace {
 // GPUDirect gate. Two layers:
@@ -591,6 +670,7 @@ CUDA_ROUTINE_HANDLER(Memcpy) {
                 void *gpu_src = input_buffer->GetGpuPayload();
                 size_t gpu_src_size = input_buffer->GetGpuPayloadSize();
                 if (gpu_src != nullptr && gpu_src_size >= count) {
+                gvs_pathstats::count(gvs_pathstats::kH2dGpu, count);
                     // CORRECTNESS FIX (2026-07-25): cudaMemcpy D2D is ASYNC wrt the CPU
                     // thread (it enqueues on a stream and returns). The old code let the
                     // handler return -> ReleaseFrame -> SlotConsumed -> the client reused
@@ -658,6 +738,7 @@ CUDA_ROUTINE_HANDLER(Memcpy) {
                 // decide the shadow is worth its device memory here (see
                 // Communicator::NoteDeviceDestinedPayload). Process.cpp forwards it.
                 gvirtus::communicators::tls_device_destined_bytes = count;
+                gvs_pathstats::count(gvs_pathstats::kH2dHost, count);
                 exit_code = cudaMemcpy(dst, src, count, kind);
                 result = std::make_shared<Result>(exit_code);
                 break;
@@ -739,6 +820,7 @@ CUDA_ROUTINE_HANDLER(Memcpy) {
                         }
                         cudaEventRecord(_d2h_prior, 0);
                         cudaStreamWaitEvent(g_shadow_stream, _d2h_prior, 0);
+                        gvs_pathstats::count(gvs_pathstats::kD2hGpu, count);
                         exit_code = cudaMemcpyAsync(gpu_scratch, src, count,
                                                     cudaMemcpyDeviceToDevice,
                                                     g_shadow_stream);
@@ -774,6 +856,7 @@ CUDA_ROUTINE_HANDLER(Memcpy) {
                 //   slot[8..8+count)  = data bytes
                 // Buffer is constructed non-owning over slot for length
                 // sizeof(size_t)+count; dtor will NOT free the slot.
+                gvs_pathstats::count(gvs_pathstats::kD2hHost, count);
                 char *slot = get_tls_d2h_slot(count);
                 if (slot == nullptr) {
                     return std::make_shared<Result>(cudaErrorMemoryAllocation);
@@ -1138,6 +1221,7 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
                 void *gpu_src = input_buffer->GetGpuPayload();
                 size_t gpu_src_size = input_buffer->GetGpuPayloadSize();
                 if (gpu_src != nullptr && gpu_src_size >= count) {
+                gvs_pathstats::count(gvs_pathstats::kH2dGpu, count);
                     h2d_trace("MemcpyAsync", "gpu_shadow", gpu_src, /*device*/ true,
                               count, dst, gpu_src, gpu_src_size);
                     exit_code = cudaMemcpyAsync(dst, gpu_src, count,
@@ -1182,6 +1266,7 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
                 // Same signal as the synchronous handler: device-destined bytes staged
                 // through the host slot for want of a GPU shadow.
                 gvirtus::communicators::tls_device_destined_bytes = count;
+                gvs_pathstats::count(gvs_pathstats::kH2dHost, count);
                 exit_code = cudaMemcpyAsync(dst, src, count, kind, stream);
 
                 /*
@@ -1226,6 +1311,7 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
                 if (gvirtus_gpudirect_d2h_enabled() && count >= kGpuDirectD2HThreshold) {
                     void *gpu_scratch = get_d2h_get_scratch(count);
                     if (gpu_scratch != nullptr) {
+                        gvs_pathstats::count(gvs_pathstats::kD2hGpu, count);
                         exit_code = cudaMemcpyAsync(gpu_scratch, src, count,
                                                     cudaMemcpyDeviceToDevice, stream);
                         if (exit_code == cudaSuccess)
@@ -1247,6 +1333,7 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
                 }
 
                 // Legacy host-staged path (GPUDirect off / small copy / D2D failed).
+                gvs_pathstats::count(gvs_pathstats::kD2hHost, count);
                 dst = new char[count];
                 LOG4CPLUS_DEBUG(Logger::getInstance(LOG4CPLUS_TEXT("GVirtuS")),
                                 "cudaMemcpyAsync DeviceToHost: dst: "

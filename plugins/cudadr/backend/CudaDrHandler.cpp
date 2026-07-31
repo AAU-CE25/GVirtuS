@@ -256,6 +256,7 @@ void CudaDrHandler::Initialize() {
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(MemAddressFree));
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(MemMap));
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(MemcpyDtoH));
+    mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(MemcpyDtoHAsync));
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(MemcpyHtoD));
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(ArrayCreate));
     mspHandlers->insert(CUDA_DRIVER_HANDLER_PAIR(Memcpy2D));

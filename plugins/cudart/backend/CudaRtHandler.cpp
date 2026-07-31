@@ -47,6 +47,23 @@ CudaRtHandler::CudaRtHandler() {
     mapHost2DeviceFunc = new map<const void *, std::string>();
     mapDeviceFunc2InfoFunc = new map<std::string, NvInfoFunction>();
     Initialize();
+
+    /* Crear el contexto CUDA AQUI, y no dejar que lo cree de rebote el primer fatbin.
+     *
+     * Antes, la primera llamada que tocaba CUDA era `cudaRegisterFatBinary`, asi que el
+     * contexto aparecia solo. Con el envio diferido de fatbins la primera llamada puede
+     * ser un simple `cudaGetDeviceCount`, que entonces fallaba con
+     * cudaErrorInitializationError.
+     *
+     * Con UCX no se notaba porque la sonda de GPUDirect ya habia creado el contexto al
+     * arrancar el backend (435 MiB de GPU frente a 0 MiB en TCP). Es decir: la
+     * dependencia oculta llevaba tiempo ahi y solo un transporte sin sonda la mostraba.
+     *
+     * cudaFree(0) es la forma canonica de materializar el contexto sin reservar nada. Se
+     * ignora el codigo de retorno a proposito: si CUDA no esta disponible, quien tiene
+     * que enterarse es la primera rutina real del cliente, con su error propio, no el
+     * constructor del handler. */
+    cudaFree(0);
 }
 
 CudaRtHandler::~CudaRtHandler() {}
@@ -289,6 +306,8 @@ void CudaRtHandler::Initialize() {
     /* CudaRtHandler_internal */
     mspHandlers->insert(CUDA_ROUTINE_HANDLER_PAIR(RegisterFatBinary));
     mspHandlers->insert(CUDA_ROUTINE_HANDLER_PAIR(RegisterFatBinaryEnd));
+    mspHandlers->insert(CUDA_ROUTINE_HANDLER_PAIR(RegisterFatBinaryProbe));
+    mspHandlers->insert(CUDA_ROUTINE_HANDLER_PAIR(RegisterFatBinaryBind));
     mspHandlers->insert(CUDA_ROUTINE_HANDLER_PAIR(UnregisterFatBinary));
     mspHandlers->insert(CUDA_ROUTINE_HANDLER_PAIR(RegisterFunction));
     mspHandlers->insert(CUDA_ROUTINE_HANDLER_PAIR(RegisterVar));

@@ -45,6 +45,8 @@
 
 #include "communicators/hybrid/HybridCommunicator.h"
 #include "gvirtus/communicators/UcxAmProtocol.h"
+#include <sys/resource.h>   // RLIMIT_NOFILE, see the accept loop below
+#include <unistd.h>         // usleep
 
 // DEBUG replaced with log4cplus, so that all diagnostics respect GVIRTUS_LOGLEVEL and share the unified format.
 
@@ -756,9 +758,26 @@ void Process::Start() {
 */
 
     try {
+        // The soft descriptor limit is 1024 here, and eight concurrent clients with their
+        // per-connection descriptors reach it; EMFILE from accept() is the documented
+        // trigger for the failure above. Raise the soft limit to the hard one - no
+        // privilege needed - so the error path is rare as well as survivable.
+        {
+            struct rlimit rl;
+            if (::getrlimit(RLIMIT_NOFILE, &rl) == 0 && rl.rlim_cur < rl.rlim_max) {
+                rlim_t was = rl.rlim_cur;
+                rl.rlim_cur = rl.rlim_max;
+                if (::setrlimit(RLIMIT_NOFILE, &rl) == 0) {
+                    LOG4CPLUS_INFO(logger, "RLIMIT_NOFILE raised " << was << " -> "
+                                   << rl.rlim_cur);
+                }
+            }
+        }
+
         _communicator->obj_ptr()->Serve();
 
         int pid = 0;
+        unsigned long consecutive_accept_failures = 0;
         while (true) {
             Communicator *client = const_cast<Communicator *>(_communicator->obj_ptr()->Accept());
 
@@ -768,13 +787,31 @@ void Process::Start() {
                             << ", comm=" << (client ? client->to_string() : "<null>"));
 
             if (client != nullptr) {
+                consecutive_accept_failures = 0;
                 //      if ((pid = fork()) == 0) {
                 std::thread(execute, client).detach();
                 //        exit(0);
                 //      }
 
-            } else
+            } else {
+                // A null client used to end acceptance for good: control went to run(),
+                // which for TCP is the base-class no-op and for UCX a 200 ms sleep, and the
+                // loop stopped serving while detached threads kept the process alive - so
+                // the container, the process and the exit code all still reported healthy
+                // with no listener behind them. A failed accept is now a retry, not a
+                // verdict, and a persistent one is loud instead of silent.
+                ++consecutive_accept_failures;
+                if (consecutive_accept_failures == 1 ||
+                    consecutive_accept_failures % 100 == 0) {
+                    LOG4CPLUS_ERROR(logger, "Accept() returned no client ("
+                                    << consecutive_accept_failures
+                                    << " consecutive) - retrying, listener still served");
+                }
                 _communicator->obj_ptr()->run();
+                // Back off just enough that a hard failure cannot spin a core, while
+                // staying far below any plausible client connect interval.
+                ::usleep(consecutive_accept_failures < 10 ? 1000 : 50000);
+            }
 
             // check if process received SIGINT
 

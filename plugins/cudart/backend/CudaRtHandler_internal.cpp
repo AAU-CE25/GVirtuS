@@ -32,6 +32,10 @@
 #include <lz4.h>
 
 #include "CudaRtHandler.h"
+#include <gvirtus/common/FatbinHash.h>
+#include <cstdint>
+#include <mutex>
+#include <map>
 
 using namespace std;
 using namespace log4cplus;
@@ -122,6 +126,71 @@ void parseNvInfoSections(const Elf64_Ehdr *eh, Elf64_Shdr *sh_table, char *sh_st
             pAttr = (NvInfoAttribute *)((byte *)pAttr + size);
         }
         pThis->addDeviceFunc2InfoFunc(funcName, infoFunction);
+    }
+}
+
+/* --- Indice de fatbins por contenido. Ver FatbinHash.h para por que es seguro
+ * indexar por huella y no por direccion. De proceso, no de conexion: el backend sirve
+ * todas las conexiones como hilos del mismo proceso, y ahi esta el ahorro con N
+ * clientes. --------------------------------------------------------------------- */
+namespace {
+std::mutex &fatbin_idx_mu() { static std::mutex m; return m; }
+std::map<gvirtus::common::FatbinKey, void **> &fatbin_idx() {
+    static std::map<gvirtus::common::FatbinKey, void **> m;
+    return m;
+}
+}  // namespace
+
+CUDA_ROUTINE_HANDLER(RegisterFatBinaryProbe) {
+    try {
+        char *handler = input_buffer->AssignString();
+        gvirtus::common::FatbinKey k;
+        k.len = input_buffer->Get<std::uint64_t>();
+        k.h1 = input_buffer->Get<std::uint64_t>();
+        k.h2 = input_buffer->Get<std::uint64_t>();
+
+        void **bin = nullptr;
+        {
+            std::lock_guard<std::mutex> lk(fatbin_idx_mu());
+            auto it = fatbin_idx().find(k);
+            if (it != fatbin_idx().end()) bin = it->second;
+        }
+        int hit = 0;
+        if (bin != nullptr) {
+            /* Mismo contenido => mismo modulo. Se liga el handler de ESTE cliente al
+             * fatbin ya cargado; sus funciones y variables se registraran despues con
+             * sus propios punteros hostFun. */
+            pThis->RegisterFatBinary(handler, bin);
+            hit = 1;
+        }
+        std::shared_ptr<Buffer> out = std::make_shared<Buffer>();
+        out->Add(hit);
+        return std::make_shared<Result>(cudaSuccess, out);
+    } catch (const std::exception &e) {
+        cerr << e.what() << endl;
+        return std::make_shared<Result>(cudaErrorInvalidValue);
+    }
+}
+
+CUDA_ROUTINE_HANDLER(RegisterFatBinaryBind) {
+    try {
+        std::string handler(input_buffer->AssignString());
+        gvirtus::common::FatbinKey k;
+        k.len = input_buffer->Get<std::uint64_t>();
+        k.h1 = input_buffer->Get<std::uint64_t>();
+        k.h2 = input_buffer->Get<std::uint64_t>();
+
+        void **bin = pThis->GetFatBinary(handler);   /* lanza si no existe */
+        {
+            std::lock_guard<std::mutex> lk(fatbin_idx_mu());
+            fatbin_idx().emplace(k, bin);            /* no sobreescribe si ya estaba */
+        }
+        return std::make_shared<Result>(cudaSuccess);
+    } catch (const std::exception &e) {
+        /* Que falle el indexado no es fatal: solo significa que el siguiente cliente
+         * volvera a enviar el blob. Se degrada en rendimiento, no en correccion. */
+        cerr << "RegisterFatBinaryBind: " << e.what() << endl;
+        return std::make_shared<Result>(cudaSuccess);
     }
 }
 

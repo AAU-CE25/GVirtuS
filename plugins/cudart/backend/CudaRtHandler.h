@@ -213,6 +213,8 @@ CUDA_ROUTINE_HANDLER(PopCallConfiguration);
 /* CudaRtHandler_internal */
 CUDA_ROUTINE_HANDLER(RegisterFatBinary);
 CUDA_ROUTINE_HANDLER(RegisterFatBinaryEnd);
+CUDA_ROUTINE_HANDLER(RegisterFatBinaryProbe);
+CUDA_ROUTINE_HANDLER(RegisterFatBinaryBind);
 CUDA_ROUTINE_HANDLER(UnregisterFatBinary);
 CUDA_ROUTINE_HANDLER(RegisterFunction);
 CUDA_ROUTINE_HANDLER(RegisterVar);

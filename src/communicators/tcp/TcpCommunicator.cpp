@@ -141,7 +141,12 @@ void TcpCommunicator::Serve() {
     if (bindResult != 0)
         throw runtime_error("TcpCommunicator: Can't bind socket: " + string(strerror(errno)) + ".");
 
-    int listenResult = listen(mSocketFd, 5);
+    // A backlog of 5 is the reason N=8 fails and N=4 never does: the barrier releases all
+    // tenants at once, so eight connects arrive together and the kernel refuses whatever
+    // does not fit the pending queue - before accept() is ever involved, which is why the
+    // backend logs no accept error while clients report "Connection refused". SOMAXCONN
+    // (4096 here) costs nothing: the backlog bounds queued connections, not memory.
+    int listenResult = listen(mSocketFd, SOMAXCONN);
     if (listenResult != 0)
         throw runtime_error(
             "TcpCommunicator: Can't listen from socket: " + string(strerror(errno)) + ".");
@@ -161,11 +166,28 @@ const gvirtus::communicators::Communicator *const TcpCommunicator::Accept() cons
 #endif
 
     client_socket_addr_size = sizeof(struct sockaddr_in);
-    if ((client_socket_fd =
-             accept(mSocketFd, (sockaddr *)&client_socket_addr, &client_socket_addr_size)) == 0 ||
-        errno == EINTR) {
+    // accept() reports failure with -1, not 0, and client_socket_fd is unsigned: comparing
+    // it to 0 meant a failed accept was never detected and the code went on to build a
+    // Communicator over an invalid descriptor. errno was also tested without first
+    // establishing that accept() had failed, so a stale EINTR from an earlier syscall
+    // rejected good connections.
+    const int accepted_fd =
+        accept(mSocketFd, (sockaddr *)&client_socket_addr, &client_socket_addr_size);
+    if (accepted_fd < 0) {
+        const int err = errno;
+        if (err == EINTR || err == ECONNABORTED || err == EAGAIN || err == EWOULDBLOCK) {
+            // Transient: the listening socket is still valid, the caller must retry.
+            LOG4CPLUS_DEBUG(logger, "Accept() transient failure: " << strerror(err));
+        } else {
+            // EMFILE/ENFILE are the ones seen under 8-client load. Still not fatal to the
+            // listener — the descriptor table recovers as connections close — but it must
+            // be visible, because previously this path was silent.
+            LOG4CPLUS_ERROR(logger, "Accept() failed: " << strerror(err)
+                            << " (errno=" << err << ") — listener kept open, retrying");
+        }
         return nullptr;
     }
+    client_socket_fd = static_cast<unsigned>(accepted_fd);
 
     const char *client_ip = inet_ntoa(client_socket_addr.sin_addr);
     int client_port = ntohs(client_socket_addr.sin_port);
