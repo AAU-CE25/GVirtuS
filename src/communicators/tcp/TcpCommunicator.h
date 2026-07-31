@@ -61,6 +61,13 @@ class TcpCommunicator : public Communicator {
     void Connect();
     size_t Read(char *buffer, size_t size);
     size_t Write(const char *buffer, size_t size);
+
+    /* Restaura el envio del commit base: escribe los fragmentos tal cual, sin estacionar
+     * el mensaje entero. La implementacion por defecto de Communicator::WriteIov reserva
+     * un std::vector del tamano total --que ademas se value-initializa, o sea pone a cero
+     * 62,5 MiB y falla ~16.000 paginas-- y luego copia. Eso no existia antes de que este
+     * trabajo introdujera WriteIov para UCX; TCP lo heredo sin querer. */
+    size_t WriteIov(const struct iovec *iov, size_t iov_count) override;
     void Sync();
     void Close();
 

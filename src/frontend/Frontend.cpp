@@ -551,7 +551,15 @@ void Frontend::ExecuteInternal(const char *routine, const Buffer *input_buffer,
                          + frontend->mDirectOutputCount;
         static const bool profile_all =
             std::getenv("GVIRTUS_PROFILE_ALL") != nullptr;
-        const bool profile = profile_all || effective_payload >= (1u << 20);
+        /* El disparo por tamano ahora hay que pedirlo. Antes estaba siempre activo y
+         * cobraba un fprintf+fflush sin bufer a cada transferencia >=1 MiB -- es decir,
+         * 16 por batch de cuDF, solo en el lado virtualizado. Medir el sobrecoste de la
+         * virtualizacion con un diagnostico encendido dentro de la region medida sesga
+         * el resultado en la direccion que mas conviene desconfiar. */
+        static const bool profile_big =
+            std::getenv("GVIRTUS_PROFILE_BIG") != nullptr;
+        const bool profile =
+            profile_all || (profile_big && effective_payload >= (1u << 20));
         auto tA = steady_clock::now();
 
         // Gather-send via Communicator::WriteIov - UCX backend maps this to

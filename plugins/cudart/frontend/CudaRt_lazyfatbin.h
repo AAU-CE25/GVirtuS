@@ -49,6 +49,17 @@ namespace gvirtus_lazyfat {
 
 bool enabled();
 
+/* Deduplicacion por contenido (GVIRTUS_FATBIN_DEDUP=1). Un fatbin es inmutable, asi que
+ * se indexa por su huella y no por su direccion: no hay ciclo de vida que rastrear.
+ * Con N clientes el mismo catalogo de RAPIDS viaja N veces; esto lo deja en una.
+ *
+ * Las usan LOS DOS caminos, el perezoso y el normal: si solo cubriera uno, apagar el
+ * diferido desactivaria la dedup en silencio -- que es justo el fallo que tuvo la primera
+ * version. */
+bool dedup_enabled();
+bool dedup_probe(void *bin);    /* true => el backend ya lo tiene, no enviar el blob */
+void dedup_record(void *bin);   /* indexar tras un registro correcto */
+
 void note_fatbin(void **handle, void *bin);
 void note_fatbin_end(void **handle, void *bin);
 

@@ -34,6 +34,10 @@
  */
 
 #include "TcpCommunicator.h"
+#include <cstdio>
+#include <netinet/tcp.h>
+
+#include <sys/uio.h>
 
 #ifndef _WIN32
 
@@ -232,7 +236,51 @@ size_t TcpCommunicator::Write(const char *buffer, size_t size) {
     return size;
 }
 
+size_t TcpCommunicator::WriteIov(const struct iovec *iov, size_t iov_count) {
+    /* Sin estacionamiento. El stream ya bufferiza; anadir por encima un vector del tamano
+     * del mensaje entero solo suma un zero-fill, una copia y un mmap/munmap por llamada.
+     *
+     * No se toca nada mas del camino TCP: mismo stream, mismo Sync(), mismo formato de
+     * cable. El objetivo es volver a lo que hacia el base, no mejorarlo. */
+    if (iov == nullptr || iov_count == 0) return 0;
+    size_t total = 0;
+    for (size_t i = 0; i < iov_count; ++i) {
+        if (iov[i].iov_len == 0) continue;
+        mpOutput->write(static_cast<const char *>(iov[i].iov_base),
+                        static_cast<std::streamsize>(iov[i].iov_len));
+        total += iov[i].iov_len;
+    }
+    return total;
+}
+
 void TcpCommunicator::Sync() { mpOutput->flush(); }
+
+namespace {
+/* Afinado opcional del socket, tras GVIRTUS_TCP_TUNED=1. Apagado por defecto: el brazo
+ * `modified_tcp` tiene que seguir midiendo el transporte tal como existe. */
+bool gvs_tcp_tuned() {
+    static const bool on = []() {
+        const char *v = std::getenv("GVIRTUS_TCP_TUNED");
+        return v != nullptr && v[0] == '1' && v[1] == '\0';
+    }();
+    return on;
+}
+
+void gvs_tune_socket(int fd) {
+    if (fd < 0 || !gvs_tcp_tuned()) return;
+    int on = 1;
+    /* Nagle retiene segmentos pequenos esperando llenar un MSS. Con miles de RPC de
+     * peticion/respuesta por batch, cada retencion cuesta una ida y vuelta. */
+    ::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &on, sizeof(on));
+    /* Los tamanos por defecto no cubren el producto ancho-de-banda x retardo de 100 GbE:
+     * el emisor se bloquea esperando ACK con capacidad de sobra en el cable. */
+    int buf = 16 * 1024 * 1024;
+    ::setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &buf, sizeof(buf));
+    ::setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &buf, sizeof(buf));
+    std::fprintf(stderr, "[GVS TCP] afinado: TCP_NODELAY + SO_SNDBUF/SO_RCVBUF=%d\n", buf);
+    std::fflush(stderr);
+}
+}  // namespace
 
 void TcpCommunicator::InitializeStream() {
 #ifdef _WIN32
@@ -241,8 +289,12 @@ void TcpCommunicator::InitializeStream() {
     mpInputBuf = new filebuf(i);
     mpOutputBuf = new filebuf(o);
 #else
-    mpInputBuf = new __gnu_cxx::stdio_filebuf<char>(mSocketFd, ios_base::in);
-    mpOutputBuf = new __gnu_cxx::stdio_filebuf<char>(mSocketFd, ios_base::out);
+    /* Tercer argumento = tamano del bufer. Sin el, `stdio_filebuf` usa BUFSIZ (8 KB), lo
+     * que trocea las transferencias grandes en miles de escrituras. */
+    const size_t bufsz = gvs_tcp_tuned() ? (1u << 20) : static_cast<size_t>(BUFSIZ);
+    gvs_tune_socket(mSocketFd);
+    mpInputBuf = new __gnu_cxx::stdio_filebuf<char>(mSocketFd, ios_base::in, bufsz);
+    mpOutputBuf = new __gnu_cxx::stdio_filebuf<char>(mSocketFd, ios_base::out, bufsz);
 #endif
 
     mpInput = new istream(mpInputBuf);

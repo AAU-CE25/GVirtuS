@@ -14,6 +14,7 @@
 
 #include "CudaRt.h"
 #include "CudaUtil.h"
+#include <gvirtus/common/FatbinHash.h>
 
 using gvirtus::communicators::Buffer;
 
@@ -61,6 +62,7 @@ std::map<const void *, void **> &owner() {
 }
 
 std::atomic<long> g_total{0}, g_shipped{0};
+std::atomic<long> g_dedup_hits{0}, g_dedup_miss{0};
 
 /* Envia UNA entrada. El llamante debe tener mu() tomado. El orden replica el de CUDA:
  * fatbin, funciones, variables y End al final. Ver la nota junto al bloque de End. */
@@ -71,11 +73,18 @@ void ship_locked(void **handle, Pending &p) {
 
     __fatBinC_Wrapper_t *bin = static_cast<__fatBinC_Wrapper_t *>(p.bin);
 
-    Buffer *ib = new Buffer();
-    ib->AddString(CudaUtil::MarshalHostPointer(reinterpret_cast<void **>(bin)));
-    ib = CudaUtil::MarshalFatCudaBinary(bin, ib);
-    CudaRtFrontend::Prepare();
-    CudaRtFrontend::Execute("cudaRegisterFatBinary", ib);
+    if (dedup_enabled() && dedup_probe(bin)) {
+        /* El backend ya tenia este contenido y ha ligado nuestro handler: no hace falta
+         * enviar el blob. Las funciones y variables SI se registran despues, porque sus
+         * punteros hostFun son propios de este cliente. */
+    } else {
+        Buffer *ib = new Buffer();
+        ib->AddString(CudaUtil::MarshalHostPointer(reinterpret_cast<void **>(bin)));
+        ib = CudaUtil::MarshalFatCudaBinary(bin, ib);
+        CudaRtFrontend::Prepare();
+        CudaRtFrontend::Execute("cudaRegisterFatBinary", ib);
+        if (dedup_enabled()) dedup_record(bin);
+    }
 
     for (auto &f : p.funcs) {
         CudaRtFrontend::Prepare();
@@ -119,6 +128,55 @@ void ship_locked(void **handle, Pending &p) {
 }
 
 }  // namespace
+
+namespace {
+gvirtus::common::FatbinKey key_of(void *binv) {
+    const __fatBinC_Wrapper_t *bin = static_cast<const __fatBinC_Wrapper_t *>(binv);
+    const struct fatBinaryHeader *hdr =
+        reinterpret_cast<const struct fatBinaryHeader *>(bin->data);
+    return gvirtus::common::fatbin_key(bin->data, hdr->headerSize + hdr->fatSize);
+}
+}  // namespace
+
+bool dedup_enabled() {
+    static const bool on = [] {
+        const char *v = std::getenv("GVIRTUS_FATBIN_DEDUP");
+        return v != nullptr && v[0] == '1' && v[1] == '\0';
+    }();
+    return on;
+}
+
+bool dedup_probe(void *binv) {
+    const gvirtus::common::FatbinKey k = key_of(binv);
+    CudaRtFrontend::Prepare();
+    CudaRtFrontend::AddStringForArguments(
+        CudaUtil::MarshalHostPointer(reinterpret_cast<void **>(binv)));
+    CudaRtFrontend::AddVariableForArguments(k.len);
+    CudaRtFrontend::AddVariableForArguments(k.h1);
+    CudaRtFrontend::AddVariableForArguments(k.h2);
+    CudaRtFrontend::Execute("cudaRegisterFatBinaryProbe");
+    /* Un backend sin esta rutina responde con error: se trata como fallo de cache y se
+     * envia por el camino de siempre. Tolerante a desfase de versiones entre extremos. */
+    if (!CudaRtFrontend::Success()) { g_dedup_miss.fetch_add(1); return false; }
+    int hit = 0;
+    try { hit = CudaRtFrontend::GetOutputVariable<int>(); } catch (...) { hit = 0; }
+    if (hit == 1) { g_dedup_hits.fetch_add(1); return true; }
+    g_dedup_miss.fetch_add(1);
+    return false;
+}
+
+void dedup_record(void *binv) {
+    const gvirtus::common::FatbinKey k = key_of(binv);
+    /* Indexar DESPUES de registrar: si el registro fallara, no queremos que otro cliente
+     * reciba un acierto sobre un modulo que no existe. */
+    CudaRtFrontend::Prepare();
+    CudaRtFrontend::AddStringForArguments(
+        CudaUtil::MarshalHostPointer(reinterpret_cast<void **>(binv)));
+    CudaRtFrontend::AddVariableForArguments(k.len);
+    CudaRtFrontend::AddVariableForArguments(k.h1);
+    CudaRtFrontend::AddVariableForArguments(k.h2);
+    CudaRtFrontend::Execute("cudaRegisterFatBinaryBind");
+}
 
 bool enabled() {
     static const bool on = [] {
@@ -196,8 +254,10 @@ void flush_all() {
 void report_stats() {
     const char *v = std::getenv("GVIRTUS_LAZY_FATBIN_STATS");
     if (v == nullptr || v[0] != '1') return;
-    std::fprintf(stderr, "[GVS LAZY FATBIN] enviados %ld de %ld registrados\n", g_shipped.load(),
-                 g_total.load());
+    std::fprintf(stderr,
+                 "[GVS LAZY FATBIN] enviados %ld de %ld registrados | dedup: %ld aciertos, "
+                 "%ld fallos\n",
+                 g_shipped.load(), g_total.load(), g_dedup_hits.load(), g_dedup_miss.load());
     std::fflush(stderr);
 }
 

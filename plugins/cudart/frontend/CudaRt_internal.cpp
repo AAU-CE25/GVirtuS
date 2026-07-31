@@ -243,13 +243,22 @@ extern "C" __host__ void **__cudaRegisterFatBinary(void *fatCubin) {
         return (void **)fatCubin;
     }
 
+    /* Camino NORMAL (sin diferido): tambien deduplica. La primera version solo cubria el
+     * camino perezoso, asi que apagar el diferido desactivaba la dedup en silencio. */
+    if (gvirtus_lazyfat::dedup_enabled() && gvirtus_lazyfat::dedup_probe(bin)) {
+        return (void **)fatCubin;
+    }
+
     Buffer *input_buffer = new Buffer();
     input_buffer->AddString(CudaUtil::MarshalHostPointer((void **)bin));
     input_buffer = CudaUtil::MarshalFatCudaBinary(bin, input_buffer);
 
     CudaRtFrontend::Prepare();
     CudaRtFrontend::Execute("cudaRegisterFatBinary", input_buffer);
-    if (CudaRtFrontend::Success()) return (void **)fatCubin;
+    if (CudaRtFrontend::Success()) {
+        if (gvirtus_lazyfat::dedup_enabled()) gvirtus_lazyfat::dedup_record(bin);
+        return (void **)fatCubin;
+    }
 
     return nullptr;
 }
