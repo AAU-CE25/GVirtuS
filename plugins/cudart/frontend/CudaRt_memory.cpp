@@ -112,6 +112,10 @@ namespace {
 struct RegCacheableRegistrar {
     RegCacheableRegistrar() {
         gvirtus::communicators::SetRegistrationCacheableHook(&gvirtus_registration_cacheable);
+        // El mismo mapa de intervalos que ya se mantiene para la cacheabilidad, expuesto
+        // ahora tambien a la politica de colocacion. Sin RPC: es una busqueda local.
+        gvirtus::communicators::SetHostPinnedHook(
+            [](const void *p, size_t n) { return gvirtus_is_pinned(p, n); });
     }
 };
 RegCacheableRegistrar g_reg_cacheable_registrar;

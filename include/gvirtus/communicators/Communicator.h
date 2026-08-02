@@ -288,6 +288,19 @@ using RegistrationCacheableFn = bool (*)(const void *addr, size_t len);
 void SetRegistrationCacheableHook(RegistrationCacheableFn fn);
 bool RegistrationCacheable(const void *addr, size_t len);
 
+// Is [addr, addr+len) inside a PINNED host allocation this frontend tracks?
+//
+// The placement policy needs the pinned/pageable bit to pick a threshold, and it needs it
+// per transfer. The obvious source -- cudaPointerGetAttributes -- is remoted on the
+// frontend, so asking it would cost an RPC to save an RPC. The frontend already keeps an
+// interval map of cudaHostAlloc/cudaFreeHost allocations; this hook exposes it.
+//
+// Fails closed: with no hook installed the answer is false, i.e. "pageable", i.e. the
+// higher and more conservative threshold.
+using HostPinnedFn = bool (*)(const void *addr, size_t len);
+void SetHostPinnedHook(HostPinnedFn fn);
+bool HostMemoryIsPinned(const void *addr, size_t len);
+
 // True once the transport has installed a hook that reports the unmapping of ANY host
 // mapping, not just the allocations this frontend owns.
 //

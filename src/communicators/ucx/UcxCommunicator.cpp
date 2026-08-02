@@ -1,3 +1,4 @@
+#include <pthread.h>
 #include "UcxCommunicator.h"
 
 #include <arpa/inet.h>
@@ -16,10 +17,15 @@
 #include <netdb.h>
 #include <sys/socket.h>
 #include <stdexcept>
+#include <string>
 #include <thread>
 
 #include "gvirtus/communicators/Endpoint_Ucx.h"
 #include "gvirtus/communicators/UcxAmProtocol.h"
+#include "gvirtus/communicators/AblationGate.h"
+#include "gvirtus/communicators/RmaPolicy.h"
+using gvirtus::communicators::Ablation;
+using gvirtus::communicators::ablated;
 
 using gvirtus::communicators::UcxCommunicator;
 
@@ -228,6 +234,11 @@ void load_cuda_device_funcs() {
 }
 
 // ---------------------------------------------------------------------------
+// Aciertos y fallos de la cache de registro H2D. Globales como la propia cache: la comparten
+// todas las conexiones del proceso.
+static std::atomic<unsigned long long> g_reg_cache_hits{0};
+static std::atomic<unsigned long long> g_reg_cache_misses{0};
+
 // H2D source registration cache (invalidatable).
 // ---------------------------------------------------------------------------
 // Registering a 64 MB source per put costs half the H2D bandwidth (measured:
@@ -346,7 +357,45 @@ static void gvs_srcreg_report(const char *what) {
 
 // The application freed this address, so EVERY context's registration of it is stale --
 // drop them all, not just one.
+
+// --- temporary: locate a stall by tracing entry/exit per thread ---------------------
+// Enabled only when GVS_TRACE_FN=1 (a VALUE check, not a set check).
+namespace {
+inline bool gvs_trace_on() {
+    static const bool on = []() {
+        const char *v = std::getenv("GVS_TRACE_FN");
+        return v != nullptr && v[0] == '1';
+    }();
+    return on;
+}
+struct GvsTraceFn {
+    const char *name;
+    explicit GvsTraceFn(const char *n) : name(n) {
+        if (gvs_trace_on()) {
+            std::fprintf(stderr, "[TRACE %lu] >> %s\n",
+                         (unsigned long)pthread_self(), name);
+            std::fflush(stderr);
+        }
+    }
+    ~GvsTraceFn() {
+        if (gvs_trace_on()) {
+            std::fprintf(stderr, "[TRACE %lu] << %s\n",
+                         (unsigned long)pthread_self(), name);
+            std::fflush(stderr);
+        }
+    }
+};
+}  // namespace
+#define GVS_TRACE(n) GvsTraceFn gvs_trace_guard_(n)
+
 void src_reg_invalidate(const void *addr) {
+    const char *tv = std::getenv("GVS_TRACE_FN");
+    const bool tr = (tv != nullptr && tv[0] == '1');
+    if (tr) { std::fprintf(stderr, "[TRACE %lu] >> src_reg_invalidate\n",
+                           (unsigned long)pthread_self()); std::fflush(stderr); }
+    struct Bye { bool on; ~Bye() { if (on) { std::fprintf(stderr,
+        "[TRACE %lu] << src_reg_invalidate\n", (unsigned long)pthread_self());
+        std::fflush(stderr); } } } bye{tr};
     std::vector<std::pair<ucp_context_h, ucp_mem_h>> doomed;
     {
         std::lock_guard<std::mutex> lk(g_src_reg_mu);
@@ -360,9 +409,23 @@ void src_reg_invalidate(const void *addr) {
         }
     }
     gvs_mm_count("unmap:L360", false);
+    // ONCE. This loop was written twice -- a diagnostic line got inserted between a loop
+    // and its duplicate, and every registration was unmapped twice. ucp_mem_unmap releases
+    // the handle, so the second pass is a double free of memory glibc has already recycled:
+    // "free(): double free detected in tcache 2", every time an application frees a buffer
+    // it had registered. cuDF hits it on its first batch.
+    if (tr && !doomed.empty()) {
+        std::fprintf(stderr, "[TRACE %lu] .. unmapping %zu registration(s)\n",
+                     (unsigned long)pthread_self(), doomed.size());
+        std::fflush(stderr);
+    }
     for (auto &d : doomed) ucp_mem_unmap(d.first, d.second);
+    if (tr && !doomed.empty()) {
+        std::fprintf(stderr, "[TRACE %lu] .. unmapped ok\n",
+                     (unsigned long)pthread_self());
+        std::fflush(stderr);
+    }
     if (!doomed.empty()) gvs_srcreg_report("tras invalidar");
-    for (auto &d : doomed) ucp_mem_unmap(d.first, d.second);
     if (!doomed.empty()) {
         ucx_debug_log("src_reg: invalidated %zu registration(s) for %p (freed by the app)",
                       doomed.size(), addr);
@@ -483,6 +546,7 @@ ucp_mem_h acquire_app_registration(ucp_context_h ctx, const void *addr, size_t l
         const SrcRegKey key{ctx, addr};
         std::lock_guard<std::mutex> lk(g_src_reg_mu);
         auto it = g_src_regs.find(key);
+        if (it == g_src_regs.end()) ++g_reg_cache_misses; else ++g_reg_cache_hits;
         if (it != g_src_regs.end() && it->second.len < len) {
             gvs_mm_count("unmap:L402", false);
             ucp_mem_unmap(ctx, it->second.memh);
@@ -1153,6 +1217,7 @@ ucp_conn_request_h UcxCommunicator::wait_for_connection_request() {
 }
 
 void UcxCommunicator::wait_request_completion(void *request, const char *op_name) {
+    GVS_TRACE("wait_request_completion");
     // Progress the worker until the request completes (no sleep for low latency).
     ucx_debug_log("%s: wait_request_completion request=%p", op_name, request);
 
@@ -1239,34 +1304,49 @@ void UcxCommunicator::enqueue_am_rndv(void *request, PooledMsg msg) {
 
 void UcxCommunicator::progress_am_rndv() {
     // Check rendezvous receive requests and move completed payloads into the queue.
-    std::lock_guard<std::mutex> lock(am_state_->mutex);
-    for (auto it = am_state_->rndv.begin(); it != am_state_->rndv.end();) {
-        if (it->request == nullptr) {
-            am_state_->queue.push_back(it->msg);
-            it = am_state_->rndv.erase(it);
-            continue;
-        }
-
-        const ucs_status_t status = ucp_request_check_status(it->request);
-        if (status == UCS_INPROGRESS) {
-            ++it;
-            continue;
-        }
-
-        ucp_request_free(it->request);
-        if (status == UCS_OK) {
-            am_state_->queue.push_back(it->msg);
-            am_state_->cv.notify_one();
-        } else {
-            std::fprintf(stderr, "UCX AM rendezvous receive failed: %s\n",
-                         ucs_status_string(status));
-            // Release the slot since the message was never delivered.
-            if (it->msg.slot_idx != static_cast<size_t>(-1)) {
-                release_rx_slot(it->msg.slot_idx);
+    //
+    // Nada que entre en UCX se llama con am_state_->mutex tomado. El callback AM de UCX
+    // corre CON el cerrojo del worker y ahi dentro llama a enqueue_am_message(), que toma
+    // am_state_->mutex: ese orden (worker -> nuestro) lo impone UCX y no se puede cambiar.
+    // Si aqui se tomase el nuestro y luego se entrase en UCX -- que es lo que hacian
+    // ucp_request_free() y release_rx_slot() dentro del bucle -- los dos ordenes coexisten y
+    // dos hilos se bloquean mutuamente. ThreadSanitizer lo marcaba 4 veces por corrida como
+    // "lock-order-inversion (potential deadlock)". Ahora dentro del cerrojo solo se toca
+    // nuestra estructura, y lo que entra en UCX se aplaza a despues de soltarlo.
+    std::vector<void *> por_liberar;
+    std::vector<size_t> slots_por_soltar;
+    {
+        std::lock_guard<std::mutex> lock(am_state_->mutex);
+        for (auto it = am_state_->rndv.begin(); it != am_state_->rndv.end();) {
+            if (it->request == nullptr) {
+                am_state_->queue.push_back(it->msg);
+                it = am_state_->rndv.erase(it);
+                continue;
             }
+
+            const ucs_status_t status = ucp_request_check_status(it->request);
+            if (status == UCS_INPROGRESS) {
+                ++it;
+                continue;
+            }
+
+            por_liberar.push_back(it->request);
+            if (status == UCS_OK) {
+                am_state_->queue.push_back(it->msg);
+                am_state_->cv.notify_one();
+            } else {
+                std::fprintf(stderr, "UCX AM rendezvous receive failed: %s\n",
+                             ucs_status_string(status));
+                // Release the slot since the message was never delivered.
+                if (it->msg.slot_idx != static_cast<size_t>(-1)) {
+                    slots_por_soltar.push_back(it->msg.slot_idx);
+                }
+            }
+            it = am_state_->rndv.erase(it);
         }
-        it = am_state_->rndv.erase(it);
     }
+    for (void *req : por_liberar) ucp_request_free(req);
+    for (size_t idx : slots_por_soltar) release_rx_slot(idx);
 }
 
 void UcxCommunicator::Serve() {
@@ -1478,6 +1558,7 @@ void UcxCommunicator::Connect() {
 }
 
 size_t UcxCommunicator::Read(char *buffer, size_t size) {
+    GVS_TRACE("Read");
     if (endpoint_ == nullptr || worker_ == nullptr) {
         throw std::runtime_error("UcxCommunicator: Read called without an active endpoint");
     }
@@ -1496,6 +1577,8 @@ size_t UcxCommunicator::Read(char *buffer, size_t size) {
     if (rma_reclaim_requested_.load(std::memory_order_acquire)) {
         reclaim_retired_slots();
     }
+    // Mismo punto seguro: muestreo periodico de metricas. No toma cerrojos del worker.
+    gusto_metric_maybe_emit();
 
     // Drain AM queue into the caller buffer, preserving stream semantics.
     // Busy-poll to keep ucp_worker_progress() running continuously.
@@ -1556,6 +1639,7 @@ size_t UcxCommunicator::Read(char *buffer, size_t size) {
 }
 
 bool UcxCommunicator::TryAcquireFrame(const unsigned char *&data, size_t &size) {
+    GVS_TRACE("TryAcquireFrame");
     if (endpoint_ == nullptr || worker_ == nullptr) return false;
 
     // Safe point for the deferred pool build (no worker_mutex_ held yet). The backend
@@ -1571,6 +1655,8 @@ bool UcxCommunicator::TryAcquireFrame(const unsigned char *&data, size_t &size) 
     if (rma_reclaim_requested_.load(std::memory_order_acquire)) {
         reclaim_retired_slots();
     }
+    // Mismo punto seguro: muestreo periodico de metricas. No toma cerrojos del worker.
+    gusto_metric_maybe_emit();
 
     // If we already hold a partially-consumed message, give up — the caller
     // mixed stream Read() with frame mode. Conservative: refuse the handoff.
@@ -1622,6 +1708,7 @@ bool UcxCommunicator::TryAcquireFrame(const unsigned char *&data, size_t &size) 
 }
 
 void UcxCommunicator::ReleaseFrame() {
+    GVS_TRACE("ReleaseFrame");
     if (current_frame_.slot_idx != static_cast<size_t>(-1)) {
         // Wait for any device work the handler left in flight against this frame
         // (the GPUDirect shadow -> destination copy) BEFORE the slot is declared
@@ -1877,6 +1964,67 @@ void UcxCommunicator::retire_and_free_locked(std::uint32_t now_epoch) {
     }
 }
 
+// F4: validacion centralizada del provisioning. Estatica y sin estado salvo el aviso unico.
+bool UcxCommunicator::gusto_validate_pool_cfg(size_t slots, size_t cap_bytes,
+                                              bool with_shadow) {
+    auto env_u64 = [](const char *k, unsigned long long d) -> unsigned long long {
+        const char *v = std::getenv(k);
+        if (v == nullptr || v[0] == '\0') return d;
+        char *end = nullptr;
+        unsigned long long p = std::strtoull(v, &end, 10);
+        return (end != v) ? p : d;
+    };
+    const size_t max_slots = (size_t)env_u64("GUSTO_RMA_MAX_SLOTS", 1024);
+
+    if (slots == 0 || slots > max_slots) {
+        std::fprintf(stderr, "[GUSTO CFG] RECHAZADO: GVIRTUS_RMA_SLOTS=%zu fuera de [1,%zu]. "
+                             "No se construye el pool; el transporte usa el camino AM.\n",
+                     slots, max_slots);
+        std::fflush(stderr);
+        return false;
+    }
+    if (cap_bytes == 0) {
+        std::fprintf(stderr, "[GUSTO CFG] RECHAZADO: capacidad de slot 0.\n");
+        std::fflush(stderr);
+        return false;
+    }
+    // Desbordamiento ANTES de reservar: por slot se paga host + (shadow ? GPU : 0).
+    const size_t per_slot = with_shadow ? (cap_bytes * 2u) : cap_bytes;
+    if (with_shadow && per_slot / 2u != cap_bytes) {
+        std::fprintf(stderr, "[GUSTO CFG] RECHAZADO: desbordamiento al doblar la capacidad "
+                             "(%zu B) por el shadow GPU.\n", cap_bytes);
+        std::fflush(stderr);
+        return false;
+    }
+    if (per_slot != 0 && slots > (size_t)-1 / per_slot) {
+        std::fprintf(stderr, "[GUSTO CFG] RECHAZADO: %zu slots x %zu B desborda size_t.\n",
+                     slots, per_slot);
+        std::fflush(stderr);
+        return false;
+    }
+    const size_t total = slots * per_slot;
+    const unsigned long long budget = env_u64("GUSTO_RMA_HOST_POOL_BUDGET_BYTES", 0);
+    if (budget != 0 && (unsigned long long)total > budget) {
+        std::fprintf(stderr,
+                     "[GUSTO CFG] RECHAZADO: el pool pide %.1f MiB y el presupuesto "
+                     "GUSTO_RMA_HOST_POOL_BUDGET_BYTES es %.1f MiB. No se construye.\n",
+                     total / 1048576.0, budget / 1048576.0);
+        std::fflush(stderr);
+        return false;
+    }
+    // Config EFECTIVA. Sin esta linea, "lo puse" y "lo leyo" son indistinguibles desde fuera,
+    // que es exactamente como una campana entera acabo midiendo el camino AM creyendo medir
+    // el pool.
+    std::fprintf(stderr,
+                 "[GUSTO CFG] pool efectivo: slots=%zu cap=%.1f MiB shadow=%s "
+                 "total=%.1f MiB%s\n",
+                 slots, cap_bytes / 1048576.0, with_shadow ? "si" : "no",
+                 total / 1048576.0,
+                 budget ? "" : " (sin presupuesto definido)");
+    std::fflush(stderr);
+    return true;
+}
+
 void UcxCommunicator::init_rx_pool() {
     // 2 slots is enough for the current synchronous request/response pattern
     // (the request occupies slot 0 while the response is in flight; once the
@@ -1897,6 +2045,22 @@ void UcxCommunicator::init_rx_pool() {
         unsigned long long parsed = std::strtoull(v, &end, 10);
         return (parsed > 0) ? static_cast<size_t>(parsed) : dflt;
     };
+    // F4: el lambda env_size devuelve el DEFAULT ante 0 o ante basura, asi que una erratacomo
+    // GVIRTUS_RMA_SLOTS=0 se convertia en 2 en silencio y jamas llegaba a la validacion.
+    // Se mira el crudo antes de normalizar.
+    {
+        const char *raw = std::getenv("GVIRTUS_RMA_SLOTS");
+        if (raw != nullptr && raw[0] != '\0') {
+            char *end = nullptr;
+            unsigned long long p = std::strtoull(raw, &end, 10);
+            if (end == raw || *end != '\0' || p == 0) {
+                std::fprintf(stderr, "[GUSTO CFG] RECHAZADO: GVIRTUS_RMA_SLOTS='%s' no es un "
+                                     "entero positivo. No se construye el pool.\n", raw);
+                std::fflush(stderr);
+                return;
+            }
+        }
+    }
     const size_t kInitialSlotCount = env_size("GVIRTUS_RMA_SLOTS", 2);
 
     // Lazy by default: a connection that never sends anything at or above the RMA
@@ -1914,6 +2078,13 @@ void UcxCommunicator::init_rx_pool() {
     // returns the ceiling, i.e. the historical behaviour.
     const size_t kInitialSlotCap = rma_slot_cap_for(
         prealloc ? 0 : rma_pool_hint_bytes_.load(std::memory_order_acquire));
+
+    // F4: validar ANTES de reservar. Si no pasa, no se construye nada y no queda un pool a
+    // medias: el transporte sigue por AM, que es degradacion, no fallo.
+    if (!gusto_validate_pool_cfg(kInitialSlotCount, kInitialSlotCap,
+                                 g_gpudirect_enabled.load())) {
+        return;
+    }
 
     std::lock_guard<std::mutex> lk(rx_pool_->mu);
 
@@ -2187,12 +2358,122 @@ void UcxCommunicator::release_rx_slot(size_t slot_idx) {
 // WriteIovRma waiter can reuse it — but ONLY if the generation still matches.
 // A stale/duplicate ack (ABA: the slot was already freed and re-acquired for a
 // newer op) must be ignored, or it would corrupt an unrelated in-flight write.
+// Marca de reentrada para el duplicado diferido de la inyeccion de fallos: evita que la
+// aplicacion tardia se programe a si misma otra vez y crezca sin fin.
+static thread_local bool tls_ack_diferido = false;
+
+// F3. Integral de ocupacion. Se llama en CADA transicion de estado de slot y solo entonces,
+// asi que cuesta un reloj monotono por transicion y no por operacion.
+void UcxCommunicator::gusto_occupancy_tick_locked(int delta) {
+    const auto now = std::chrono::steady_clock::now();
+    if (rma_occ_started_) {
+        const std::uint64_t dt = (std::uint64_t)
+            std::chrono::duration_cast<std::chrono::nanoseconds>(now - rma_occ_last_).count();
+        rma_occupancy_ns_ += dt * (std::uint64_t)rma_inflight_now_;
+        rma_occupancy_span_ns_ += dt;
+    }
+    rma_occ_last_ = now;
+    rma_occ_started_ = true;
+    if (delta > 0) {
+        ++rma_inflight_now_;
+        if (rma_inflight_now_ > rma_peak_inflight_) rma_peak_inflight_ = rma_inflight_now_;
+    } else if (delta < 0 && rma_inflight_now_ > 0) {
+        --rma_inflight_now_;
+    }
+}
+
 void UcxCommunicator::release_remote_slot(size_t server_idx,
                                           std::uint64_t tag) {
     using gvirtus::communicators::ucxam::slot_tag_epoch;
     using gvirtus::communicators::ucxam::slot_tag_generation;
 
+    // Inyeccion `delay_ack`: aplicar este ack normalmente y programar ADEMAS un duplicado
+    // que se aplicara dentro de unos milisegundos, cuando el slot ya se habra liberado y
+    // muy probablemente reasignado a otra transferencia. Ese duplicado tardio es la
+    // condicion ABA exacta que la guarda de generacion existe para rechazar.
+    if (gvirtus::communicators::faulting(gvirtus::communicators::Fault::DelayAck) &&
+        !tls_ack_diferido) {
+        const int ms = gvirtus::communicators::fault_delay_ms();
+        std::thread([this, server_idx, tag, ms]() {
+            std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+            tls_ack_diferido = true;
+            this->release_remote_slot(server_idx, tag);
+            tls_ack_diferido = false;
+        }).detach();
+    }
+
     std::lock_guard<std::mutex> lk(rma_state_mu_);
+
+    // F8 hold_ack: retener el PRIMER ack y no aplicarlo. El trafico normal reasignara el slot;
+    // WriteIovRma entrega el retenido en cuanto ese slot vuelve a estar InFlight con otra
+    // generacion, que es exactamente la condicion ABA.
+    static const bool gusto_espera_epoch = []() {
+        const char *e = std::getenv("GVS_FAULT");
+        return (e != nullptr && (std::strcmp(e, "epoch_ack") == 0 ||
+                                 std::strcmp(e, "epoch_ack_idx") == 0));
+    }();
+    // `epoch_ack`     re-entrega en cuanto cambia el epoch (demuestra que la guarda CORRE).
+    // `epoch_ack_idx` re-entrega solo si ADEMAS coincide el server_idx (la unica combinacion
+    //                 en la que el ack viejo podria liberar un slot vivo). Si esta segunda
+    //                 nunca dispara, la guarda es defensa en profundidad y no necesidad, y
+    //                 hay que decirlo asi.
+    static const bool gusto_espera_idx = []() {
+        const char *e = std::getenv("GVS_FAULT");
+        return (e != nullptr && std::strcmp(e, "epoch_ack_idx") == 0);
+    }();
+    static const bool gusto_hold_enabled = []() {
+        const char *e = std::getenv("GVS_FAULT");
+        const bool on = (e != nullptr && (std::strcmp(e, "hold_ack") == 0 ||
+                                          std::strcmp(e, "epoch_ack") == 0 ||
+                                          std::strcmp(e, "epoch_ack_idx") == 0));
+        if (on) std::fprintf(stderr, "[GVS FAULT] *** SlotConsumed RETENIDO hasta la "
+                                     "reasignacion del slot (ABA determinista)\n");
+        return on;
+    }();
+    // En que ack se arma. Para `hold_ack` (condicion ABA por reasignacion del MISMO slot) hay
+    // que armar tarde: el primer ack viene de una transferencia de arranque contra la layout
+    // inicial, y medido "armado slot=0 vs reasignado slot=9", 190 veces, el slot 0 nunca
+    // vuelve. De ahi el default de 20.
+    //
+    // Para `epoch_ack` la condicion es la contraria y 20 la hace INALCANZABLE en la practica.
+    // El ack retenido solo hace dano si, tras el swap, existe un slot con el MISMO server_idx
+    // y la MISMA generacion -- y las generaciones reinician a 0 en cada layout, asi que el
+    // unico ack que colisiona es el de generacion 1, o sea el PRIMERO de la layout estable.
+    // Armar en el ack 20 guarda un tag con generacion ~3 que la guarda de generacion atajaria
+    // igualmente, y entonces la celda no demuestra que la guarda de epoch haga falta.
+    // GVS_FAULT_ARM lo hace elegible sin recompilar.
+    static const unsigned long long gusto_arm_at = []() -> unsigned long long {
+        const char *e = std::getenv("GVS_FAULT_ARM");
+        const long long v = (e != nullptr && e[0] != '\0') ? std::strtoll(e, nullptr, 10) : 20;
+        return v > 0 ? (unsigned long long)v : 20ull;
+    }();
+    ++gusto_ack_seen_;
+    if (gusto_hold_enabled && !gusto_hold_spent_ && !gusto_hold_armed_ &&
+        (unsigned long long)gusto_ack_seen_ >= gusto_arm_at) {
+        gusto_hold_armed_ = true;
+        gusto_hold_spent_ = true;
+        gusto_hold_slot_  = static_cast<std::uint16_t>(server_idx);
+        gusto_hold_tag_   = tag;
+        gusto_hold_epoch_ = remote_epoch_;
+        gusto_hold_espera_epoch_ = gusto_espera_epoch;
+        gusto_hold_espera_idx_ = gusto_espera_idx;
+        ++rma_ack_held_count_;
+        // epoch y generacion explicitos: sin ellos no se puede saber si la celda del ablation
+        // midio la guarda de epoch o la de generacion, que es la confusion que se busca evitar.
+        std::fprintf(stderr, "[GVS FAULT] ack marcado para REPLAY: slot=%zu tag=%llu "
+                             "(epoch=%u gen=%llu, en el ack #%llu)\n",
+                     server_idx, (unsigned long long)tag,
+                     (unsigned)slot_tag_epoch(tag),
+                     (unsigned long long)slot_tag_generation(tag),
+                     (unsigned long long)gusto_ack_seen_);
+        std::fflush(stderr);
+        // NO se hace `return`. Retener el ack dejaria el slot InFlight para siempre, con lo
+        // que nunca se reasignaria y el ack retenido nunca llegaria a entregarse: la propia
+        // inyeccion se bloquea (medido: released=0, reservas paradas en 7).
+        // La condicion ABA de verdad es un DUPLICADO TARDIO: el ack se aplica ahora con
+        // normalidad, y se guarda una copia que WriteIovRma re-entrega en cuanto ese mismo
+        // slot vuelve a estar en vuelo con OTRA generacion.
+    }
 
     const std::uint32_t ack_epoch = slot_tag_epoch(tag);
     const std::uint64_t generation = slot_tag_generation(tag);
@@ -2202,7 +2483,9 @@ void UcxCommunicator::release_remote_slot(size_t server_idx,
     // id alone could mark a NEW slot free while the backend is still consuming it.
     // Epoch 0 means the peer predates this scheme -- accept it, matching the old
     // generation-only behaviour.
-    if (ack_epoch != 0 && remote_epoch_ != 0 && ack_epoch != remote_epoch_) {
+    if (ack_epoch != 0 && remote_epoch_ != 0 && ack_epoch != remote_epoch_ &&
+        !ablated(Ablation::NoEpoch)) {
+        ++rma_ack_dropped_epoch_count_;
         ucx_debug_log("SlotConsumed: dropping ack from epoch %u (current %u)",
                       ack_epoch, remote_epoch_);
         return;
@@ -2211,8 +2494,21 @@ void UcxCommunicator::release_remote_slot(size_t server_idx,
     // Slots are addressed by the SERVER's index, not our position in the vector.
     for (auto &s : remote_slots_) {
         if (s.server_idx != static_cast<std::uint16_t>(server_idx)) continue;
-        if (s.state == RemoteSlot::State::InFlight && s.generation == generation) {
+        // Variante `no_generation`: el slot se libera con cualquier ack, sin comprobar
+        // que la generacion siga siendo la que se envio. Un ack duplicado o retrasado
+        // libera entonces un slot que ya se reasigno a otra transferencia (ABA).
+        const bool casa = (s.generation == generation);
+        const bool gen_ok = ablated(Ablation::NoGeneration) ? true : casa;
+        // La violacion se cuenta ANTES de decidir, para que el contador diga lo mismo con la
+        // guarda puesta (cuantas veces hizo falta) y sin ella (cuantas veces se consumo).
+        if (s.state == RemoteSlot::State::InFlight && !casa) ++rma_ack_gen_mismatch_count_;
+        // Un ack para un slot ya libre es un duplicado o un tardio: el protocolo lo ignora,
+        // pero hay que poder DEMOSTRAR que lo ignoro y no que el fallo no se ejercito.
+        if (s.state == RemoteSlot::State::Free) ++rma_ack_on_free_count_;
+        if (s.state == RemoteSlot::State::InFlight && gen_ok) {
             s.state = RemoteSlot::State::Free;
+            ++rma_ack_applied_count_;
+            gusto_occupancy_tick_locked(-1);
         }
         // else: stale/duplicate ack — ignore (ABA guard).
         break;
@@ -2234,6 +2530,22 @@ void UcxCommunicator::release_remote_slot(size_t server_idx,
 // generation) has been fully consumed and may be reused.
 void UcxCommunicator::send_slot_consumed(size_t slot_idx,
                                          std::uint64_t generation) {
+    GVS_TRACE("send_slot_consumed");
+    // F6/F14: `slow_ack` alarga la ocupacion de CADA slot para poder saturar el pool a
+    // proposito. Es la unica via a la contrapresion: en todas las cargas reales el pico fue 2
+    // y nunca hubo una espera, asi que el sondeo con plazo de 30 s no se ejercitaba jamas.
+    static const long gusto_slow_ack_ms = []() -> long {
+        const char *f = std::getenv("GVS_FAULT");
+        if (f == nullptr || std::strcmp(f, "slow_ack") != 0) return 0;
+        const char *e = std::getenv("GVS_FAULT_MS");
+        long v = (e && e[0]) ? std::strtol(e, nullptr, 10) : 50;
+        std::fprintf(stderr, "[GVS FAULT] *** SlotConsumed RETRASADO %ld ms en el servidor "
+                             "(saturacion deliberada del pool)\n", v);
+        std::fflush(stderr);
+        return v > 0 ? v : 50;
+    }();
+    if (gusto_slow_ack_ms > 0)
+        std::this_thread::sleep_for(std::chrono::milliseconds(gusto_slow_ack_ms));
     if (endpoint_ == nullptr || worker_ == nullptr) return;
     gvirtus::communicators::ucxam::EnvelopeHeader ack{};
     ack.magic = gvirtus::communicators::ucxam::kEnvelopeMagic;
@@ -2243,17 +2555,45 @@ void UcxCommunicator::send_slot_consumed(size_t slot_idx,
     ack.header_size = sizeof(ack);
     ack.reserved0 = static_cast<std::uint16_t>(slot_idx);
     ack.request_id = generation;
+
+    // Inyeccion de fallos (GVS_FAULT). `generation` es el tag completo que el cliente
+    // acuno, (epoch << 32) | gen, y que aqui se echoa verbatim.
+    //
+    // stale_ack decrementa SOLO la parte de generacion y deja el epoch intacto: asi el ack
+    // sigue perteneciendo al layout vigente y lo unico obsoleto es la operacion, que es la
+    // condicion ABA exacta. Si se tocara el epoch, lo atajaria la otra guarda y la celda
+    // no mediria lo que dice medir.
+    if (gvirtus::communicators::faulting(gvirtus::communicators::Fault::StaleAck)) {
+        using gvirtus::communicators::ucxam::make_slot_tag;
+        using gvirtus::communicators::ucxam::slot_tag_epoch;
+        using gvirtus::communicators::ucxam::slot_tag_generation;
+        const std::uint64_t g = slot_tag_generation(generation);
+        if (g > 0)
+            ack.request_id = make_slot_tag(slot_tag_epoch(generation), g - 1);
+    }
+
+    const int repeticiones =
+        gvirtus::communicators::faulting(gvirtus::communicators::Fault::DupAck) ? 2 : 1;
+
     ucp_request_param_t sp{};
     sp.op_attr_mask = UCP_OP_ATTR_FIELD_DATATYPE;
     sp.datatype = ucp_dt_make_contig(1);
+    const auto t_ack0 = std::chrono::steady_clock::now();
     std::lock_guard<std::mutex> wl(*worker_mutex_);
-    void *req = ucp_am_send_nbx(endpoint_, am_id_, nullptr, 0,
-                                &ack, sizeof(ack), &sp);
-    try {
-        wait_request_completion(req, "slot_consumed_ack");
-    } catch (const std::exception &e) {
-        ucx_debug_log("send_slot_consumed: %s", e.what());
+    for (int rep = 0; rep < repeticiones; ++rep) {
+        void *req = ucp_am_send_nbx(endpoint_, am_id_, nullptr, 0,
+                                    &ack, sizeof(ack), &sp);
+        try {
+            wait_request_completion(req, "slot_consumed_ack");
+        } catch (const std::exception &e) {
+            ucx_debug_log("send_slot_consumed: %s", e.what());
+        }
     }
+    // Se mide DENTRO del lock del worker a proposito: el coste real del ack incluye esperar
+    // ese lock, porque es contencion que el propio protocolo introduce.
+    rma_ack_send_ns_ += (std::uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now() - t_ack0).count();
+    ++rma_ack_send_count_;
 }
 
 // Async H2D Phase 3 drain point. The MemcpyAsync handler issues a fire-and-
@@ -2453,7 +2793,21 @@ void UcxCommunicator::send_rma_setup() {
         request_param.datatype = ucp_dt_make_contig(1);
         void *request = ucp_am_send_nbx(endpoint_, am_id_, nullptr, 0,
                                         buf.data(), buf.size(), &request_param);
-        wait_request_completion(request, "rma_setup_send");
+        try {
+            wait_request_completion(request, "rma_setup_send");
+        } catch (const std::exception &e) {
+            // A peer that reset while we were advertising slots is a disconnect, not an
+            // error: there is no one left to advertise to. Report and return -- the
+            // connection's own teardown releases the rkey buffers below.
+            std::fprintf(stderr, "[GVS] rma_setup_send: %s -- peer gone, abandoning\n",
+                         e.what());
+            std::fflush(stderr);
+            for (auto &pk : packed) {
+                if (pk.rkey_buf != nullptr) ucp_rkey_buffer_release(pk.rkey_buf);
+                if (pk.gpu_rkey_buf != nullptr) ucp_rkey_buffer_release(pk.gpu_rkey_buf);
+            }
+            return;
+        }
     }
 
     // Release the packed rkey buffers (host + optional GPU).
@@ -2474,6 +2828,7 @@ void UcxCommunicator::send_rma_setup() {
 // Client-side: parse an incoming RmaSetup AM body, unpack each rkey, and
 // populate remote_slots_. After this returns the data path can use ucp_put.
 void UcxCommunicator::handle_rma_setup_am(const void *data, size_t length) {
+    GVS_TRACE("handle_rma_setup_am");
     using gvirtus::communicators::ucxam::EnvelopeHeader;
     using gvirtus::communicators::ucxam::RmaSlotDescriptor;
 
@@ -2561,6 +2916,24 @@ void UcxCommunicator::handle_rma_setup_am(const void *data, size_t length) {
         new_slots.push_back(rs);
     }
 
+    // Los server_idx anunciados deciden si un SlotConsumed de un epoch anterior puede
+    // llegar a tocar un slot VIVO del epoch actual: si el indice no vuelve a anunciarse
+    // nunca, el bucle de release_remote_slot no encuentra a quien aplicarselo y la guarda
+    // de epoch no llega a ser necesaria. Eso hay que poder MEDIRLO, no deducirlo del codigo.
+    {
+        std::string idxs;
+        for (const auto &rs : new_slots) {
+            char b[16];
+            std::snprintf(b, sizeof(b), "%s%u", idxs.empty() ? "" : ",",
+                          (unsigned)rs.server_idx);
+            idxs += b;
+        }
+        // hdr.status_code ES el epoch anunciado; `new_epoch` todavia no existe aqui.
+        std::fprintf(stderr, "[GVS IDX] epoch %u anuncia server_idx=[%s]\n",
+                     (unsigned)hdr.status_code, idxs.c_str());
+        std::fflush(stderr);
+    }
+
     // Cache RMA-put capability once here (any slot with a usable rkey) so the
     // per-RPC rma_put_capable() query is a single atomic load. Computed from
     // new_slots before the move below.
@@ -2638,11 +3011,35 @@ void UcxCommunicator::handle_rma_setup_am(const void *data, size_t length) {
 // that no slot is InFlight. Destroys the outgoing rkeys -- the previous code moved a
 // new vector over the old one and leaked every rkey it held, which was harmless only
 // because a second advertisement never happened.
+// Destroy the remote keys retired by a layout swap. MUST NOT be called from an AM
+// callback: that is the entire reason the retire list exists.
+void UcxCommunicator::drain_retired_rkeys() {
+    GVS_TRACE("drain_retired_rkeys");
+    std::vector<ucp_rkey_h> doomed;
+    {
+        std::lock_guard<std::mutex> lk(rma_state_mu_);
+        if (retired_rkeys_.empty()) return;
+        doomed.swap(retired_rkeys_);
+    }
+    // Outside the lock as well as outside the callback: ucp_rkey_destroy() may take UCX
+    // locks, and holding rma_state_mu_ across it would invert the order the AM path uses.
+    // DIAGNOSTIC BUILD: leak instead of destroying. If the double free disappears, the
+    // fault is in this destruction; if it persists, it is elsewhere and was merely hidden
+    // behind the deadlock. Bounded by epoch count, so a few keys at most.
+    if (std::getenv("GVS_LEAK_RETIRED_RKEYS") != nullptr) return;
+    for (ucp_rkey_h k : doomed)
+        if (k != nullptr) ucp_rkey_destroy(k);
+}
+
 void UcxCommunicator::apply_pending_slots_locked() {
+    GVS_TRACE("apply_pending_slots_locked");
     if (!rma_swap_pending_) return;
+    // RETIRE, do not destroy. Both callers reach here from inside the AM receive callback,
+    // and ucp_rkey_destroy() from there re-enters the worker lock UCX already holds.
+    // drain_retired_rkeys() finishes the job outside any callback.
     for (auto &rs : remote_slots_) {
-        if (rs.rkey != nullptr) ucp_rkey_destroy(rs.rkey);
-        if (rs.gpu_rkey != nullptr) ucp_rkey_destroy(rs.gpu_rkey);
+        if (rs.rkey != nullptr) retired_rkeys_.push_back(rs.rkey);
+        if (rs.gpu_rkey != nullptr) retired_rkeys_.push_back(rs.gpu_rkey);
     }
     remote_slots_ = std::move(pending_slots_);
     pending_slots_.clear();
@@ -2663,12 +3060,115 @@ void UcxCommunicator::apply_pending_slots_locked() {
                   remote_slots_.size());
 }
 
+void UcxCommunicator::gusto_emit_metric(const char *tag) {
+    size_t slots_total = 0;
+    {
+        std::lock_guard<std::mutex> lk(rma_state_mu_);
+        slots_total = remote_slots_.size();
+    }
+    const double occ_avg = rma_occupancy_span_ns_
+        ? (double)rma_occupancy_ns_ / (double)rma_occupancy_span_ns_ : 0.0;
+    const std::uint64_t adm_rma = gusto_admit_rma_.load();
+    const std::uint64_t adm_am  = gusto_admit_am_.load();
+    const std::uint64_t adm_tot = adm_rma + adm_am;
+    std::fprintf(stderr,
+        "GUSTO_METRIC tag=%s slots_total=%zu peak_inflight=%u avg_inflight=%.3f "
+        "peak_waiters=%u reservations=%llu waited=%llu wait_us_avg=%.2f "
+        "admit_rma=%llu admit_am=%llu rma_pct=%.2f rma_fellback=%llu "
+        "decline_capacity=%llu decline_timeout=%llu decline_swap=%llu decline_epfail=%llu "
+        "ack_sent=%llu ack_gen_mismatch=%llu ack_on_free=%llu ack_applied=%llu "
+        "ack_held=%llu ack_released=%llu "
+        "ack_epoch_dropped=%llu parked=%llu\n",
+        tag, slots_total, rma_peak_inflight_, occ_avg,
+        rma_peak_waiters_,
+        (unsigned long long)rma_acquire_count_,
+        (unsigned long long)rma_acquire_waited_count_,
+        rma_acquire_count_ ? (rma_acquire_ns_ / 1000.0 / rma_acquire_count_) : 0.0,
+        (unsigned long long)adm_rma, (unsigned long long)adm_am,
+        adm_tot ? 100.0 * (double)adm_rma / (double)adm_tot : 0.0,
+        (unsigned long long)gusto_rma_fellback_.load(),
+        (unsigned long long)gusto_decline_capacity_.load(),
+        (unsigned long long)gusto_decline_timeout_.load(),
+        (unsigned long long)gusto_decline_swap_.load(),
+        (unsigned long long)gusto_decline_epfail_.load(),
+        (unsigned long long)rma_ack_send_count_,
+        (unsigned long long)rma_ack_gen_mismatch_count_,
+        (unsigned long long)rma_ack_on_free_count_,
+        (unsigned long long)rma_ack_applied_count_,
+        (unsigned long long)rma_ack_held_count_,
+        (unsigned long long)rma_ack_released_count_,
+        (unsigned long long)rma_ack_dropped_epoch_count_,
+        (unsigned long long)rma_swap_parked_count_);
+    std::fflush(stderr);
+}
+
+// Muestreo periodico. Se llama desde Read(), punto sin cerrojos sostenidos que cualquier
+// carga real recorre constantemente.
+void UcxCommunicator::gusto_metric_maybe_emit() {
+    static const long ms = []() -> long {
+        const char *e = std::getenv("GUSTO_RMA_METRICS_MS");
+        if (e == nullptr || e[0] == '\0') return 5000;
+        char *end = nullptr;
+        long v = std::strtol(e, &end, 10);
+        return (end != e && v >= 0) ? v : 5000;
+    }();
+    if (ms == 0) return;
+    const auto now = std::chrono::steady_clock::now();
+    if (!gusto_metric_started_) {
+        gusto_metric_started_ = true;
+        gusto_metric_last_ = now;
+        return;
+    }
+    if (std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - gusto_metric_last_).count() < ms)
+        return;
+    gusto_metric_last_ = now;
+    gusto_emit_metric("periodic");
+}
+
 void UcxCommunicator::destroy_rma_state() {
+    // Resumen de los guards, una sola vez y sin depuracion encendida. Un cero aqui NO
+    // significa que el guard funcione: significa que nunca se ejercito, que es
+    // exactamente lo que hay que poder distinguir. tests/adversarial/ lo exige.
+    if (rma_acquire_count_ > 0 || rma_ack_send_count_ > 0) {
+        std::fprintf(stderr,
+                     "[GVS] rma coste: reservas=%llu (esperaron %llu) media=%.2fus | "
+                     "cache de registro: aciertos=%llu fallos=%llu (%.1f%%) | "
+                     "acks enviados=%llu media=%.2fus | "
+                     "acks con generacion desajustada=%llu\n",
+                     (unsigned long long)rma_acquire_count_,
+                     (unsigned long long)rma_acquire_waited_count_,
+                     rma_acquire_count_ ? (rma_acquire_ns_ / 1000.0 / rma_acquire_count_) : 0.0,
+                     (unsigned long long)g_reg_cache_hits.load(),
+                     (unsigned long long)g_reg_cache_misses.load(),
+                     (g_reg_cache_hits.load() + g_reg_cache_misses.load())
+                         ? 100.0 * g_reg_cache_hits.load() /
+                               (g_reg_cache_hits.load() + g_reg_cache_misses.load())
+                         : 0.0,
+                     (unsigned long long)rma_ack_send_count_,
+                     rma_ack_send_count_ ? (rma_ack_send_ns_ / 1000.0 / rma_ack_send_count_) : 0.0,
+                     (unsigned long long)rma_ack_gen_mismatch_count_);
+        std::fflush(stderr);
+    }
+    {
+        std::fprintf(stderr,
+                     "[GVS] rma teardown: acks descartados por epoch=%llu, "
+                     "advertisements aparcadas=%llu\n",
+                     (unsigned long long)rma_ack_dropped_epoch_count_,
+                     (unsigned long long)rma_swap_parked_count_);
+        std::fflush(stderr);
+    }
+    // F3: se emite siempre (aunque todo sea cero) porque un cero explicito distingue
+    // "no se ejercito" de "no se instrumento", que es justo lo que hay que poder separar.
+    gusto_emit_metric("teardown");
+
+    // Anything a previous swap retired goes now, before the layout itself.
+    drain_retired_rkeys();
     {
     std::lock_guard<std::mutex> lk(rma_state_mu_);
     for (auto &rs : remote_slots_) {
-        if (rs.rkey != nullptr) ucp_rkey_destroy(rs.rkey);
-        if (rs.gpu_rkey != nullptr) ucp_rkey_destroy(rs.gpu_rkey);
+        if (rs.rkey != nullptr) retired_rkeys_.push_back(rs.rkey);
+        if (rs.gpu_rkey != nullptr) retired_rkeys_.push_back(rs.gpu_rkey);
     }
     remote_slots_.clear();
     pending_slots_.clear();
@@ -2677,6 +3177,7 @@ void UcxCommunicator::destroy_rma_state() {
     rma_put_capable_.store(false);
     next_remote_slot_idx_ = 0;
     }
+    drain_retired_rkeys();
     // Outside the lock: release every ucp_mem_map this context still owns -- the H2D
     // source and D2H destination registrations from the shared registry, and this
     // communicator's own GPU-scratch registrations. Reaching ucp_cleanup with these
@@ -2822,6 +3323,7 @@ void d2h_phases_report(long reg, long xfer, long dereg) {
 bool UcxCommunicator::GetFromRemoteGpu(void *dst_host, std::uint64_t remote_addr,
                                        const void *rkey_blob, size_t rkey_len,
                                        size_t count) {
+    GVS_TRACE("GetFromRemoteGpu");
     if (endpoint_ == nullptr || dst_host == nullptr || rkey_blob == nullptr ||
         rkey_len == 0 || count == 0) {
         return false;
@@ -2908,7 +3410,10 @@ bool UcxCommunicator::GetFromRemoteGpu(void *dst_host, std::uint64_t remote_addr
     // it also stops the process accumulating registrations for buffers it has freed
     // (which is what made teardown corrupt the heap).
     gvs_mm_count("unmap:L2764", false);
-    if (dst_memh_owned) ucp_mem_unmap(context_, dst_memh);
+    // ONCE. Same defect as in src_reg_invalidate: a timestamp was inserted between an
+    // unmap and its duplicate, so every D2H GET that owned its destination registration
+    // released it twice. This is the one cuDF hits -- to_pandas frees its destination on
+    // every batch, so it aborted before finishing the first.
     const auto t_xfer1 = std::chrono::steady_clock::now();
     if (dst_memh_owned) ucp_mem_unmap(context_, dst_memh);
     const auto t_dereg1 = std::chrono::steady_clock::now();
@@ -2938,6 +3443,12 @@ bool UcxCommunicator::GetFromRemoteGpu(void *dst_host, std::uint64_t remote_addr
 // Both paths end with a tiny RmaPosted AM carrying the slot index.
 size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
                                     size_t total) {
+    GVS_TRACE("WriteIovRma");
+    // Retire list first, on the caller's thread. A layout swap runs inside the AM callback
+    // and cannot destroy anything there; this is the ordinary path that finishes the job,
+    // so the deferral is exercised on every run rather than only at teardown.
+    drain_retired_rkeys();
+
     // Acquire a remote slot with EXPLICIT ownership. The old round-robin assumed
     // a strictly synchronous request/response so the slot was already consumed
     // by the time we wrapped back to it; that invariant breaks under concurrent
@@ -2950,6 +3461,9 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
     std::uint64_t slot_gen;
     std::uint64_t slot_tag;
     RemoteSlot rs;
+    bool entregar_retenido = false;      // F8 hold_ack
+    std::uint16_t retenido_slot = 0;
+    std::uint64_t retenido_tag = 0;
     {
         std::unique_lock<std::mutex> lk(rma_state_mu_);
         if (remote_slots_.empty()) return 0;
@@ -3016,8 +3530,14 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
         // Unlock rma_state_mu_ before taking worker_mutex_: the AM callback runs under
         // worker_mutex_ and takes rma_state_mu_, so holding both in that order here
         // would invert the lock order.
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        const auto t_acq0 = std::chrono::steady_clock::now();
+        const auto deadline = t_acq0 + std::chrono::seconds(30);
         bool got = try_pick();
+        const bool tuvo_que_esperar = !got;
+        if (tuvo_que_esperar) {
+            ++rma_waiters_now_;
+            if (rma_waiters_now_ > rma_peak_waiters_) rma_peak_waiters_ = rma_waiters_now_;
+        }
         while (!got) {
             if (std::chrono::steady_clock::now() >= deadline) break;
             lk.unlock();
@@ -3029,6 +3549,12 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
             lk.lock();
             got = try_pick();
         }
+        if (tuvo_que_esperar && rma_waiters_now_ > 0) --rma_waiters_now_;
+        rma_acquire_ns_ += (std::uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - t_acq0).count();
+        ++rma_acquire_count_;
+        if (tuvo_que_esperar) ++rma_acquire_waited_count_;
+
         if (!got || endpoint_failed_.load() || found == static_cast<size_t>(-1)) {
             // Say WHY, once. Falling off the RMA fast path for size is a 3.5x cliff
             // (measured: simple_matrix 256 MB 24.32 GB/s vs 324 MB 6.96 GB/s, the
@@ -3056,16 +3582,56 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
                     }
                 }
             }
+            // F3: la CAUSA, no solo el hecho. capacity y timeout piden acciones opuestas
+            // (subir el tamano de slot vs subir el numero de slots).
+            if (endpoint_failed_.load())      ++gusto_decline_epfail_;
+            else if (rma_swap_pending_)       ++gusto_decline_swap_;
+            else if (!got)                    ++gusto_decline_timeout_;
+            else                              ++gusto_decline_capacity_;
             return 0;  // backpressure timeout / endpoint failure -> IOV fallback
         }
         slot_idx = found;
         remote_slots_[slot_idx].state = RemoteSlot::State::InFlight;
+        gusto_occupancy_tick_locked(+1);
         slot_gen = ++remote_slots_[slot_idx].generation;
+        // F8 hold_ack: si el slot que acabamos de reasignar es el del ack retenido, la
+        // condicion ABA ya existe. Se marca para entregarlo en cuanto soltemos el cerrojo.
+        if (gusto_hold_armed_) {
+            std::fprintf(stderr, "[GVS FAULT] replay? armado slot=%u vs reasignado slot=%u\n",
+                         (unsigned)gusto_hold_slot_,
+                         (unsigned)remote_slots_[slot_idx].server_idx);
+            std::fflush(stderr);
+        }
+        // Con epoch_ack no basta con reasignar el slot: hay que esperar a que el pool haya
+        // cambiado de epoch, que es la condicion que la guarda de epoch existe para atajar.
+        const bool mismo_idx = (gusto_hold_slot_ == remote_slots_[slot_idx].server_idx);
+        const bool gusto_listo = gusto_hold_espera_idx_
+            ? (gusto_hold_epoch_ != remote_epoch_ && mismo_idx)
+            : (gusto_hold_espera_epoch_ ? (gusto_hold_epoch_ != remote_epoch_)
+                                        : mismo_idx);
+        if (gusto_hold_armed_ && gusto_listo) {
+            entregar_retenido = true;
+            retenido_slot = gusto_hold_slot_;
+            retenido_tag  = gusto_hold_tag_;
+            gusto_hold_armed_ = false;
+            ++rma_ack_released_count_;
+        }
         rs = remote_slots_[slot_idx];
         // Tag every RmaPosted with the epoch of the layout it was addressed against,
         // so the returning SlotConsumed can be matched against that layout and not
         // whatever has replaced it.
         slot_tag = gvirtus::communicators::ucxam::make_slot_tag(remote_epoch_, slot_gen);
+    }
+
+    // F8 hold_ack: entrega del ack retenido AHORA que el slot esta reasignado. Se hace fuera
+    // del cerrojo porque release_remote_slot lo toma. Con la guarda puesta debe rechazarlo
+    // (gen_mismatch++ y el slot sigue InFlight); sin ella liberara un slot vivo.
+    if (entregar_retenido) {
+        std::fprintf(stderr, "[GVS FAULT] entregando ack retenido: slot=%u tag=%llu "
+                             "(el slot ya se reasigno)\n",
+                     (unsigned)retenido_slot, (unsigned long long)retenido_tag);
+        std::fflush(stderr);
+        release_remote_slot(retenido_slot, retenido_tag);
     }
 
     // RAII: if we bail before success (capacity fallback, or ANY throw during
@@ -3658,11 +4224,41 @@ size_t UcxCommunicator::WriteIov(const struct iovec *iov, size_t iov_count) {
         return (end != e) ? static_cast<size_t>(parsed) : 4u * 1024u * 1024u;
     }();
 
-    if (total >= kRmaMinBytes && rma_setup_received_.load()) {
-        size_t put = WriteIovRma(iov, iov_count, total);
-        if (put == total) return put;  // RMA path completed
-        // else: fall through to the IOV/AM path (slot too small or no rkey)
+    // Placement policy. The scalar floor is one of three modes; see RmaPolicy.h for why a
+    // single threshold cannot be right for both directions (they want values three orders of
+    // magnitude apart) and for the measurements behind the quadrant table.
+    //
+    // The payload is the LARGEST iov fragment: the others are the envelope header and the
+    // marshalled arguments, and including them would misclassify a small transfer whose
+    // arguments happen to be bulky.
+    const void *payload_ptr = nullptr;
+    size_t payload_len = 0;
+    for (size_t i = 0; i < iov_count; ++i) {
+        if (iov[i].iov_len > payload_len) {
+            payload_len = iov[i].iov_len;
+            payload_ptr = iov[i].iov_base;
+        }
     }
+    // WriteIov IS the H2D direction: it is the client-side PUT. D2H is GetFromRemoteGpu.
+    // So direction is structural here and needs no flag.
+    const bool payload_pinned =
+        gvirtus::communicators::HostMemoryIsPinned(payload_ptr, payload_len);
+    const bool quiere_rma = gvirtus::communicators::prefer_rma(
+        /*h2d=*/true, payload_pinned, total, kRmaMinBytes);
+
+    if (quiere_rma && rma_setup_received_.load()) {
+        size_t put = WriteIovRma(iov, iov_count, total);
+        if (put == total) {
+            ++gusto_admit_rma_;
+            return put;  // RMA path completed
+        }
+        // else: fall through to the IOV/AM path (slot too small or no rkey)
+        ++gusto_rma_fellback_;
+    }
+    // Todo lo que llega aqui sale por AM: lo que la politica no admitio y lo que admitio pero
+    // el pool no pudo servir. La suma admit_rma+admit_am es el total de WriteIov, lo que
+    // permite dar el % de operaciones que entran al camino RMA sin instrumentar al llamante.
+    ++gusto_admit_am_;
 
     // Staging via the local TX scratch (with memh hint) regresses on this
     // UCX 1.20 + RoCE combo because it forces true-rendezvous over AM.

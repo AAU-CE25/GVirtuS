@@ -1,4 +1,5 @@
 #include "gvirtus/communicators/Result.h"
+#include "gvirtus/communicators/AblationGate.h"
 
 using gvirtus::communicators::Result;
 
@@ -71,6 +72,9 @@ void SetRegistrationInvalidateHook(RegistrationInvalidateFn fn) {
 
 void RunRegistrationInvalidate(const void *addr) {
     if (addr == nullptr) return;
+    // Variante `pointer_keyed` de la ablacion: se ignora el aviso de free. La entrada
+    // cacheada sobrevive a la liberacion del buffer y describe un mapeo que ya no existe.
+    if (ablated(Ablation::PointerKeyed)) return;
     RegistrationInvalidateFn fn = g_reg_invalidate_hook.load(std::memory_order_acquire);
     if (fn != nullptr) fn(addr);
 }
@@ -92,7 +96,23 @@ bool HostUnmapTrackingActive() {
 
 // Default when no frontend installed a hook: NOT cacheable. Failing closed keeps a
 // transport that cannot be told about frees from caching anything by accident.
+static std::atomic<HostPinnedFn> g_host_pinned_hook{nullptr};
+
+void SetHostPinnedHook(HostPinnedFn fn) {
+    g_host_pinned_hook.store(fn, std::memory_order_release);
+}
+
+// Fails closed: no hook -> "pageable" -> the conservative threshold.
+bool HostMemoryIsPinned(const void *addr, size_t len) {
+    HostPinnedFn fn = g_host_pinned_hook.load(std::memory_order_acquire);
+    return (fn != nullptr) && fn(addr, len);
+}
+
 bool RegistrationCacheable(const void *addr, size_t len) {
+    // Variante `pointer_keyed`: se cachea TODA direccion, incluidas aquellas cuyo free
+    // nadie nos va a notificar. Junto con el no-op de RunRegistrationInvalidate reproduce
+    // el cache por direccion sin invalidacion, que es el defecto que se quiere exhibir.
+    if (ablated(Ablation::PointerKeyed)) return addr != nullptr && len > 0;
     RegistrationCacheableFn fn = g_reg_cacheable_hook.load(std::memory_order_acquire);
     return (fn != nullptr) && fn(addr, len);
 }

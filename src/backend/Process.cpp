@@ -41,6 +41,7 @@
 #include <cstring>
 #include <iostream>
 #include <thread>
+#include <cstdio>
 #include <vector>
 
 #include "communicators/hybrid/HybridCommunicator.h"
@@ -789,7 +790,28 @@ void Process::Start() {
             if (client != nullptr) {
                 consecutive_accept_failures = 0;
                 //      if ((pid = fork()) == 0) {
-                std::thread(execute, client).detach();
+                // Anything escaping this thread reaches std::terminate and kills the
+                // BACKEND -- every other tenant with it. Not hypothetical: a client
+                // removed between campaign points reset its endpoint, send_rma_setup
+                // threw, and the server died mid-campaign. The throw itself is handled at
+                // its source; this is the part that generalises, so no future exception on
+                // any handler path can take the server down with one client.
+                std::thread([execute, client]() {
+                    try {
+                        execute(client);
+                    } catch (const std::exception &e) {
+                        std::fprintf(stderr,
+                            "[GVS] connection thread ended on exception: %s\n"
+                            "      That connection is gone; the backend keeps serving.\n",
+                            e.what());
+                        std::fflush(stderr);
+                    } catch (...) {
+                        std::fprintf(stderr,
+                            "[GVS] connection thread ended on a non-standard exception.\n"
+                            "      That connection is gone; the backend keeps serving.\n");
+                        std::fflush(stderr);
+                    }
+                }).detach();
                 //        exit(0);
                 //      }
 

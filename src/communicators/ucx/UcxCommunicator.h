@@ -245,6 +245,11 @@ class UcxCommunicator : public Communicator {
     PooledMsg current_frame_;  // held between TryAcquireFrame/ReleaseFrame
 
     void init_rx_pool();
+    // F4: valida el provisioning ANTES de reservar nada e imprime la config efectiva.
+    // Devuelve false si la configuracion es invalida o no cabe en el presupuesto; en ese caso
+    // init_rx_pool no construye el pool y el transporte se queda en el camino AM, que es
+    // degradacion y no fallo.
+    static bool gusto_validate_pool_cfg(size_t slots, size_t cap_bytes, bool with_shadow);
     // Build the pool and advertise it, from a context where worker_mutex_ is NOT held.
     void materialise_rma_pool();
     // Set when a message large enough for the RMA path arrives on a connection whose
@@ -325,9 +330,102 @@ class UcxCommunicator : public Communicator {
     // How many advertisements had to be parked. Reported unconditionally so a
     // concurrency test can prove the quiesce path executed.
     std::uint64_t rma_swap_parked_count_{0};
+    // Cuantos SlotConsumed se descartaron por venir de una layout ya reemplazada.
+    // Mismo motivo que el contador de arriba: el drop solo se ve hoy por ucx_debug_log,
+    // y encender la depuracion completa altera la temporizacion que lleva a la rama. Un
+    // contador cuesta cero en el camino caliente y se informa una vez en el teardown.
+    std::uint64_t rma_ack_dropped_epoch_count_{0};
+
+    // Acks cuya generacion NO casa con la del slot que sigue en vuelo. Es la violacion que
+    // la guarda ABA existe para atajar. Se cuenta el EVENTO y no su consecuencia: un ack asi
+    // libera un slot vivo, y que la corrupcion se materialice o no depende solo de si el
+    // cliente llega a escribir antes de que el backend termine de leer.
+    std::uint64_t rma_ack_gen_mismatch_count_{0};
+
+    // Acks que llegan para un slot que YA estaba Free: duplicado pegado al original, o ack
+    // tardio de una operacion ya cerrada. Sin este contador un duplicado rechazado es
+    // indistinguible de un fallo que nunca se ejercito (los dos dan cero).
+    std::uint64_t rma_ack_on_free_count_{0};
+
+    // F8: retencion determinista de UN ack para construir la condicion ABA sin depender del
+    // reloj. Ver patch_holdack.py. Todo bajo rma_state_mu_.
+    std::uint64_t gusto_ack_seen_{0};         // acks vistos, para armar en uno tardio
+    bool          gusto_hold_armed_{false};   // hay un ack retenido
+    bool          gusto_hold_spent_{false};   // ya se retuvo uno (solo uno por conexion)
+    std::uint16_t gusto_hold_slot_{0};
+    std::uint64_t gusto_hold_tag_{0};
+    std::uint64_t rma_ack_held_count_{0};     // cuantos se retuvieron
+    std::uint64_t rma_ack_released_count_{0}; // cuantos se entregaron tras la reasignacion
+    // Retencion hasta CAMBIO DE EPOCH (no solo reasignacion de slot), para la guarda de epoch.
+    std::uint32_t gusto_hold_epoch_{0};
+    bool          gusto_hold_espera_epoch_{false};
+    bool          gusto_hold_espera_idx_{false};   // epoch_ack_idx: exige ademas mismo indice
+    // Acks que efectivamente liberaron un slot. Cota superior: el numero de reservas.
+    std::uint64_t rma_ack_applied_count_{0};
+
+    // Coste de la reserva de slot: tiempo acumulado en buscar y reservar, cuantas reservas
+    // y cuantas de ellas tuvieron que esperar a que se liberara uno (contrapresion).
+    std::uint64_t rma_acquire_ns_{0};
+    std::uint64_t rma_acquire_count_{0};
+    std::uint64_t rma_acquire_waited_count_{0};
+
+    // Coste del ACK de consumo: cuantos se enviaron y cuanto costo enviarlos. Es el trafico
+    // que anade la confirmacion explicita de consumo, sin la cual la reutilizacion de slot
+    // no seria segura (la compleccion local de un put no implica que el par haya soltado el
+    // bufer).
+    std::uint64_t rma_ack_send_ns_{0};
+    std::uint64_t rma_ack_send_count_{0};
+
+    // --- F3: ocupacion del pool (GUSTO_METRIC) ------------------------------------------
+    // Cuantos slots estan InFlight AHORA, el maximo alcanzado, y la integral ocupacion*tiempo
+    // para dar una media PONDERADA POR TIEMPO. Una media por evento contaria igual un pico de
+    // 1 us y una meseta de 1 s, que es justo la distincion que hace falta para decir si el
+    // pool esta dimensionado. Se tocan bajo rma_state_mu_, que ya se sostiene en las dos
+    // transiciones (reserva en WriteIovRma, liberacion en release_remote_slot).
+    std::uint32_t rma_inflight_now_{0};
+    std::uint32_t rma_peak_inflight_{0};
+    std::uint32_t rma_waiters_now_{0};
+    std::uint32_t rma_peak_waiters_{0};
+    std::uint64_t rma_occupancy_ns_{0};       // sum(inflight * dt)
+    std::uint64_t rma_occupancy_span_ns_{0};  // sum(dt)
+    std::chrono::steady_clock::time_point rma_occ_last_{};
+    bool rma_occ_started_{false};
+    // Actualiza la integral y aplica delta al contador de ocupacion. Exige rma_state_mu_.
+    void gusto_occupancy_tick_locked(int delta);
+    // Emite una linea GUSTO_METRIC. `tag` distingue la muestra periodica del teardown.
+    // NO debe llamarse con rma_state_mu_ tomado: lo toma para leer el numero de slots.
+    void gusto_emit_metric(const char *tag);
+    // Muestreo periodico desde un punto seguro (Read), sin cerrojos sostenidos.
+    void gusto_metric_maybe_emit();
+    std::chrono::steady_clock::time_point gusto_metric_last_{};
+    bool gusto_metric_started_{false};
+
+    // Admisiones por camino y rechazos POR CAUSA. Atomicos: el punto de decision (WriteIov)
+    // no sostiene rma_state_mu_. Sin la causa, un rechazo por capacidad y uno por timeout se
+    // ven igual en el agregado y llevan a conclusiones opuestas sobre el dimensionado.
+    std::atomic<std::uint64_t> gusto_admit_rma_{0};
+    std::atomic<std::uint64_t> gusto_admit_am_{0};
+    std::atomic<std::uint64_t> gusto_rma_fellback_{0};
+    std::atomic<std::uint64_t> gusto_decline_capacity_{0};
+    std::atomic<std::uint64_t> gusto_decline_timeout_{0};
+    std::atomic<std::uint64_t> gusto_decline_swap_{0};
+    std::atomic<std::uint64_t> gusto_decline_epfail_{0};
     // Apply pending_slots_ to remote_slots_. Caller must hold rma_state_mu_ AND
     // must have established that no slot is InFlight.
     void apply_pending_slots_locked();
+
+    // Remote keys belonging to layouts that have left service.
+    //
+    // ucp_rkey_destroy() is a UCX call, and both callers of apply_pending_slots_locked()
+    // run inside the AM receive callback -- which UCX dispatches from within
+    // ucp_worker_progress() holding the worker lock. Destroying there re-enters that lock
+    // and deadlocks the whole client: every thread ends up sleeping and the process sits
+    // at 0.2 % CPU, which reads as a hang rather than as a lock cycle.
+    //
+    // So the swap retires keys onto this list and drain_retired_rkeys() destroys them from
+    // a context that is not a callback. Guarded by rma_state_mu_.
+    std::vector<ucp_rkey_h> retired_rkeys_;
+    void drain_retired_rkeys();
 
     // --- On-demand sizing, server side -------------------------------------
     // Largest payload seen on this connection at or above the RMA floor. The pool
