@@ -1,0 +1,93 @@
+=== HOST ===
+es-dpu-01
+2026-08-02T21:02:52+02:00
+ 21:02:52 up 38 days, 12:57,  3 users,  load average: 0.56, 0.51, 0.46
+=== OS ===
+PRETTY_NAME="Ubuntu 22.04.5 LTS"
+5.15.0-181-generic
+=== CPU ===
+CPU(s):                                  64
+Model name:                              AMD EPYC 9354P 32-Core Processor
+Thread(s) per core:                      2
+Core(s) per socket:                      32
+Socket(s):                               1
+NUMA node(s):                            1
+--- governor ---
+n/a
+cpu MHz		: 3244.965
+cpu MHz		: 3244.965
+cpu MHz		: 3244.965
+cpu MHz		: 3244.965
+=== MEM ===
+               total        used        free      shared  buff/cache   available
+Mem:             251          17         204           0          30         231
+=== GPU ===
+index, name, driver_version, memory.total [MiB], memory.used [MiB], persistence_mode, compute_mode
+0, NVIDIA L40S, 580.95.05, 46068 MiB, 795 MiB, Enabled, Default
+--- MPS? ---
+no MPS daemon
+=== RDMA ===
+hca_id:	mlx5_0
+	fw_ver:				32.41.1000
+			state:			PORT_ACTIVE (4)
+			link_layer:		Ethernet
+hca_id:	mlx5_1
+	fw_ver:				32.41.1000
+			state:			PORT_ACTIVE (4)
+			link_layer:		Ethernet
+hca_id:	mlx5_bond_0
+	fw_ver:				26.45.1020
+			state:			PORT_ACTIVE (4)
+			link_layer:		Ethernet
+CA 'mlx5_0'
+		State: Active
+		Rate: 200
+CA 'mlx5_1'
+		State: Active
+		Rate: 200
+CA 'mlx5_bond_0'
+		State: Active
+		Rate: 25
+--- ofed ---
+OFED-internal-24.04-0.6.6:
+=== NET ===
+7: ens1f1np1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 9000 qdisc mq state UP group default qlen 1000
+    inet 25.25.25.2/24 brd 25.25.25.255 scope global ens1f1np1
+=== TOPO ===
+	[4mGPU0	NIC0	NIC1	NIC2	CPU Affinity	NUMA Affinity	GPU NUMA ID[0m
+GPU0	 X 	NODE	NODE	NODE	0-63	0		N/A
+NIC0	NODE	 X 	PIX	PHB				
+NIC1	NODE	PIX	 X 	PHB				
+NIC2	NODE	PHB	PHB	 X 				
+
+Legend:
+
+  X    = Self
+  SYS  = Connection traversing PCIe as well as the SMP interconnect between NUMA nodes (e.g., QPI/UPI)
+  NODE = Connection traversing PCIe as well as the interconnect between PCIe Host Bridges within a NUMA node
+  PHB  = Connection traversing PCIe as well as a PCIe Host Bridge (typically the CPU)
+=== HOST TOOLCHAIN ===
+gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0
+g++ (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0
+cmake version 3.22.1
+git version 2.34.1
+Cuda compilation tools, release 11.5, V11.5.119
+Build cuda_11.5.r11.5/compiler.30672275_0
+=== UCX (host) ===
+# Library version: 1.17.0
+# Library path: /lib/libucs.so.0
+# API headers version: 1.17.0
+# Git branch '', revision 7bb2722
+# Configured with: --disable-logging --disable-debug --disable-assertions --disable-params-check --enable-mt --prefix=/usr --enable-examples --without-java --without-go --with-cuda=/usr/local/cuda --without-xpmem
+=== DOCKER ===
+Docker version 29.1.3, build 29.1.3-0ubuntu3~22.04.2
+gvirtus-ll33pq|ll33pq/gvirtus-dev:cuda12.6.3-cudnn-ubuntu22.04|Up 3 hours
+rrsrv|python:3.11-slim|Up 4 days
+=== APPORT/CORE ===
+|/usr/share/apport/apport -p%p -s%s -c%c -d%d -P%P -u%u -g%g -F%F -- %E
+0
+=== DISK ===
+Filesystem               Size  Used Avail Use% Mounted on
+/dev/mapper/system-root   49G   36G   11G  77% /
+/dev/mapper/system-var    20G  4.5G   15G  25% /var
+/dev/mapper/system-home  295G   83G  198G  30% /home

@@ -1,0 +1,33 @@
+=== BACKEND CONTAINER ===
+Cuda compilation tools, release 12.6, V12.6.85
+Build cuda_12.6.r12.6/compiler.35059454_0
+---UCX---
+# Library version: 1.20.0
+# Library path: /lib/libucs.so.0
+# API headers version: 1.20.0
+# Git branch '', revision 4b7a6ca
+# Configured with: --disable-logging --disable-debug --disable-assertions --disable-params-check --enable-mt --prefix=/usr --with-rdmacm --with-verbs --with-mlx5 --enable-cma --enable-examples --without-java --without-go --with-cuda=/usr/local/cuda --with-xpmem
+---CUDART---
+lrwxrwxrwx 1 root root     20 Sep 12  2024 /usr/local/cuda/lib64/libcudart.so.12 -> libcudart.so.12.6.77
+-rw-r--r-- 1 root root 716128 Sep 12  2024 /usr/local/cuda/lib64/libcudart.so.12.6.77
+---DRIVER---
+580.95.05
+---ENV---
+GVIRTUS_GPUDIRECT=1
+GVIRTUS_HOME=/usr/local/gvirtus
+GVIRTUS_LOGLEVEL=40000
+GVIRTUS_RMA_MIN_BYTES=8192
+GVIRTUS_RMA_PREALLOC=1
+GVIRTUS_RMA_SLOTS=8
+GVIRTUS_RMA_SLOT_CAP_MB=32
+GVIRTUS_RMA_SLOT_MIN_MB=4
+GVIRTUS_RMA_ZEROCOPY=1
+GVIRTUS_UCX_DATAPATH=am
+GVIRTUS_UCX_PROGRESS_TIMEOUT_MS=0
+GVS_FAULT=none
+GVS_FAULT_MS=50
+UCX_IB_GID_INDEX=3
+UCX_LOG_LEVEL=error
+UCX_NET_DEVICES=mlx5_1:1,ens1f1np1
+UCX_SOCKADDR_TLS_PRIORITY=tcp
+UCX_TLS=rc_mlx5,ud_mlx5,tcp,self
