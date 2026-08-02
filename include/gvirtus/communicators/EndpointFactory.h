@@ -1,5 +1,8 @@
 #pragma once
 
+#include <atomic>
+#include <mutex>
+
 #include <gvirtus/common/JSON.h>
 #include <log4cplus/logger.h>
 #include <log4cplus/loggingmacros.h>
@@ -50,9 +53,19 @@ class EndpointFactory {
         // (each pthread has its own Frontend → its own get_endpoint() call)
         // the counter overruns the array and accesses j[N]=null → crash.
         // Wrap modulo the array size so single-endpoint configs work too.
-        ind_endpoint = ind_endpoint % static_cast<int>(j["communicator"].size());
+        // Serializado: `ind_endpoint` es estatico y N hilos abren su conexion a la vez, asi
+        // que la lectura-modificacion-escritura de abajo es una carrera (ThreadSanitizer la
+        // senala sobre el global). Con un unico endpoint el modulo la deja siempre en 0 y no
+        // hace dano, pero con varios dos hilos pueden quedarse con el mismo y saltarse otro.
+        static std::mutex ind_endpoint_mu;
+        int mi_endpoint = 0;
+        {
+            std::lock_guard<std::mutex> lk(ind_endpoint_mu);
+            ind_endpoint = ind_endpoint % static_cast<int>(j["communicator"].size());
+            mi_endpoint = ind_endpoint;
+        }
 
-        const auto &endpoint_obj = j["communicator"][ind_endpoint]["endpoint"];
+        const auto &endpoint_obj = j["communicator"][mi_endpoint]["endpoint"];
         if (!endpoint_obj.contains("suite") || endpoint_obj["suite"].is_null()) {
             throw std::runtime_error("Missing or null 'suite' in endpoint configuration.");
         }
@@ -66,13 +79,13 @@ class EndpointFactory {
             ptr = std::make_shared<Endpoint_Tcp>(end);
         }
         // infiniband
-        else if ("infiniband-rdma" == j["communicator"][ind_endpoint]["endpoint"].at("suite")) {
+        else if ("infiniband-rdma" == j["communicator"][mi_endpoint]["endpoint"].at("suite")) {
 #ifdef DEBUG
             std::cout << "EndpointFactory::get_endpoint() found infiniband endpoint" << std::endl;
 #endif
             auto end = common::JSON<Endpoint_Rdma>(json_path).parser();
             ptr = std::make_shared<Endpoint_Rdma>(end);
-        } else if ("roce-rdma" == j["communicator"][ind_endpoint]["endpoint"].at("suite")) {
+        } else if ("roce-rdma" == j["communicator"][mi_endpoint]["endpoint"].at("suite")) {
 #ifdef DEBUG
             std::cout << "EndpointFactory::get_endpoint() found rdma-roce endpoint (reusing "
                          "Endpoint_Rdma)"
@@ -80,13 +93,13 @@ class EndpointFactory {
 #endif
             auto end = common::JSON<Endpoint_Rdma>(json_path).parser();
             ptr = std::make_shared<Endpoint_Rdma>(end);
-        } else if ("hybrid" == j["communicator"][ind_endpoint]["endpoint"].at("suite")) {
+        } else if ("hybrid" == j["communicator"][mi_endpoint]["endpoint"].at("suite")) {
 #ifdef DEBUG
             std::cout << "EndpointFactory::get_endpoint() found hybrid endpoint" << std::endl;
 #endif
             auto end = common::JSON<Endpoint_Hybrid>(json_path).parser();
             ptr = std::make_shared<Endpoint_Hybrid>(end);
-        } else if ("ucx" == j["communicator"][ind_endpoint]["endpoint"].at("suite")) {
+        } else if ("ucx" == j["communicator"][mi_endpoint]["endpoint"].at("suite")) {
 #ifdef DEBUG
             std::cout << "EndpointFactory::get_endpoint() found ucx endpoint" << std::endl;
 #endif
@@ -110,9 +123,11 @@ class EndpointFactory {
         return ptr;
     }
 
-    static int index() { return ind_endpoint; }
+    static int index() { return ind_endpoint.load(std::memory_order_relaxed); }
 
    private:
-    static int ind_endpoint;
+    // Atomico: lo leen los constructores de Endpoint_* via index() mientras
+    // get_endpoint() lo incrementa desde otro hilo.
+    static std::atomic<int> ind_endpoint;
 };
 }  // namespace gvirtus::communicators

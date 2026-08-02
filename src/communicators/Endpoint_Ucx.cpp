@@ -63,7 +63,14 @@ Endpoint_Ucx &Endpoint_Ucx::port(const std::string &port) {
 }
 
 void gvirtus::communicators::from_json(const nlohmann::json &j, Endpoint_Ucx &end) {
-    auto el = j["communicator"][EndpointFactory::index()]["endpoint"];
+    // El indice se reduce AQUI tambien. get_endpoint() aplica el modulo sobre el contador
+    // estatico, pero entre esa reduccion y esta lectura otros hilos lo han incrementado, asi
+    // que en crudo se sale del array (heap-buffer-overflow medido con >=24 hilos). .at()
+    // convierte cualquier indice malo que quede en excepcion, no en lectura fuera de rango.
+    const auto &arr = j.at("communicator");
+    const std::size_t idx =
+        arr.empty() ? 0u : (static_cast<std::size_t>(EndpointFactory::index()) % arr.size());
+    auto el = arr.at(idx).at("endpoint");
 
     end.suite(el.at("suite"));
     end.protocol(el.at("protocol"));

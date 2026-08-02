@@ -72,10 +72,16 @@ using std::chrono::steady_clock;
 // p50/p90/p99/p99.9 + CDF + tail analysis without perturbing steady-state means.
 namespace gvirtus_lattrace {
 struct Sample {
+    unsigned long long t_us;  // absolute wall-clock (us since epoch) at completion, so the
+                              // trace can be cropped to a benchmark's measurement window
+                              // instead of covering the whole process lifetime
     long rt_us;          // total client-observed round-trip
     long server_us;      // server-reported execution time
     unsigned long bytes; // effective payload size
     const char *routine; // string literal (static lifetime) from Execute()
+    int async;           // 1 = fire-and-forget (no reply awaited), 0 = synchronous.
+                         // Explicit rather than inferred from server_us==0, which is a
+                         // coincidence of the current code and not a contract.
 };
 
 class Tracer {
@@ -95,11 +101,11 @@ class Tracer {
         std::lock_guard<std::mutex> lk(mtx_);
         std::ofstream ofs(path_);
         if (!ofs) return;
-        ofs << "routine,payload_bytes,rt_us,server_us\n";
+        ofs << "t_unix_us,routine,payload_bytes,rt_us,server_us,async\n";
         for (auto *b : buffers_)
             for (const auto &s : *b)
-                ofs << (s.routine ? s.routine : "?") << ',' << s.bytes << ','
-                    << s.rt_us << ',' << s.server_us << '\n';
+                ofs << s.t_us << ',' << (s.routine ? s.routine : "?") << ',' << s.bytes
+                    << ',' << s.rt_us << ',' << s.server_us << ',' << s.async << '\n';
     }
 
  private:
@@ -120,7 +126,8 @@ class Tracer {
 // survives thread exit and is still valid when Tracer flushes at process exit).
 inline thread_local std::vector<Sample> *tls_buf = nullptr;
 
-inline void record(const char *routine, unsigned long bytes, long rt_us, long server_us) {
+inline void record(const char *routine, unsigned long bytes, long rt_us, long server_us,
+                   int async) {
     Tracer &tr = Tracer::instance();
     if (!tr.enabled()) return;
     if (tls_buf == nullptr) {
@@ -128,7 +135,11 @@ inline void record(const char *routine, unsigned long bytes, long rt_us, long se
         tls_buf->reserve(1u << 17);
         tr.registerBuffer(tls_buf);
     }
-    tls_buf->push_back(Sample{rt_us, server_us, bytes, routine});
+    const unsigned long long now_us =
+        static_cast<unsigned long long>(std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+                                            .count());
+    tls_buf->push_back(Sample{now_us, rt_us, server_us, bytes, routine, async});
 }
 }  // namespace gvirtus_lattrace
 
@@ -211,12 +222,19 @@ void Frontend::Init(Communicator *c) {
     std::unique_ptr<char> default_endpoint;
 
     // no frontend found
+    //
+    // El puntero se resuelve UNA vez y aqui dentro. Antes se hacia mpFrontends->find(tid)
+    // cuatro veces mas abajo, fuera del cerrojo, mientras otros hilos insertaban en el mismo
+    // mapa: ThreadSanitizer lo marca como carrera sobre el arbol rojo-negro (stl_tree.h:780,
+    // _S_left) con 4 hilos abriendo conexion a la vez. Un find() durante un rebalanceo puede
+    // devolver un nodo a medio enlazar. Se elige exactamente el mismo objeto que antes.
+    Frontend *self = nullptr;
     {
         std::lock_guard<std::mutex> lock(gFrontendMutex);
-        if (mpFrontends->find(tid) == mpFrontends->end()) {
-            Frontend *f = new Frontend();
-            mpFrontends->insert(make_pair(tid, f));
-        }
+        auto it = mpFrontends->find(tid);
+        if (it == mpFrontends->end())
+            it = mpFrontends->insert(make_pair(tid, new Frontend())).first;
+        self = it->second;
     }
 
     LOG4CPLUS_INFO(logger, "Using properties file: " + config_path);
@@ -230,17 +248,16 @@ void Frontend::Init(Communicator *c) {
     // mpInitialized stays false here and is set to true only at the end —
     // Frontend::Execute() reads it as a reentrancy guard to short-circuit
     // RPC calls coming from libuct_cuda's init.
-    mpFrontends->find(tid)->second->mpInputBuffer = std::make_shared<Buffer>();
-    mpFrontends->find(tid)->second->mpOutputBuffer = std::make_shared<Buffer>();
-    mpFrontends->find(tid)->second->mpLaunchBuffer = std::make_shared<Buffer>();
-    mpFrontends->find(tid)->second->mExitCode = -1;
+    self->mpInputBuffer = std::make_shared<Buffer>();
+    self->mpOutputBuffer = std::make_shared<Buffer>();
+    self->mpLaunchBuffer = std::make_shared<Buffer>();
+    self->mExitCode = -1;
 
     try {
         auto endpoint = EndpointFactory::get_endpoint(config_path);
 
-        mpFrontends->find(tid)->second->_communicator =
-            CommunicatorFactory::get_communicator(endpoint);
-        mpFrontends->find(tid)->second->_communicator->obj_ptr()->Connect();
+        self->_communicator = CommunicatorFactory::get_communicator(endpoint);
+        self->_communicator->obj_ptr()->Connect();
     } catch (const std::exception &e) {
         LOG4CPLUS_FATAL(logger, fs::path(__FILE__).filename()
                                     << ":" << __LINE__ << ":"
@@ -248,7 +265,7 @@ void Frontend::Init(Communicator *c) {
         exit(EXIT_FAILURE);
     }
 
-    mpFrontends->find(tid)->second->mpInitialized = true;
+    self->mpInitialized = true;
 }
 
 Frontend::~Frontend() {
@@ -337,6 +354,34 @@ void Frontend::ExecuteAsync(const char *routine, const Buffer *input_buffer) {
 
 // Deferred D2H: send in stream order, collect the reply (and write it into dst)
 // at the next synchronous receive. UCX-only; degrades to synchronous fill.
+
+// --- temporary: locate a stall (mirrors UcxCommunicator.cpp). GVS_TRACE_FN=1 --------
+namespace {
+inline bool gvs_fe_trace_on() {
+    static const bool on = []() {
+        const char *v = std::getenv("GVS_TRACE_FN");
+        return v != nullptr && v[0] == '1';
+    }();
+    return on;
+}
+struct GvsFeTrace {
+    const char *name;
+    explicit GvsFeTrace(const char *n) : name(n) {
+        if (gvs_fe_trace_on()) {
+            std::fprintf(stderr, "[TRACE %lu] >> %s\n", (unsigned long)pthread_self(), name);
+            std::fflush(stderr);
+        }
+    }
+    ~GvsFeTrace() {
+        if (gvs_fe_trace_on()) {
+            std::fprintf(stderr, "[TRACE %lu] << %s\n", (unsigned long)pthread_self(), name);
+            std::fflush(stderr);
+        }
+    }
+};
+}  // namespace
+#define GVS_FE_TRACE(n) GvsFeTrace gvs_fe_trace_guard_(n)
+
 void Frontend::ExecuteDeferredD2H(const char *routine, void *dst, size_t count,
                                   const Buffer *input_buffer) {
     ExecuteInternal(routine, input_buffer, DispatchMode::DeferredD2H, dst, count);
@@ -351,6 +396,7 @@ static constexpr size_t kD2HGetPoolSize = 4;
 // Complete one deferred D2H reply: locate the pending entry by request_id and
 // copy the payload ([size_t inner_count][inner_count bytes]) into its dst.
 void Frontend::DrainPendingD2H() {
+    GVS_FE_TRACE("DrainPendingD2H");
     namespace am = gvirtus::communicators::ucxam;
     auto *comm = _communicator->obj_ptr().get();
     const size_t fixed = sizeof(double) + sizeof(size_t);  // exec_sec + out_size
@@ -443,6 +489,12 @@ void Frontend::DrainPendingD2H() {
 
 void Frontend::ExecuteInternal(const char *routine, const Buffer *input_buffer,
                                DispatchMode mode, void *d2h_dst, size_t d2h_count) {
+    if (gvs_fe_trace_on()) {
+        std::fprintf(stderr, "[RPC %lu] %s\n", (unsigned long)pthread_self(),
+                     routine ? routine : "(null)");
+        std::fflush(stderr);
+    }
+    GVS_FE_TRACE("ExecuteInternal");
     // Reentrancy guard for libuct_cuda's module init firing cu* calls during
     // ucp_init() (which itself runs inside Frontend::Init -> Connect). At
     // that point _communicator->obj_ptr() is set but not yet Connected; if
@@ -637,7 +689,8 @@ void Frontend::ExecuteInternal(const char *routine, const Buffer *input_buffer,
                 const long rt_us =
                     duration_cast<microseconds>(steady_clock::now() - start_send).count();
                 gvirtus_lattrace::record(routine,
-                                         static_cast<unsigned long>(effective_payload), rt_us, 0);
+                                         static_cast<unsigned long>(effective_payload), rt_us, 0,
+                                         /*async=*/1);
             }
 
             LOG4CPLUS_DEBUG(logger, "[UCX AM] fire-and-forget '"
@@ -883,7 +936,8 @@ void Frontend::ExecuteInternal(const char *routine, const Buffer *input_buffer,
                 duration_cast<microseconds>(steady_clock::now() - start_send).count();
             gvirtus_lattrace::record(routine,
                                      static_cast<unsigned long>(effective_payload), rt_us,
-                                     static_cast<long>(server_exec_sec * 1e6));
+                                     static_cast<long>(server_exec_sec * 1e6),
+                                     /*async=*/0);
         }
 
         if (profile) {
