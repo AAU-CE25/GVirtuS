@@ -1,121 +1,134 @@
 ---
-title: "Huecos del artefacto -- qué falta, por qué importa y el experimento mínimo"
-date: "2026-08-02"
+title: "Artifact gaps -- what is missing, why it matters, and the minimum experiment"
+date: "2026-08-03"
 geometry: margin=2.3cm
 fontsize: 10pt
 ---
 
-Lista viva de lo que el paquete **no** contiene. Cada entrada dice qué falta, qué afirmación
-bloquea, si es reconstruible desde el servidor o exige volver a medir, y el experimento mínimo
-que la cierra. Nada de esto se estima ni se rellena.
+A living list of what the package does **not** contain. Each entry says what is missing, what
+claim it blocks, whether it is reconstructible from the server or needs re-measuring, and the
+minimum experiment that closes it. Nothing here is estimated or filled in.
 
-# 1. Curva de capacidad bajo SLO por N -- **falta, exige medir**
+# 1. Capacity under an SLO per N -- **rep 1 MEASURED, reps 2 and 3 pending**
 
-**Qué hay.** Tres regímenes, y ninguno da la curva:
+Swept 2026-08-03: N  en  {2,4,8} x lambda total  en  {0.25 0.5 0.75 1.0 1.5 2.0}, native and Gusto paired
+cell by cell, lambda order randomised, **36 points**. Full result in `LLAMA-7B_RESULTS.md` §3 and
+`LLAMA_SLO_capacidad.csv`; figure `figures/fig5_slo_capacidad.pdf`.
 
-| lo que existe | por qué no sirve para capacidad |
+| N | max lambda under SLO | native goodput | Gusto goodput |
+|---:|---:|---:|---:|
+| 2 | 0.50 | 51.2 | **55.5** (+8.4%) |
+| 4 | 0.50 | 51.2 | **55.5** (+8.4%) |
+| 8 | 1.00 | 98.1 | **115.2** (+17.4%) |
+
+**What is still missing, in order of importance:**
+
+1. **Repetitions 2 and 3.** With n=1 there are no confidence intervals. The direction is
+   consistent across all three N, but the difference has **no statistical backing** until they
+   land. Launched with a backend restart per cell, which rep 1 did not have.
+2. **Resolution around the knee.** Capacity measured in lambda comes out **identical** for both
+   systems at every N, because the grid steps are 50% (0.5->0.75 and 1.0->1.5) and both cross the
+   SLO inside the same interval. That is not a demonstrated tie: it is a resolution limit. A
+   fine sweep between those two points is what would let this metric decide.
+3. **The native+MPS arm** is not in this grid. For throughput the MPS control already closed
+   the gap in llama, so an honest comparison under an SLO should include it before the headline
+   is published.
+4. **Transport provenance was not recorded**: the sidecar's `transport` field is empty because
+   `bench.py` reads `GVIRTUS_CONFIG` from the invoking process and that variable lives inside
+   the container. The arm is fixed by the label and the harness, not by the sidecar. To correct
+   before the next packaging.
+
+Harnesses: `~/mt_slo_sweep.sh`, `~/run_slo_grid.sh`, `~/analiza_capacidad.py`,
+`~/figura_capacidad.py`. `bench.py` already emits the strict-window metrics.
+
+# 2. Native+MPS memory footprint per tenant -- **CLOSED 2026-08-02**
+
+Measured. Native and native+MPS in the same session on the same GPU, N  en  {1,2,4,8}, per-tenant
+= (peak - baseline)/N with 25 samples per point after exercising every pod:
+
+| N | native | native+MPS | Gusto | MPS saves | **Gusto saves** |
+|---:|---:|---:|---:|---:|---:|
+| 2 | 4948.5 | 4942.5 | 4503 | 6.0 | **445.5** |
+| 4 | 4948.0 | 4942.8 | 4492 | 5.2 | **456** |
+| 8 | 4947.9 | **4942.9** | 4487 | **5.0 (0.1%)** | **461 (9.3%)** |
+
+**The result is decisive and it refutes the mechanism the paper gave.** `RESULTS.md` §8
+attributed the saving to N tenants sharing one CUDA context. MPS consolidates contexts by
+construction, so if that were the mechanism MPS would reproduce it. It saves 0.1%.
+
+Consequence: the memory result **survives the MPS control**, unlike the throughput result where
+MPS closed the whole gap. The advantage belongs to the remoting architecture, not to context
+consolidation. What the correct mechanism *is* remains **unestablished**: the hypothesis is that
+under remoting the N frontend processes hold no device memory at all, whereas under MPS there
+are still N processes making their own allocations with only the scheduling context shared.
+Consistent with the numbers, **untested**; a per-allocation attribution inside the backend would
+settle it.
+
+Data: `mem_footprint.csv`. Harness: `~/mem_footprint.sh`. Written up in
+`LLAMA-7B_RESULTS.md` §2.
+
+# 3. Cause of the uneven sharing -- **missing, needs instrumentation**
+
+It is established **that** the sharing is uneven and **by how much** (`FAIRNESS_RESULTS.md`):
+at N=8 in miniBUDE, 34% of iterations are served with no wait while others queue behind up to
+ten quanta. **Why** is not.
+
+The current data cannot distinguish three hypotheses:
+
+- connection arrival order (is the favoured tenant always the one that connects first?);
+- monopolisation of a backend thread or stream;
+- head-of-line blocking in the dispatcher.
+
+**Minimum experiment.** Record in the backend, per connection, the queue-entry and dispatch
+instant of every RPC; repeat miniBUDE at N=8. Without that trace one cannot separate backend
+wait, GPU wait and RPC time.
+
+# 4. Per-tenant serving timeline -- **not reconstructible, needs re-measuring**
+
+The multi-tenant llama campaign is from 2026-07-26 and carries **no per-request timestamp**
+(the `tc_rel_s` / `tarr_rel_s` fields were added 2026-08-02). So these are **not**
+reconstructible per tenant: completions inside the window against completions during the drain,
+first completion, and longest no-progress interval.
+
+What **was** reconstructed and is packaged: demand-normalised service fractions, per-tenant SLO
+attainment, and the permutation null (`llama_fairness_por_tenant.csv`,
+`llama_fairness_por_corrida.csv`).
+
+Any future re-run already emits the fields, since the patch is applied.
+
+# 5. Data gaps, closed as such
+
+| gap | status |
 |---|---|
-| carga baja: N=1,2,4,8 (+6,10) con lambda **total** = 1 | la demanda total no crece con N, así que el goodput queda clavado en 128 t/s para todo N. Sirve para memoria y para equidad estable, no para capacidad |
-| sobrecarga por tenant: N=2 lambda=2 - N=4 lambda=4 - N=8 lambda=8, native/MPS/Gusto, n=3 | todos los puntos son **UNSTABLE**; el SLO alcanzado es 0--3 % y el 77 % de las peticiones muere en el deadline de 25 s |
-| saturación de un solo servidor: lambda={1,3,4,6}, 10 semillas, native/Gusto/TCP | es N=1: no dice nada sobre reparto entre tenants |
+| **CloverLeaf without its figure of merit** | it writes to `clover.out`, which is not in the artifact. Only per-tenant wall time exists. **Not reconstructible without a re-run.** |
+| **XSBench TCP N=8** | all 64 tenants lack a `Runtime:` line, some record `duration_s = 0.0`. 8 cohorts dropped and **counted**. Classified **E**. |
+| **The XSBench MPS row** | the values 25.11 / 50.15 / 98.40 have no raw file in any tree or CSV, and their comparison baseline was the obsolete table. **Withdrawn**, see `XSBENCH_RESULTS.md` §2. |
+| **XSBench per-tenant fairness** | **closed 2026-08-02.** The per-client stdout was still on the server; reconstructed into `XSBench_fairness_por_tenant.csv` (306 rows). No re-run needed. |
+| **XSBench raw tree partly overwritten** | the density experiment at 1.25e9 reused the `seed*/` directories. Filter on `lookups` before re-deriving. The published tables are already filtered. |
 
-Hay tres corridas sueltas de Gusto a N=8 con lambda=2, pero **sin control nativo emparejado**: una
-colapsa y dos quedan en una región intermedia. No construyen una curva.
+# 6. What to package in the next tar
 
-**Qué bloquea.** La afirmación que de verdad interesa --*cuánta capacidad útil bajo SLO conserva
-el sistema al crecer los tenants*-- no es calculable. Concretamente:
-
-    max SLO-goodput  sujeto a  TTFT p95 < 1 s  y  timeouts = 0
-
-**Experimento mínimo.** N  en  {2,4,8} x lambda  en  {0,25 - 0,5 - 0,75 - 1,0 - 1,5 - 2,0} (total),
-**native y Gusto emparejados**, >=3 semillas. La rodilla está estimada en lambda ~= goodput/NPRED ~=
-300/128 ~= 2,4 req/s, de ahí la resolución concentrada por debajo.
-
-**Ya está construido y sin correr:** `~/mt_slo_sweep.sh` (mantiene los pods vivos entre puntos
-de lambda, aleatoriza el orden dentro de la repetición y derriba entre repeticiones) y
-`~/run_slo_grid.sh` (una fila de la rejilla por N). Coste estimado: ~2 h por repetición
-completa de la rejilla, dominado por el arranque de los pods.
-
-**Además, `bench.py` ya está parcheado** para emitir métricas de **ventana estricta**
-(`goodput_strict`, `slogp_strict_5s`, `pct_slo_strict_*`, `slo_min_tenant_*`) en el sidecar
-`.meta.jsonl`, de modo que la curva saldrá ya sin el defecto del denominador.
-
-# 2. Huella de memoria de Native+MPS por tenant -- **falta, exige medir**
-
-**Qué hay.** Huella por tenant de contextos nativos independientes y de Gusto: 4 950 MiB
-nativos frente a 4 487 remotos a N=8, es decir ~463 MiB ahorrados por tenant.
-
-**Qué falta.** La tercera columna: **Native+MPS**. Y es justo la que decide el argumento,
-porque MPS consolida contextos igual que hace el backend por construcción. Sin ella, el ahorro
-de memoria se atribuye al remoting cuando podría deberse solo a la consolidación de contexto --
-que es exactamente la distinción que el control de MPS estableció para el rendimiento.
-
-**Experimento mínimo.** Repetir el punto de memoria a N=1,2,4,8 con el demonio MPS activo,
-muestreando `nvidia-smi --query-gpu=memory.used` igual que en los otros dos brazos. El arnés
-existe: `~/mt_pods_bm_mps.sh N LAMBDA WINDOW on|off`. Recordatorio operativo: los clientes
-deben correr con **el mismo uid que el demonio** (`--user $(id -u):$(id -g)` y `--ipc=host`) o
-MPS no arranca servidor y la carga corre acelerada en silencio.
-
-# 3. Causa del reparto desigual -- **falta, exige instrumentar**
-
-Está demostrado **que** el reparto es desigual y **cuánto** (`FAIRNESS_RESULTS.md`): a N=8 en
-MiniBUDE, el 34 % de las iteraciones se sirven sin espera alguna mientras otras encolan tras
-hasta diez cuantos. **Por qué**, no.
-
-Los datos actuales no distinguen tres hipótesis:
-
-- el orden de conexión (¿el tenant favorecido es siempre el que conecta antes?);
-- monopolización de un hilo o *stream* del backend;
-- bloqueo en cabeza de cola en el despachador.
-
-**Experimento mínimo.** Registrar en el backend, por conexión, el instante de entrada en cola y
-el de despacho de cada RPC; repetir MiniBUDE a N=8. Sin esa traza no se puede separar espera de
-backend, espera de GPU y tiempo de RPC.
-
-# 4. Timeline de serving por tenant -- **no reconstruible, exige volver a medir**
-
-La campaña multi-tenant de llama es del 2026-07-26 y **no lleva marca de tiempo por petición**
-(los campos `tc_rel_s` / `tarr_rel_s` se añadieron el 2026-08-02). Por eso **no** son
-reconstruibles, por tenant: finalizaciones dentro de ventana frente a las del drenaje, primera
-finalización, e intervalo máximo sin progreso.
-
-Lo que **sí** se reconstruyó y está empaquetado: fracciones de servicio normalizadas por
-demanda, atención de SLO por tenant, y la línea nula por permutación
-(`llama_fairness_por_tenant.csv`, `llama_fairness_por_corrida.csv`).
-
-Cualquier repetición futura ya sale con los campos, porque el parche está aplicado.
-
-# 5. Huecos de datos, cerrados como tales
-
-| hueco | estado |
-|---|---|
-| **CloverLeaf sin figura de mérito** | escribe a `clover.out`, que no viaja en el artefacto. Solo hay tiempo de pared por tenant. **No reconstruible sin volver a correr.** |
-| **XSBench TCP N=8** | los 64 tenants sin línea `Runtime:`, algunos con `duration_s = 0,0`. 8 cohortes descartadas y **contadas**. Clasificado **E**. |
-| **Fila de MPS de XSBench** | los valores 25,11 / 50,15 / 98,40 no tienen crudo en ningún árbol ni CSV, y su línea de comparación era la tabla obsoleta. **Retirada**, ver `XSBENCH_RESULTS.md` §2. |
-| **Equidad por tenant de XSBench** | **cerrado el 2026-08-02.** Los `stdout.log` por cliente sí estaban en el servidor; reconstruido en `XSBench_fairness_por_tenant.csv` (306 filas). Ya no hace falta repetir corridas. |
-| **Árbol crudo de XSBench parcialmente sobrescrito** | el experimento de densidad a 1.25e9 reutilizó los directorios `seed*/`. Filtrar por `lookups` antes de rederivar. Las tablas publicadas ya están filtradas. |
-
-# 6. Qué hay que empaquetar en el próximo tar
-
-Ficheros producidos el 2026-08-02 que **no** estaban en el paquete anterior:
+Files produced on 2026-08-02/03 that were **not** in the previous package:
 
 ```
-FAIRNESS_RESULTS.md / .pdf              el documento de la auditoría
-tenants_canonico.csv                    3688 filas por tenant, cuatro workloads
-fairness_trabajo_fijo_por_corrida.csv   493 cohortes
-fairness_trabajo_fijo_resumen.csv       mediana entre cohortes
-llama_fairness_por_corrida.csv          39 corridas, con línea nula por permutación
-llama_fairness_por_tenant.csv           169 filas tenant-corrida
-tabla_D_minibude_por_tenant.csv         352 filas, timeline por iteración
-XSBench_fairness_por_tenant.csv         306 filas por tenant
-tabla_C_cierre.md / tabla_D_minibude.md salidas reproducibles de los análisis
-figures/fig1..fig4 (.pdf y .png)        las cuatro figuras
-GAPS.md / .pdf                          este documento
+FAIRNESS_RESULTS.md / .pdf              the audit: method and cross-workload synthesis
+LLAMA-7B_RESULTS.md / .pdf              all llama detail, consolidated
+tenants_canonico.csv                    3688 per-tenant rows, four workloads
+fairness_trabajo_fijo_por_corrida.csv   493 cohorts
+fairness_trabajo_fijo_resumen.csv       median across cohorts
+llama_fairness_por_corrida.csv          39 runs, with the permutation null
+llama_fairness_por_tenant.csv           169 tenant-run rows
+tabla_D_minibude_por_tenant.csv         352 rows, per-iteration timeline
+XSBench_fairness_por_tenant.csv         306 per-tenant rows
+LLAMA_SLO_capacidad.csv                 37 points of the capacity sweep
+mem_footprint.csv                       native and native+MPS memory, N in {1,2,4,8}
+figures/fig1..fig5 (.pdf and .png)      the five figures
+GAPS.md / .pdf                          this document
 ```
 
-Y en el repositorio, bajo control de versiones:
-`results/asplos_campaign/fairness/` (datos + los seis scripts que los generan),
-`results/asplos_campaign/figures/`, `docs/FAIRNESS_RESULTS.md`.
+And in the repository, under version control:
+`results/asplos_campaign/{fairness,memoria,llama_slo_sweep,figures}/` with the scripts that
+generate them, and `docs/paper_snapshot/`.
 
-**`~/paper` no está bajo control de versiones.** Las copias durables viven en el repositorio;
-el tar debe construirse desde ahí, no desde `~/paper`, o volverá a perder trazabilidad.
+**`~/paper` is not under version control.** The durable copies live in the repository; the tar
+should be built from there, not from `~/paper`, or it will lose traceability again.

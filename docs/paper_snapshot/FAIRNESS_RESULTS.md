@@ -1,243 +1,193 @@
 ---
-title: "Fairness multi-tenant: auditoría y reconstrucción"
-subtitle: "Todos los workloads, todos los sistemas, por tenant y por corrida"
+title: "Multi-tenant fairness -- audit, method, and cross-workload synthesis"
 date: "2026-08-02"
 geometry: margin=2.3cm
 fontsize: 10pt
 ---
 
-# 0. Qué es esto y qué no
+# 0. What this is, and where the numbers live
 
-Auditoría completa de la evaluación de fairness del proyecto. **No** parte de los índices de
-Jain publicados: los recalcula desde los crudos por tenant, con controles, y comprueba si la
-desigualdad observada la introduce Gusto o la explican la demanda, el número de muestras, las
-llegadas Poisson, el desfase de arranque o la variabilidad natural.
+A full audit of the project's fairness evaluation. It does **not** start from the published
+Jain indices: it rebuilds them from the raw per-tenant records of every workload, with
+controls, and asks whether the inequality is introduced by Gusto or explained by demand, sample
+size, Poisson arrivals, start skew or natural variability.
 
-Regla aplicada sin excepción: **ningún dato inventado ni rellenado**. Donde una métrica no es
-calculable se dice qué falta.
+Rule applied without exception: **nothing invented, nothing filled in**. Where a metric is not
+computable, it says what is missing.
 
-Artefactos, todos en `results/asplos_campaign/fairness/` del repositorio:
+**Per-workload results live in each workload's own document.** This one carries the method, the
+metric audit, and the comparison across workloads:
 
-| fichero | contenido |
-|---|---|
-| `tenants_canonico.csv` | **3688 filas**, una por tenant y corrida, de los cuatro workloads de trabajo fijo |
-| `fairness_trabajo_fijo_por_corrida.csv` | 493 cohortes, Jain por corrida (nunca agrupado) |
-| `fairness_trabajo_fijo_resumen.csv` | mediana entre corridas por (workload, sistema, N, modo) |
-| `llama_fairness_por_corrida.csv` | 39 corridas de serving, con línea nula por permutación |
-| `llama_fairness_por_tenant.csv` | 169 filas tenant-corrida de serving |
-| `tabla_D_minibude_por_tenant.csv` | 352 filas con el timeline por iteración |
-| `scripts/` | los seis programas que generan todo lo anterior |
-
-# 1. Tabla A -- auditoría de métricas
-
-| # | métrica | fórmula actual | problema | fórmula corregida | impacto medido |
-|---|---|---|---|---|---|
-| A1 | `goodput` (llama) | `tokens(comp)/WINDOW` con `comp` filtrado a `tc  en  [t_meas, t_end+TIMEOUT]` (`bench.py:118,132`) | cuenta finalizaciones de una ventana de **55 s** y divide entre **30 s** | recortar a `tc <= t_end` | **x1,76** en `slo_ucx_n8_l2.0`: 277,3 -> **157,9 t/s**. El **cociente entre brazos sobrevive** (comparten denominador); el valor absoluto no es una tasa de régimen permanente |
-| A2 | `jain` (llama) | Jain sobre **tokens por tenant** (`bench.py:125-126`) | la magnitud es servicio absoluto, no normalizado por demanda; con llegadas Poisson un tenant recibe hasta **7,0x** más peticiones que otro | Jain sobre `completed_i/offered_i` | los Jain de 0,719--0,804 en N=6/8/10 pasan a **1,0000** exacto. Eran artefacto de demanda |
-| A3 | `jain` sobre SLO bajo saturación | Jain sobre `slo_5s_fraction` | con casi todos los tenants a cero, el índice mide inanición y la informa como igualdad | suprimir si `no_nulos < N/2` o media `< 5 %` | 12 celdas suprimidas; en ellas 1/4--5/8 tenants con atención no nula y media 0,005--0,017 |
-| A4 | Jain sobre runtime (trabajo fijo) | *tentación* de aplicar Jain a `duration_s` | un runtime mayor es **peor** servicio: el índice premia lo contrario de lo que mide | Jain sobre `progreso = t_solo/t_concurrente` | no llegó a publicarse; se documenta para que no se haga |
-| A5 | agrupación de repeticiones | clave `(sistema, N, modo, semilla)` | dos árboles hermanos con la misma semilla se funden en **una** cohorte de 2N tenants de campañas distintas | añadir `cohort_path` a la clave | inventaba un desfase de arranque de **3162 s**; las cohortes reales tienen **0,0 s** |
-| A6 | árboles duplicados | `experiments/babelstream/results_stale/` | duplicado obsoleto no excluido, se fusionaba con `results/` | etiquetar, no borrar | causa raíz de A5 |
-| A7 | extracción de MiniBUDE | glob `tenant_*.log` | los brazos remotos escriben `t<i>.log` **y** `tenant_<i>.log`; los baremetal solo el primero | glob `t*.log` con deduplicación | **borraba el brazo de control entero** (0 filas nativas) |
-| A8 | `exit_code` de XSBench | usado como señal de éxito | el checksum está fijado al número de lookups por defecto; el código no significa nada | usar la línea `Lookups/s` | ya documentado en campañas previas; confirmado aquí |
-| A9 | modo `stagger` | mezclado con `sync` en los resúmenes | desfase de arranque **de 14,0 s por diseño** | separar siempre por modo | Jain cae a 0,957--0,99 y lento/rápido sube a 1,24--1,76 **solo por el desfase** |
-
-**Defectos en los datos, no en las fórmulas.** XSBench TCP N=8: los 64 tenants sin línea
-`Runtime:` y algunos con `duration_s = 0,0`; 8 cohortes descartadas y **contadas**, no
-silenciadas. CloverLeaf no conserva su figura de mérito (escribe a `clover.out`, que no viaja
-en el artefacto): solo hay tiempo de pared. MiniBUDE tiene `epoch_s` con resolución de **1
-segundo** frente a corridas de 2,4--12 s.
-
-# 2. Tabla B -- fairness de progreso en trabajo fijo
-
-Modo `sync`, trabajo idéntico verificado por los parámetros de entrada, Jain sobre progreso
-normalizado calculado **por cohorte** y resumido con la mediana entre corridas.
-
-| workload | sistema | N | corr. | Jain | peor slowdown | mediana slowdown | **lento/rápido** | clasif. |
-|---|---|---:|---:|---:|---:|---:|---:|:--:|
-| MiniBUDE | nativo | 8 | 5 | 0,9998 | 7,95 | 7,83 | **1,032** | -- |
-| MiniBUDE | nativo+MPS | 8 | 5 | 1,0000 | 7,96 | 7,95 | **1,016** | -- |
-| MiniBUDE | **Gusto GPUDirect** | 8 | 15 | **0,696** | 4,87 | 3,75 | **4,871** | **A** |
-| MiniBUDE | UCX host RMA | 8 | 14 | 0,746 | 4,31 | 3,22 | **4,311** | **A** |
-| MiniBUDE | TCP | 8 | 5 | 0,669 | 4,87 | 3,93 | **4,619** | **A** |
-| XSBench | nativo | 8 | 6 | 1,0000 | 7,60 | 7,60 | 1,002 | -- |
-| XSBench | Gusto AM | 8 | 12 | 0,9804 | 8,67 | 7,67 | **1,409** | **B** |
-| XSBench | Gusto GPUDirect | 8 | 8 | 0,9960 | 7,55 | 7,51 | 1,148 | **B** |
-| XSBench | UCX host RMA | 8 | 5 | 0,9965 | 7,43 | 6,43 | 1,163 | **B** |
-| BabelStream | nativo | 8 | 5 | 1,0000 | 7,81 | 7,80 | 1,007 | -- |
-| BabelStream | Gusto AM | 8 | 5 | 0,9999 | 6,60 | 6,54 | 1,034 | **D** |
-| BabelStream | UCX host RMA | 8 | 5 | 1,0000 | 6,63 | 6,61 | 1,015 | **D** |
-| CloverLeaf | nativo | 8 | 5 | 1,0000 | 8,60 | 8,59 | 1,005 | -- |
-| CloverLeaf | nativo+MPS | 8 | 5 | 1,0000 | 8,71 | 8,70 | 1,004 | -- |
-| CloverLeaf | Gusto AM | 8 | 5 | 1,0000 | 8,40 | 8,39 | 1,019 | **D** |
-| CloverLeaf | UCX host RMA | 8 | 5 | 1,0000 | 8,40 | 8,38 | 1,015 | **D** |
-
-Clasificación: **A** evidencia fuerte de desigualdad introducida por Gusto - **B** señal
-compatible, magnitud modesta - **C** explicada por demanda o ruido - **D** sin diferencia -
-**E** experimento inválido.
-
-**XSBench TCP N=8 -> E** (datos inutilizables, ver §1).
-
-Detalle que sostiene la clasificación A: el efecto aparece **igual en TCP**, de modo que
-**no es del camino de datos RMA**. Y el nativo con MPS --que consolida contextos igual que
-Gusto-- **no lo reproduce** (1,016), así que tampoco es la consolidación de contexto por sí
-sola: es cómo el backend **ordena** el trabajo de conexiones concurrentes.
-
-# 3. Tabla C -- fairness de servicio en llama, normalizada por demanda
-
-Las tres repeticiones de cada celda estaban **concatenadas** en el JSONL (`bench.py` abre en
-modo *append* y comparten `label`). Se segmentaron por conteos acumulados de `summary.csv`;
-la suma coincide **exactamente** en las 10 etiquetas comprobadas, con tramos no uniformes
-como `[310, 306, 307]`.
-
-## 3.1 Régimen estable
-
-| sistema | N | **desbalance de demanda** | Jain compl. | Jain SLO 5 s | compl. peor--mejor |
-|---|---:|---:|---:|---:|---|
-| Gusto GPUDirect | 8 | 4,0x | **1,0000** | **1,0000** | 1,00--1,00 |
-| Gusto GPUDirect | 10 | **7,0x** | **1,0000** | **1,0000** | 1,00--1,00 |
-| nativo | 8 | 4,0x | 1,0000 | 0,9982 | 1,00--1,00 |
-
-Un tenant recibió **siete veces más peticiones que otro** por el sorteo de llegadas, y aun
-así todos completaron el 100 % de lo suyo.
-
-## 3.2 Saturación, contra la línea nula de permutación
-
-| sistema | N | Jain compl. observado | nulo p50 | **p** | compl. peor--mejor | SLO 5 s |
-|---|---:|---:|---:|---:|---|---|
-| Gusto | 8 | 0,957 / 0,968 / 0,930 | 0,934 / 0,932 / 0,933 | **0,77 / 0,90 / 0,48** | 0,15--0,34 | 0,00--0,03 |
-| nativo | 8 | 0,960 x3 | 0,898 / 0,899 / 0,901 | **0,93 / 0,94 / 0,93** | 0,13--0,23 | 0,00--0,03 |
-
-La línea nula baraja las **etiquetas de tenant** conservando la demanda observada: no supone
-llegadas multinomiales ni tiempos de servicio iguales, que es lo que la forma cerrada
-`n/(n+k-1)` da por hecho y aquí **no se verifica**. El Jain observado cae dentro de la nula en
-**todas** las celdas.
-
-## 3.3 Comparación emparejada y equivalencia
-
-13 celdas casadas por (N, lambda, repetición):
-
-| magnitud | dif. media (Gusto - nativo) | IC95 bootstrap | veredicto |
-|---|---:|---|---|
-| Jain de completion fraction | **-0,0027** | **[-0,0079, +0,0009]** | **EQUIVALENTES** (TOST, margen declarado ±0,05) |
-| completion fraction media | **+0,0764** | **[+0,0426, +0,1122]** | **excluye el cero: Gusto sirve más** |
-
-A N=2, lambda=2 la diferencia es de **+17,3 puntos** (0,9706 frente a 0,7975).
-
-Sobre la potencia, sin adornos: con 13 pares el TOST es débil. Un IC que **cabe** en el margen
-es evidencia de equivalencia; uno que no cupiera **no** sería evidencia de diferencia.
-
-**Clasificación llama -> C**: la diferencia se explica por demanda y ruido experimental.
-
-# 4. Tabla D -- evidencia por tenant del caso más fuerte
-
-El cuanto de servicio es el tiempo de iteración en solitario, **prácticamente idéntico en los
-cinco sistemas** (295,28--295,91 ms), de modo que los multiplicadores son comparables.
-
-| sistema | corridas | mult. mediana | mult. máx | **iteraciones servidas sin esperar** | mayor parada |
-|---|---:|---:|---:|---:|---:|
-| nativo | 5 | **7,95** | 7,97 | **5 de 400** | 2,06 s |
-| nativo+MPS | 5 | **7,95** | 7,99 | **7 de 400** | 2,06 s |
-| Gusto GPUDirect | 15 | **3,50** | **16,00** | **405 de 1200 (34 %)** | 4,43 s |
-| UCX host RMA | 14 | 3,00 | 10,00 | 364 de 1120 (33 %) | 2,66 s |
-| TCP | 5 | 3,99 | 11,98 | 68 de 400 (17 %) | 3,25 s |
-
-Una cohorte, tenant a tenant (`run_ucx_gpudirect_n8_r1`, trabajo idéntico, arranques dentro
-de 1 s):
-
-| tenant | slowdown | multiplicadores por iteración |
-|---:|---:|---|
-| **2** | **1,001** | `1 1 1 1 1 1 1 1 1 1` |
-| **3** | **4,874** | `3 4 2 6 5 6 **10** 6 3 1` |
-
-Y el mismo corte en el control nativo (`run_baremetal_n8_r1`): todos los tenants a `8` en casi
-todas las iteraciones. Las únicas excepciones son la primera o segunda columna, donde **se lee
-el orden de incorporación**: `5 7,9 8 8...`, `2 8 8...`, `1 2 8 8...`.
-
-# 5. Figuras
-
-| fichero | qué muestra |
-|---|---|
-| `figures/fig1_jain_vs_N.pdf` | Jain de progreso normalizado frente a N, cuatro workloads, cinco sistemas |
-| `figures/fig2_lento_rapido_vs_N.pdf` | ratio lento/rápido frente a N -- la métrica que discrimina |
-| `figures/fig3_minibude_cuanto.pdf` | **la figura causal**: multiplicador de cuanto por tenant e iteración, nativo frente a Gusto |
-| `figures/fig4_llama_por_tenant.pdf` | fracción completada por tenant en llama, régimen útil y saturación |
-
-# 6. Conclusión
-
-## 6.1 Las cinco frases
-
-| frase | veredicto | evidencia |
+| workload | its document | what it says about fairness |
 |---|---|---|
-| 1. «Gusto preserva la eficiencia agregada pero no garantiza progreso justo por tenant» | **supported** | MiniBUDE N=8: mediana de slowdown 3,75 frente a 7,83, Jain 0,696 frente a 0,9998 |
-| 2. «Con trabajo fijo igual, algunos tenants corren cerca de su ritmo de cliente único mientras otros sufren slowdown múltiple» | **supported** | tenant 2 a x1,001 con multiplicador 1 en las diez iteraciones, junto a tenant 3 a x4,874, misma cohorte, en 3 repeticiones |
-| 3. «Los Jain de llama están dominados por llegadas estocásticas y no establecen unfairness del planificador» | **supported** | demanda desigual hasta 7,0x; Jain normalizado 1,0000 en todo el régimen estable; bajo saturación p = 0,48--0,96 contra la nula de permutación |
-| 4. «La limitación de fairness depende del workload, no es universal» | **supported** | 4,87x en MiniBUDE frente a 1,03x en BabelStream y CloverLeaf, mismo N, mismo sistema |
-| 5. «Un planificador con fairness es ortogonal a la contribución del contrato semántico» | **unsupported** | es una afirmación de diseño; ningún dato de esta auditoría la sostiene ni la refuta |
+| llama 7B | `LLAMA-7B_RESULTS.md` §4 | serving fairness, demand-normalised, permutation null |
+| miniBUDE | `MINIBUDE_RESULTS.md` | the quantum accounting -- the strongest case |
+| XSBench | `XSBENCH_RESULTS.md` §3 | per-tenant, reconstructed from server-side stdout |
+| BabelStream | `BABELSTREAM_RESULTS.md` | confirmed independently, no separation |
+| CloverLeaf | `CLOVERLEAF_RESULTS.md` | no separation; figure of merit missing from artifact |
 
-## 6.2 Los tres resultados de fairness más sólidos
+Artifacts, all under `results/asplos_campaign/fairness/` in the repository:
 
-1. **En trabajo fijo, Gusto reparte el cuanto de servicio de forma marcadamente desigual y el
-   nativo no** -- 4,87x frente a 1,03x de lento/rápido a N=8, con 15 corridas y control nativo
-   y nativo+MPS. El mecanismo es visible por iteración, no inferido.
-2. **En serving, Gusto y el nativo son estadísticamente equivalentes en equidad** (IC95 de la
-   diferencia pareada de Jain dentro de ±0,05) **y Gusto sirve significativamente más**
-   (+0,0764, IC95 excluye el cero).
-3. **Los índices de Jain publicados sobre throughput por tenant eran artefacto de demanda.**
-   Normalizados, valen 1,0000 exacto incluso con un desbalance de llegadas de 7,0x.
+| file | rows | what it is |
+|---|---:|---|
+| `tenants_canonico.csv` | **3688** | one row per tenant per run, four fixed-work workloads |
+| `fairness_trabajo_fijo_por_corrida.csv` | 493 | Jain per cohort, never pooled |
+| `fairness_trabajo_fijo_resumen.csv` | -- | median across cohorts |
+| `llama_fairness_por_corrida.csv` | 39 | serving runs, with the permutation null |
+| `llama_fairness_por_tenant.csv` | 169 | tenant-run rows |
+| `tabla_D_minibude_por_tenant.csv` | 352 | per-iteration timeline |
+| `XSBench_fairness_por_tenant.csv` | 306 | per-tenant runtime and Mlookups/s |
+| `scripts/` | -- | the seven programs that generate all of the above |
 
-## 6.3 Los tres mayores problemas metodológicos
+# 1. Table A -- metric audit
 
-1. **El denominador de `goodput`** cuenta 55 s de finalizaciones y divide entre 30 s (x1,76).
-2. **Jain sobre servicio absoluto** en presencia de demanda desigual -- invalida todo índice de
-   equidad publicado para llama.
-3. **Las repeticiones se concatenan en el JSONL** sin separador, de modo que cualquier análisis
-   por corrida era imposible sin reconstruirlas. Y en el análisis de trabajo fijo, agrupar por
-   semilla en vez de por ruta de cohorte **fusiona campañas distintas**.
+| # | metric | current formula | problem | corrected formula | measured impact |
+|---|---|---|---|---|---|
+| A1 | `goodput` (llama) | `tokens(comp)/WINDOW` with `comp` filtered to `tc` in `[t_meas, t_end+TIMEOUT]` (`bench.py:118,132`) | counts completions over a **55 s** window and divides by **30 s** | clip to `tc <= t_end` | **1.76x** on `slo_ucx_n8_l2.0`: 277.3 -> **157.9 t/s**. The **ratio between arms survives** (they share the denominator); the absolute figure is not a steady-state rate |
+| A2 | `jain` (llama) | Jain over **per-tenant tokens** (`bench.py:125-126`) | the quantity is absolute service, not normalised by demand; with Poisson arrivals one tenant receives up to **7.0x** more requests than another | Jain over `completed_i/offered_i` | the 0.719--0.804 values at N=6/8/10 become **1.0000** exactly. They were a demand artefact |
+| A3 | `jain` over SLO under saturation | Jain over `slo_5s_fraction` | with almost every tenant at zero, the index measures starvation and reports it as equality | suppress if `nonzero < N/2` or mean `< 5%` | 12 cells suppressed; in them 1/4--5/8 tenants have non-zero attainment and the mean is 0.005--0.017 |
+| A4 | Jain over runtime (fixed work) | the *temptation* to apply Jain to `duration_s` | a longer runtime is **worse** service: the index rewards the opposite of what it measures | Jain over `progress = t_solo/t_concurrent` | never published; documented so it is not done |
+| A5 | grouping of repetitions | key `(system, N, mode, seed)` | two sibling result trees with the same seed merge into **one** cohort of 2N tenants from different campaigns | add `cohort_path` to the key | it invented a **3162 s** start spread; the real cohorts are coordinated to **0.0 s** |
+| A6 | duplicate trees | `experiments/babelstream/results_stale/` | an obsolete duplicate, not excluded, merging with `results/` | label, do not delete | root cause of A5 |
+| A7 | miniBUDE extraction | glob `tenant_*.log` | the remote arms write `t<i>.log` **and** `tenant_<i>.log`; the baremetal arms write only the first | glob `t*.log` and deduplicate | **it deleted the entire control arm** (0 native rows) |
+| A8 | XSBench `exit_code` | used as a success signal | the checksum is pinned to the default lookup count; the code means nothing | use the `Lookups/s` line | already documented in earlier campaigns; confirmed here |
+| A9 | `stagger` mode | mixed with `sync` in the summaries | start spread of **14.0 s by design** | always separate by mode | Jain falls to 0.957--0.99 and slowest/fastest rises to 1.24--1.76 **from the skew alone** |
+| A10 | `slo_min_tenant_*` (llama) | minimum SLO attainment across tenants | a tenant that receives **no requests** counts as 0% attainment | exclude zero-demand tenants | at lambda=0.25 with N=8 only 5 of 8 tenants have demand; the field read "worst tenant 0%" while the aggregate read 100% |
 
-## 6.4 Qué retirar y qué conservar
+**Data defects, not formula defects.** XSBench TCP N=8: all 64 tenants lack a `Runtime:` line
+and some record `duration_s = 0.0`; 8 cohorts dropped and **counted**, not silenced. CloverLeaf
+does not keep its figure of merit (it writes to `clover.out`, absent from the artifact): only
+wall time survives. miniBUDE's `epoch_s` has **1-second** resolution against runs of 2.4--12 s.
 
-**Retirar del paper:**
+# 2. Table B -- progress fairness in fixed work
 
-- Cualquier índice de Jain calculado sobre throughput o tokens por tenant (llama). Sustituir
-  por fracciones normalizadas por demanda.
-- El índice de Jain de SLO en los puntos saturados: ahí mide inanición, no equidad.
-- El valor absoluto de goodput bajo saturación como si fuera una tasa (277,3 / 302,9 t/s), o
-  declarar la ventana real de 55 s.
-- El **x1,42** multi-tenant: es el máximo de tres corridas. La media de las tres es **x1,37**.
+`sync` mode, identical work verified from the input parameters, Jain over normalised progress
+computed **per cohort** and summarised with the median across cohorts. Full per-workload
+discussion in each workload's document.
 
-**Conservar:**
+| workload | system | N | runs | Jain | worst slowdown | median slowdown | **slowest/fastest** | class |
+|---|---|---:|---:|---:|---:|---:|---:|:--:|
+| miniBUDE | native | 8 | 5 | 0.9998 | 7.95 | 7.83 | **1.032** | -- |
+| miniBUDE | native+MPS | 8 | 5 | 1.0000 | 7.96 | 7.95 | **1.016** | -- |
+| miniBUDE | **Gusto GPUDirect** | 8 | 15 | **0.696** | 4.87 | 3.75 | **4.871** | **A** |
+| miniBUDE | UCX host RMA | 8 | 14 | 0.746 | 4.31 | 3.22 | **4.311** | **A** |
+| miniBUDE | TCP | 8 | 5 | 0.669 | 4.87 | 3.93 | **4.619** | **A** |
+| XSBench | native | 8 | 4 | 1.0000 | -- | -- | **1.001** | -- |
+| XSBench | Gusto AM | 8 | 5 | **0.661** | -- | -- | **5.982** | **A** |
+| XSBench | Gusto GPUDirect | 8 | 5 | 0.716 | -- | -- | **4.848** | **A** |
+| XSBench | UCX host RMA | 8 | 5 | 0.693 | -- | -- | **4.882** | **A** |
+| BabelStream | native | 8 | 5 | 1.0000 | 7.81 | 7.80 | 1.007 | -- |
+| BabelStream | Gusto AM | 8 | 5 | 0.9999 | 6.60 | 6.54 | 1.034 | **D** |
+| CloverLeaf | native | 8 | 5 | 1.0000 | 8.60 | 8.59 | 1.005 | -- |
+| CloverLeaf | Gusto AM | 8 | 5 | 1.0000 | 8.40 | 8.39 | 1.019 | **D** |
 
-- El cociente entre brazos bajo saturación: sobrevive al cambio de denominador.
-- El **x1,37** frente a nativo por defecto y la **paridad al 97--99 % frente a nativo+MPS**.
-- Las cifras de trabajo fijo: cohortes completas, trabajo verificado, arranque coordinado a
-  0,0 s en el control.
+Classification: **A** strong evidence of Gusto-introduced unfairness - **B** compatible signal,
+modest magnitude - **C** explained by demand or noise - **D** no significant difference -
+**E** invalid experiment.
 
-## 6.5 La afirmación más fuerte y honesta para ASPLOS
+**XSBench TCP N=8 -> E** (unusable data, see §1).
 
-> *El remoting de API consolida el trabajo multi-tenant en un solo contexto CUDA, lo que
-> mejora tanto el rendimiento agregado como la fracción de trabajo servida --en llama, +0,076
-> de fracción completada frente al nativo, con IC95 que excluye el cero-- **sin degradar la
-> equidad de servicio**, que es estadísticamente equivalente a la del nativo. Ese mismo
-> mecanismo, sin embargo, **no garantiza progreso equitativo con trabajo fijo**: en MiniBUDE a
-> ocho tenants, el 34 % de las iteraciones se sirven sin espera alguna mientras otras encolan
-> tras hasta diez cuantos, de modo que un tenant termina a su ritmo de cliente único y otro
-> cinco veces más lento, donde el nativo y el nativo+MPS reparten a 1,03x. La limitación es de
-> ordenación, no del camino de datos: aparece igual sobre TCP.*
+> **XSBench moved from B to A.** An earlier pass classified it B on wall-clock
+> slowest/fastest of 1.15--1.41. Wall clock equalises because the cohorts start and end
+> together; on the internal `Runtime:` the ratio is 4.8--6.0x. Which metric one reads decides
+> the classification, and the internal one is the right one for progress fairness.
 
-## 6.6 El experimento mínimo que falta
+The effect appears **identically on TCP**, so it is **not the RMA data path**. And
+native+MPS -- which consolidates contexts exactly as Gusto does -- **does not reproduce it**
+(1.016), so it is not context consolidation either: it is how the backend **orders** work from
+concurrent connections.
 
-**Uno, y es barato.** Instrumentar el backend para registrar, por conexión, el instante de
-entrada en cola y el de despacho de cada RPC, y repetir MiniBUDE a N=8. Eso separaría las tres
-hipótesis que los datos actuales no distinguen:
+# 3. Serving (llama) -- the summary; detail in `LLAMA-7B_RESULTS.md` §4
 
-- orden de llegada de las conexiones (¿el tenant favorecido es siempre el que conecta antes?);
-- monopolización de un hilo o *stream* del backend;
-- bloqueo en cabeza de cola en el despachador.
+**Classification: C -- explained by demand and experimental noise.** Demand imbalance from the
+Poisson draw reaches **7.0x** at N=10; normalised by demand, Jain is **1.0000 exactly** across
+the whole stable regime, and under saturation the observed value sits inside a permutation null
+(p = 0.48--0.96 in every cell, both systems). Paired over 13 matched cells, the two systems are
+**statistically equivalent** in fairness while Gusto completes significantly more work.
 
-Sin esa traza puedo demostrar **que** el reparto es desigual y **cuánto**, pero no **por qué**.
+**The fairness problem is in fixed work, not in serving.** In llama the problem is not fairness
+but **capacity under an SLO**, which is a different story and lives in `LLAMA-7B_RESULTS.md` §3.
 
-**Segundo hueco, declarado:** la campaña de llama **no tiene marca de tiempo por petición**
-(se añadió el 2026-08-02, después). Por eso no son reconstruibles las finalizaciones dentro de
-ventana frente a las del drenaje por tenant, la primera finalización, ni el intervalo máximo
-sin progreso. Un timeline de serving exige volver a correr con el `bench.py` ya parcheado.
+# 4. The five statements
+
+| statement | verdict | evidence |
+|---|---|---|
+| 1. "Gusto preserves aggregate efficiency but does not guarantee fair per-tenant progress" | **supported** | miniBUDE N=8: median slowdown 3.75 against 7.83, Jain 0.696 against 0.9998 |
+| 2. "Under equal fixed work, some tenants run near their single-client rate while others experience multi-fold slowdown" | **supported** | tenant 2 at x1.001 with multiplier 1 on all ten iterations beside tenant 3 at x4.874, same cohort, in 3 repetitions; XSBench best tenant at 96% of solo while worst gets a sixth |
+| 3. "The observed llama Jain values are dominated by stochastic arrivals and do not establish scheduler unfairness" | **supported** | demand imbalance up to 7.0x; normalised Jain 1.0000 throughout the stable regime; p = 0.48--0.96 against the permutation null under saturation |
+| 4. "Gusto's fairness limitation is workload-dependent rather than universal" | **supported** | 4.87x in miniBUDE and 5.98x in XSBench against 1.03x in BabelStream and CloverLeaf, same N, same system |
+| 5. "A fairness-aware scheduler is orthogonal to the semantic-contract contribution" | **unsupported** | a design claim; no data in this audit supports or refutes it |
+
+# 5. Conclusion
+
+## 5.1 The three strongest fairness results
+
+1. **In fixed work Gusto shares the service quantum markedly unevenly and native does not** --
+   4.87x against 1.03x slowest/fastest at N=8 in miniBUDE, with 15 runs and both native and
+   native+MPS controls, and independently 5.98x against 1.001x in XSBench. The mechanism is
+   visible per iteration, not inferred.
+2. **In serving, Gusto and native are statistically equivalent in fairness** (paired Jain
+   difference CI95 inside +/-0.05) **and Gusto serves significantly more** (+0.0764, CI95
+   excludes zero).
+3. **The published Jain indices over per-tenant throughput were a demand artefact.**
+   Normalised, they are exactly 1.0000 even with an arrival imbalance of 7.0x.
+
+## 5.2 The three biggest methodological problems
+
+1. **The `goodput` denominator** counts 55 s of completions and divides by 30 s (x1.76).
+2. **Jain over absolute service** in the presence of unequal demand -- this invalidates every
+   published fairness index for llama.
+3. **Repetitions are concatenated in the JSONL** with no separator, so any per-run analysis was
+   impossible without reconstructing them. And in the fixed-work analysis, grouping by seed
+   instead of by cohort path **merges different campaigns**.
+
+## 5.3 What to drop and what to keep
+
+**Drop from the paper:**
+
+- Any Jain index computed over per-tenant throughput or tokens (llama). Replace with
+  demand-normalised fractions.
+- The SLO Jain index at the saturated points: there it measures starvation, not fairness.
+- The absolute goodput figure under saturation quoted as a rate (277.3 / 302.9 t/s), or state
+  the real 55 s window.
+- The multi-tenant **x1.42**: it is the maximum of three runs. The mean of the three is
+  **x1.37**.
+- The XSBench MPS row (see `XSBENCH_RESULTS.md` §2) and the obsolete XSBench cohort table.
+
+**Keep:**
+
+- The ratio between arms under saturation: it survives the change of denominator.
+- The **x1.37** against default native and the **97--99% parity** against MPS-configured native.
+- The fixed-work figures: complete cohorts, verified work, start coordination at 0.0 s in the
+  control.
+- The memory result, which **survives the MPS control** -- see `LLAMA-7B_RESULTS.md` §2.
+
+## 5.4 The strongest honest claim for ASPLOS
+
+> *API remoting consolidates multi-tenant work into a single CUDA context, which improves both
+> aggregate throughput and the fraction of offered work served -- in llama, +0.076 of completion
+> fraction against native with a CI95 excluding zero -- **without degrading service fairness**,
+> which is statistically equivalent to native's. That same mechanism, however, **does not
+> guarantee equitable progress under fixed work**: in miniBUDE at eight tenants, 34% of
+> iterations are served with no wait at all while others queue behind up to ten quanta, so one
+> tenant finishes at its single-client rate and another five times slower, where native and
+> native+MPS share to within 1.03x. The limitation is one of ordering, not of the data path: it
+> appears identically over TCP.*
+
+## 5.5 The minimum experiment still missing
+
+**One, and it is cheap.** Instrument the backend to record, per connection, the queue-entry and
+dispatch instant of every RPC, and repeat miniBUDE at N=8. That would separate the three
+hypotheses the current data cannot distinguish:
+
+- connection arrival order (is the favoured tenant always the one that connects first?);
+- monopolisation of a backend thread or stream;
+- head-of-line blocking in the dispatcher.
+
+Without that trace I can demonstrate **that** the sharing is uneven and **by how much**, but
+not **why**.
+
+**Second gap, declared:** the llama campaign has **no per-request timestamp** (added
+2026-08-02, afterwards). So per tenant these are not reconstructible: completions inside the
+window against completions during the drain, first completion, and longest no-progress
+interval. A serving timeline requires a re-run with the patched `bench.py`.

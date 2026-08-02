@@ -404,3 +404,19 @@ runs are the **per-N SLO capacity curve** (the intermediate multi-tenant sweep, 
 already written and unrun) and the **Native+MPS memory footprint per tenant**, which is the
 column that decides whether the ~463 MiB/tenant saving belongs to remoting or merely to context
 consolidation.
+
+## One document per workload (2026-08-03)
+
+llama content was spread across `RESULTS.md` sections 2-8b, this index and
+`LLAMA-7B.README.md`. It is now consolidated in **`LLAMA-7B_RESULTS.md`**: the multi-tenant
+campaign, the per-pod-constant sweep, the memory footprint with its MPS control, the
+capacity-under-SLO curve and the per-tenant serving fairness. `RESULTS.md` keeps a summary of
+the four headline numbers and points there; it is the cross-workload summary again, not the
+llama document.
+
+The same rule now holds throughout: `MINIBUDE_RESULTS.md`, `XSBENCH_RESULTS.md`,
+`BABELSTREAM_RESULTS.md`, `CLOVERLEAF_RESULTS.md`, `CUDF_ETL_RESULTS.md` and
+`LLAMA-7B_RESULTS.md` each carry their own workload end to end, including its fairness result.
+`FAIRNESS_RESULTS.md` keeps only what is genuinely cross-cutting: the metric audit (table A),
+the comparison across workloads (table B) and the synthesis. `GAPS.md` lists what is still
+missing and the minimum experiment for each.
