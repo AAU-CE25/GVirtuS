@@ -1,0 +1,14 @@
+{
+  "label": "restart_probe",
+  "commit": "93479226196573e43d116232c44c341131bc5e50",
+  "dirty_files": 24,
+  "branch": "exp/asplos-correctness-campaign",
+  "image": "ll33pq/cudf_gvirtus_dyncudf:cuda12.6",
+  "command": "/opt/GVirtuS/examples/rmatest/ptds_repro",
+  "env_overrides": {"GVIRTUS_RMA_MIN_BYTES":"8192","GVIRTUS_RMA_SCALAR_FLOOR":"8192"},
+  "start": "2026-08-02T19:41:59+00:00", "end": "2026-08-02T19:42:00+00:00", "wall_ms": 1507.9,
+  "exit_code": 0,
+  "log": "results/asplos_campaign/failure_recovery/restart_probe.log",
+  "log_md5": "dcf7fc80aad1008551eb591e1e1eed91",
+  "counters": {"slots_total":8,"peak_inflight":1,"reservations":4,"waited":0,"wait_us_avg":0.23,"admit_rma":4,"admit_am":21,"rma_pct":16.00,"rma_fellback":0,"decline_capacity":0,"decline_timeout":0,"decline_swap":0,"decline_epfail":0,"ack_sent":0,"ack_gen_mismatch":0,"ack_on_free":0,"ack_epoch_dropped":0,"parked":0}
+}
