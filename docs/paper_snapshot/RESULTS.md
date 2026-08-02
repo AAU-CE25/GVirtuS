@@ -240,9 +240,9 @@ What matters at this level:
   Against *MPS-configured* native it is **97-99%, i.e. parity**. Quote both.
 - **Memory.** Per-tenant GPU footprint is ~4 490 MiB under GVirtuS against ~4 948 MiB native,
   **~461 MiB less per tenant, 3.7 GB at N=8** -- 10 tenants versus 9 on a 46 GB L40S. **The MPS
-  control does not reproduce this**: MPS saves 5.0 MiB/tenant (0.1%). So the memory advantage
-  belongs to the remoting architecture, not to context consolidation, and the mechanism stated
-  in earlier versions of this section is refuted.
+  control does not reproduce this**: MPS saves 5.0 MiB/tenant (0.1%). The size of the saving
+  is closed; **what produces it is not**. Context consolidation is refuted as the explanation,
+  since MPS provides it and does not get the saving, and no replacement is established.
 - **Capacity under an SLO.** At the highest load where N=8 tenants are served within a 1 s TTFT
   p95 with zero timeouts, Gusto delivers **115.2 t/s against native's 98.1 (+17.4%)**, and its
   worst-served tenant meets the SLO on 100% of its requests against native's 75%. n=1;

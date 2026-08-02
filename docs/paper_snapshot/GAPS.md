@@ -41,7 +41,7 @@ cell by cell, lambda order randomised, **36 points**. Full result in `LLAMA-7B_R
 Harnesses: `~/mt_slo_sweep.sh`, `~/run_slo_grid.sh`, `~/analiza_capacidad.py`,
 `~/figura_capacidad.py`. `bench.py` already emits the strict-window metrics.
 
-# 2. Native+MPS memory footprint per tenant -- **CLOSED 2026-08-02**
+# 2. Native+MPS memory footprint per tenant -- **MEASUREMENT CLOSED, MECHANISM OPEN**
 
 Measured. Native and native+MPS in the same session on the same GPU, N  en  {1,2,4,8}, per-tenant
 = (peak - baseline)/N with 25 samples per point after exercising every pod:
@@ -61,8 +61,14 @@ MPS closed the whole gap. The advantage belongs to the remoting architecture, no
 consolidation. What the correct mechanism *is* remains **unestablished**: the hypothesis is that
 under remoting the N frontend processes hold no device memory at all, whereas under MPS there
 are still N processes making their own allocations with only the scheduling context shared.
-Consistent with the numbers, **untested**; a per-allocation attribution inside the backend would
-settle it.
+Consistent with the numbers, **untested**, and it must not be written as the explanation.
+The experiment that would settle it: dump the backend own device allocations per connection
+at the N=8 peak and compare the total against a native pod, so the 461 MiB is attributed to a
+line item instead of inferred from a difference of totals.
+
+**So this entry is half closed.** The size of the saving is measured and reproducible; the
+cause is not. The defensible sentence is: remoting saves ~461 MiB per tenant, and MPS does
+not; why is not established.
 
 Data: `mem_footprint.csv`. Harness: `~/mem_footprint.sh`. Written up in
 `LLAMA-7B_RESULTS.md` §2.

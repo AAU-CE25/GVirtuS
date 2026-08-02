@@ -37,7 +37,7 @@ N isolated pods, one `llama-server --parallel 1` each, open-loop Poisson, 30 s w
 
 **At this (unsaturated) load both systems deliver the offered rate exactly, so the table says nothing about throughput retention.** A per-pod-constant sweep (lambda = N, so each tenant offers 1 req/s and N=8 demands ~=1024 t/s against a ~=590 t/s batched ceiling) is running; the saturating comparison belongs there.
 
-**The real multi-tenant result here is memory, and it favours remoting.** Per-tenant GPU footprint is **~=4 490 MiB under GVirtuS vs ~=4 950 MiB native -- about 460 MiB less per tenant, 3.7 GB at N=8.** The mechanism is structural: the backend serves connections as **threads inside one process** (`Process.cpp` detaches a thread per connection; `fork` happens per *configured endpoint*, not per connection), so N tenants share **one CUDA context**, whereas N native pods each pay for their own. On a 46 GB L40S that is **10 tenants versus 9** -- and the per-pod figure is flat to 0.9 % across an 8x range in tenant count, four independent measurements on freshly-reset backends.
+**The real multi-tenant result here is memory, and it favours remoting.** Per-tenant GPU footprint is **~=4 490 MiB under GVirtuS vs ~=4 950 MiB native -- about 460 MiB less per tenant, 3.7 GB at N=8.** **The number is closed; the mechanism is not.** An earlier version of this section attributed the saving to the backend serving connections as threads inside one process, so that N tenants share one CUDA context while N native pods each pay for their own. **The MPS control refutes that explanation** -- MPS consolidates contexts by construction and saves 5.0 MiB per tenant, 0.1%. See §2. The saving itself is reproduced and is larger than first measured (461 MiB at N=8); what produces it is an open question.
 
 **The slot pool contributes nothing to per-tenant cost**, because a llama pod never allocates a GPU shadow: shadows are allocated only once a connection proves it moves device-destined bulk data, and serving never sends a transfer >= 4 MiB (measured max 3.6 MB -- see §2).
 
@@ -89,7 +89,7 @@ N isolated pods, one `llama-server --parallel 1` each, open-loop Poisson, 30 s w
 
 **The two systems move in opposite directions.** Native throughput *declines* as tenants are added (234.7 -> 221.9 -> 213.3) while remoted throughput *rises* (277.3 -> 285.9 -> 302.9); decode latency follows (70.3 ms native vs 42.9 ms remoted at N=8). Every N>=2 point is UNSTABLE in both systems -- offered load is genuinely beyond capacity, which is what makes the comparison meaningful.
 
-**Proposed mechanism -- the same one that explains the memory result in §8, which is why it is worth taking seriously.** The backend serves connections as **threads inside a single process sharing one CUDA context** (`Process.cpp` detaches a thread per connection; `fork` is per configured endpoint). N native pods are N processes with N contexts, and the GPU must context-switch between them. API remoting therefore **consolidates** multi-tenant work into one context, which predicts *both* the ~=460 MiB saved per tenant *and* a throughput advantage that grows with tenant count -- which is what the ratio column shows (1.00 -> 1.18 -> 1.29 -> 1.42).
+**Proposed mechanism, and it is confirmed for throughput -- but it does NOT carry the memory result with it (§2).** The backend serves connections as **threads inside a single process sharing one CUDA context** (`Process.cpp` detaches a thread per connection; `fork` is per configured endpoint). N native pods are N processes with N contexts, and the GPU must context-switch between them. API remoting therefore **consolidates** multi-tenant work into one context, which predicts *both* the ~=460 MiB saved per tenant *and* a throughput advantage that grows with tenant count -- which is what the ratio column shows (1.00 -> 1.18 -> 1.29 -> 1.42).
 
 **Replicated at n=3 (2026-07-26), and it holds.** Unlike the C2/C4 case in §2 -- where the *same system* drifted 28% between blocks -- the completion counts are almost perfectly reproducible: baremetal returned **50 / 50 / 50** completions at N=8 and **52 / 52 / 52** at N=4, against **71 / 67 / 68** and **67 / 67 / 67** for UCX. The between-system gap is an order of magnitude larger than the within-system spread.
 
@@ -139,13 +139,24 @@ the honest framing became *"remoting delivers MPS-equivalent context consolidati
 For memory there is no such equivalence -- **MPS-configured native does not get the saving**, so
 the advantage belongs to the remoting architecture and not to context consolidation.
 
+### The result is closed. The mechanism is open.
+
+Stated plainly, because the two are easy to conflate:
+
+| | is it established? | evidence |
+|---|---|---|
+| **The saving exists and its size** | **yes** | 461 MiB/tenant at N=8, native and MPS measured in the same session on the same GPU, 25 samples per point; the native column reproduces the earlier campaign to within 3 MiB |
+| **That it is context consolidation** | **no -- refuted** | MPS consolidates contexts and saves 0.1% |
+| **What does produce it** | **no -- open** | see below |
+
+Note the asymmetry with throughput, because it is the interesting part: for **throughput** the MPS control *reproduced* the effect, which is what confirmed context consolidation as the mechanism there and forced the honest framing *"remoting delivers MPS-equivalent consolidation for free"*. For **memory** the same control *fails to reproduce* it. The same experiment therefore confirms one mechanism and refutes the other; they are not the same claim and should not be written as one.
+
 **What it does not establish** is the correct mechanism. The measurement rules out context
 consolidation as a sufficient explanation; it does not identify what replaces it. The obvious
 candidate is that under remoting the N frontend processes hold **no device memory at all**
 -- the whole device-side state lives in one process -- whereas under MPS there are still N
 processes each making their own device allocations, with only the scheduling context shared.
-That is consistent with the numbers but **untested**; a per-allocation attribution inside the
-backend would settle it.
+That is consistent with the numbers but **untested, and it must not be written as the explanation**. The experiment that would settle it: dump the backend's own device allocations per connection (size and count) at the N=8 peak and compare the total against a native pod's, so the 461 MiB is attributed to a line item instead of inferred from a difference of totals. Until then the defensible sentence is *"remoting saves ~461 MiB per tenant, and MPS does not; why is not established"*.
 
 Data: `results/asplos_campaign/memoria/mem_footprint.csv`, harness
 `~/mem_footprint.sh`. The Gusto column is the prior campaign's measurement, unchanged; the
