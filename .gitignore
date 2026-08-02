@@ -182,3 +182,10 @@ examples/simple_matrix/simple_matrix_rdma
 examples/simple_matrix/sample_*
 *.out
 include/log4cplus/
+
+# La campana ASPLOS exige que cada numero tenga su crudo citable desde el artifact.
+# Excepcion acotada a su arbol de resultados; el resto del repo sigue excluyendo *.log/*.csv.
+!results/asplos_campaign/**/*.log
+!results/asplos_campaign/**/*.csv
+!results/asplos_campaign/**/*.txt
+!results/asplos_campaign/**/*.json
