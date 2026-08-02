@@ -223,8 +223,8 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaStreamGetPriority(cudaStream_t hSt
 }
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaStreamSynchronize_ptsz(cudaStream_t stream) {
-    return cudaStreamSynchronize(stream);
+    return cudaStreamSynchronize(stream ? stream : cudaStreamPerThread);
 }
 extern "C" __host__ cudaError_t CUDARTAPI cudaStreamQuery_ptsz(cudaStream_t stream) {
-    return cudaStreamQuery(stream);
+    return cudaStreamQuery(stream ? stream : cudaStreamPerThread);
 }

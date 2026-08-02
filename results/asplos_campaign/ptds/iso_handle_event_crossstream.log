@@ -1,0 +1,26 @@
+DEBUG: protocol string is [ucx]
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS IDX] epoch 1 anuncia server_idx=[0,1,2,3,4,5,6,7]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+UCX control-plane connected: Connect (25.25.25.2:32222)
+DEBUG: protocol string is [ucx]
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS IDX] epoch 1 anuncia server_idx=[0,1,2,3,4,5,6,7]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+# variant=handle threads=1 iters=10 bytes=1048576 seed=1
+# cudaStreamPerThread=0x2 cudaStreamLegacy=0x1
+UCX control-plane connected: Connect (25.25.25.2:32222)
+DEBUG: protocol string is [ucx]
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS IDX] epoch 1 anuncia server_idx=[0,1,2,3,4,5,6,7]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GVS IDX] epoch 2 anuncia server_idx=[9,10,11,12,13,14,15,16]
+[GVS] rma_setup: epoch 2 arrived, 0/8 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+CSVROW,event_crossstream,handle,1,1,10,1,0,none,791.515
+[GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+GUSTO_METRIC tag=teardown slots_total=8 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=5 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=10 (esperaron 0) media=0.10us | cache de registro: aciertos=0 fallos=0 (0.0%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+GUSTO_METRIC tag=teardown slots_total=8 peak_inflight=1 avg_inflight=0.010 peak_waiters=0 reservations=10 waited=0 wait_us_avg=0.10 admit_rma=10 admit_am=68 rma_pct=12.82 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=10 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0

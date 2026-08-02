@@ -52,6 +52,7 @@ gvirtus_add_frontend(cudart ${CUDA_VERSION}
         frontend/CudaRt_opengl.cpp
         frontend/CudaRt_profiler.cpp
         frontend/CudaRt_stream_memory.cpp
+        frontend/CudaRt_ptsz.cpp
         frontend/CudaRt_stream.cpp
         frontend/CudaRt_surface.cpp
         frontend/CudaRt_texture.cpp

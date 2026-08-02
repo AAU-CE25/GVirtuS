@@ -1,0 +1,14 @@
+{
+  "label": "iso_handle_event_crossstream",
+  "commit": "7a4f2fe7785c5d597f13b306de4a8ad826dd2fe5",
+  "dirty_files": 25,
+  "branch": "exp/asplos-correctness-campaign",
+  "image": "ll33pq/cudf_gvirtus_dyncudf:cuda12.6",
+  "command": "/opt/GVirtuS/tests/semantic/ptds_conformance 1 10 1048576 1 event_crossstream",
+  "env_overrides": {"GVIRTUS_RMA_MIN_BYTES":"8192","GVIRTUS_RMA_SCALAR_FLOOR":"8192"},
+  "start": "2026-08-02T19:08:02+00:00", "end": "2026-08-02T19:08:04+00:00", "wall_ms": 2011.3,
+  "exit_code": 0,
+  "log": "results/asplos_campaign/ptds/iso_handle_event_crossstream.log",
+  "log_md5": "52436487cea565458f5bcdd37b63e945",
+  "counters": {"slots_total":8,"peak_inflight":1,"reservations":10,"waited":0,"wait_us_avg":0.10,"admit_rma":10,"admit_am":68,"rma_pct":12.82,"rma_fellback":0,"decline_capacity":0,"decline_timeout":0,"decline_swap":0,"decline_epfail":0,"ack_sent":0,"ack_gen_mismatch":0,"ack_on_free":0,"ack_epoch_dropped":0,"parked":0}
+}
