@@ -18,7 +18,7 @@ the graph-capture defect is confirmed real against a native control, attempted, 
 | **conformant** | stream ordering (4 kinds, both compilations), `event_crossstream`, and the seven new properties |
 | **defect found and FIXED** | the synchronous `_ptds` surface -- eight silent stubs returning 71 |
 | **defect found and FIXED** | `driver_ptds` -- two driver `_ptsz` forwards whose base existed |
-| **defect CONFIRMED, not fixed** | `graph_ptds` -- `cudaMemcpyAsync` inside a stream capture. Designed, implemented, and the design proved insufficient; reverted |
+| **defect located, HALF fixed** | `graph_ptds` -- two causes named (a synchronise on the capturing stream, and any CUDA allocation inside the capture window). The **active-message path now works**; the RMA path does not. See 3d |
 | **criterion NOT met** | "injected-wrong variants fail and only they" -- not inside this suite; met at campaign level |
 
 # 1. What the existing data already says
@@ -298,10 +298,67 @@ invalidation RPC by RPC -- capture status logged on entry and exit of every hand
 stream -- so the exact call is named rather than inferred. Each iteration costs a four-minute
 backend rebuild. Estimate **one to two hours**, not ten minutes.
 
-**Recorded as measured, localised, designed, attempted and reverted -- not fixed.** That is a
-worse outcome than a fix and a better one than a plausible story: the next person starts from
-"there are two sources and here is the instrumentation that will name them", not from
-"try staging the copy".
+### 3d. Located, and half fixed -- the bracketing session
+
+The instrumentation was rebuilt properly: capture status logged on **entry and exit of every
+handler**, in the plugin (not `Process.cpp`, which compiles without CUDA headers -- an error made
+twice and now recorded in the code). The result is unambiguous:
+
+    cudaStreamBeginCapture   despues st=1    <- active
+    cudaMemcpyAsync          antes   st=1    <- still active
+    cudaMemcpyAsync          despues st=2    <- the HANDLER invalidates it
+
+**The memcpy handler is the culprit after all.** The earlier reading -- "already invalidated
+before the handler" -- was produced by **a bug in my own instrumentation**: the environment guard
+read an empty `GVS_CAPTURE_MODE` as `atoi("") = 0`, forcing capture mode **Global**, in which any
+other backend thread invalidates. With the guard fixed the mode arrives correctly as
+`ThreadLocal(1)` and the picture is simple.
+
+**Four hypotheses were refuted by measurement along the way**, each in one run:
+
+| hypothesis | test | verdict |
+|---|---|---|
+| lazy GPU-shadow allocation inside the window | warm-up transfer before capturing | **refuted** -- fails identically |
+| the RMA path specifically | size sweep 1 KiB to 1 MiB | **refuted at first** -- all sizes failed |
+| the capture mode arrives wrong | log the received mode | **refuted** -- arrives as ThreadLocal |
+| another thread doing something unsafe | force `Relaxed` mode | **refuted** -- still fails |
+
+**Two distinct causes, both now named:**
+
+1. **`cudaStreamSynchronize(stream)` on the capturing stream** (`CudaRtHandler_memory.cpp:1282`).
+   This is the one the staging design targets, and targeting it was right.
+2. **Any CUDA *allocation* inside the capture window.** This is the one nobody had -- and the
+   first version of the staging fix tripped over it, because `stage_host` allocated with
+   `cudaHostAlloc`. **The fix for the fix is to use plain `malloc`**: pageable host memory, zero
+   CUDA calls. A graph node needs the pointer to be alive at launch, not pinned.
+
+**With both applied, stream capture survives end to end for the first time:**
+
+    PROBE3,    1024,end=cudaSuccess,dentro=cudaSuccess          <- the AM path WORKS
+    PROBE3,    4096,end=cudaErrorStreamCaptureInvalidated
+    PROBE3,    8192,end=cudaErrorStreamCaptureInvalidated
+    PROBE3,   65536,end=cudaErrorStreamCaptureInvalidated
+    PROBE3, 1048576,end=cudaErrorStreamCaptureInvalidated
+
+and the bracket confirms the handler now leaves the capture **active** (`antes st=1 / despues
+st=1`). Lowering the RMA floor to 1 KiB makes even that case fail, which pins the split exactly:
+**the active-message path is fixed; the RMA receive path is not**, because it still performs CUDA
+allocations while the capture is open.
+
+**What remains, and it is now a work item rather than a mystery:** remove CUDA allocations from
+the RMA receive path during capture. Concretely -- `stage_dev` still uses `cudaMalloc` and must
+draw from a device pool allocated at connect; and whatever the slot/registration path allocates
+on first use must be pre-materialised. Nothing else is unknown.
+
+**What shipped:** `CaptureStaging.h` plus the capture branch in `MemcpyAsync` and the hand-off in
+`StreamEndCapture`. It makes a previously impossible case pass and the conformance suite stays
+7/7 with no regression. The diagnostic instrumentation was removed.
+
+**Still open:** capture with a payload above the RMA floor.
+
+**Superseded by 3d**: the causes were located and the active-message path fixed. The paragraph
+above is kept because its reasoning -- that a plausible story is worse than a bounded negative --
+is what produced the bracketing session that found the answer.
 
 ## The injected-wrong control: it did not fire, and that is reported rather than glossed
 
