@@ -334,3 +334,65 @@ timeline needs a re-run with the patched `bench.py`.
 
 Data: `llama_fairness_por_tenant.csv` (169 tenant-run rows), `llama_fairness_por_corrida.csv`
 (39 runs). Figure: `figures/fig4_llama_por_tenant.pdf`.
+
+## §3b -- RETRACTION of the rep-1 capacity result, and why the measurement was rebuilt
+
+**The +17.4% reported from repetition 1 does not survive replication.** With n=3 and the
+conservative criterion -- a load counts as sustainable only if it meets the SLO in **every**
+repetition -- the result is:
+
+| | rep 1 alone | **n = 3** |
+|---|---|---|
+| capacity at N=8 | lambda = 1.00 | **lambda = 0.50** |
+| Gusto goodput at capacity | 115.2 t/s | **55.5** |
+| native goodput at capacity | 98.1 t/s | **55.5** |
+| paired difference | **+17.4%** | **-1.4 t/s, CI95 [-4.2, +0.0] -- includes zero** |
+
+At lambda=0.75 and lambda=1.00 the SLO is met in **1 of 3** repetitions. Repetition 1 was the lucky one.
+
+**Nothing here says the two systems are equal.** It says this measurement cannot tell them
+apart, which is a different and weaker statement, and the reason is a defect in the
+measurement rather than in the systems.
+
+### The defect: at low load the window contains too few requests
+
+| lambda (total) | requests offered in a 30 s window |
+|---:|---:|
+| 0.25 | **7.5** |
+| 0.50 | 15.0 |
+| 0.75 | 22.5 |
+| 1.00 | 30.0 |
+
+The observed goodput at N=8, lambda=0.50 ranges **29.9 to 59.7 t/s across three repetitions** --
+close to a factor of two. That is not the system varying: with 15 Poisson arrivals, whether 8
+or 15 of them complete inside the window is counting noise, and goodput is
+`completed x 128 / WINDOW`, so it inherits that noise directly. **A fixed 30 s window cannot
+measure a rate at these loads.**
+
+This is the same failure mode as the campaign's other measurement traps: a number that looks
+like a system property and is an artefact of the harness. It was invisible at n=1 -- one draw
+produces one plausible-looking value -- and only the replication exposed it.
+
+### What replaced it
+
+A second sweep scales the window so every point sees at least 40 offered requests:
+
+    WINDOW = max(30, 40 / lambda)
+
+which gives 80 s at lambda=0.5, 53 s at 0.75, 40 s at 1.0 and 30 s at 1.5. Goodput remains a rate,
+so a longer window only reduces its variance; it does not change what is measured. The sweep
+covers the decisive region only (lambda from 0.5 to 1.5) -- below it every point meets the SLO and
+above it none does, so the extremes carry no information -- and it adds the **native+MPS** arm,
+which the first sweep lacked.
+
+Data: `results/asplos_campaign/llama_slo_sweep_v2/`, harness `~/sweep_v2.sh`.
+
+### What may be quoted from the first sweep, and what may not
+
+**May be quoted.** The shape of the load-response curve, and the qualitative observation that
+past the knee Gusto degrades with fewer timeouts -- at N=8, lambda=1.5, across three repetitions,
+Gusto records 0 timeouts against native's 1, and 69% against 41% of requests within 1 s. Those
+are counts, not rates, and do not suffer the window defect.
+
+**May not be quoted.** The +17.4%, the lambda=1.00 capacity, and any goodput figure from a point
+whose window held fewer than ~40 requests.
