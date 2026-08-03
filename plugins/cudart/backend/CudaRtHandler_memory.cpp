@@ -48,6 +48,7 @@ void gvirtus_untrack_device_alloc(void *p);
 #include <string>
 #include <thread>
 #include "gvirtus/communicators/CaptureStaging.h"
+#include "gvirtus/communicators/Visibility.h"
 
 using namespace log4cplus;
 using namespace std;
@@ -678,6 +679,17 @@ CUDA_ROUTINE_HANDLER(Memcpy) {
                 void *gpu_src = input_buffer->GetGpuPayload();
                 size_t gpu_src_size = input_buffer->GetGpuPayloadSize();
                 if (gpu_src != nullptr && gpu_src_size >= count) {
+                // I10 / A2 -- PUNTO DE DESCARGA. El NIC escribio esta region por peer-DMA y a
+                // continuacion la va a leer trabajo de GPU. En esta L40S el driver reporta
+                // GPU_DIRECT_RDMA_WRITES_ORDERING = NONE, o sea que NO hay ordenacion
+                // implicita: sin este flush la lectura puede devolver memoria vieja. Cuesta
+                // 0,729 us medidos, un 0,4 % de una transferencia de 4 MiB.
+                if (!gvirtus::communicators::descarga_antes_de_consumir()) {
+                    std::fprintf(stderr, "[GVS VIS] no se pudo descargar la visibilidad "
+                                         "NIC->GPU; se rechaza el consumo directo\n");
+                    return std::make_shared<Result>(cudaErrorNotSupported);
+                }
+
                 gvs_pathstats::count(gvs_pathstats::kH2dGpu, count);
                     // CORRECTNESS FIX (2026-07-25): cudaMemcpy D2D is ASYNC wrt the CPU
                     // thread (it enqueues on a stream and returns). The old code let the
@@ -1229,6 +1241,17 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
                 void *gpu_src = input_buffer->GetGpuPayload();
                 size_t gpu_src_size = input_buffer->GetGpuPayloadSize();
                 if (gpu_src != nullptr && gpu_src_size >= count) {
+                // I10 / A2 -- PUNTO DE DESCARGA. El NIC escribio esta region por peer-DMA y a
+                // continuacion la va a leer trabajo de GPU. En esta L40S el driver reporta
+                // GPU_DIRECT_RDMA_WRITES_ORDERING = NONE, o sea que NO hay ordenacion
+                // implicita: sin este flush la lectura puede devolver memoria vieja. Cuesta
+                // 0,729 us medidos, un 0,4 % de una transferencia de 4 MiB.
+                if (!gvirtus::communicators::descarga_antes_de_consumir()) {
+                    std::fprintf(stderr, "[GVS VIS] no se pudo descargar la visibilidad "
+                                         "NIC->GPU; se rechaza el consumo directo\n");
+                    return std::make_shared<Result>(cudaErrorNotSupported);
+                }
+
                 // I11: bajo captura el nodo del grafo NO puede referenciar la sombra del slot
                 // -- se libera al responder y el nodo la leeria en el lanzamiento. Se saca a un
                 // buffer del backend y se graba contra ese.

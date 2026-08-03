@@ -21,6 +21,25 @@ CHECKS = [
  ("light-load tail",     r"\+273 ms|2\.1x|0\.96x",                           [r"an order of magnitude of tail"]),
  ("N1 inequality",       r"5\.02|3\.09",                                     []),
  ("visibility bound",    r"do not claim the general|bounded rather than|I10",[r"must be either closed or explicitly bounded"]),
+ # Anadidos 2026-08-03 con la captura de grafos. La tabla paso de 10 invariantes (9
+ # descargadas) a 12 (11 descargadas), y un recuento suelto en otro documento es justo el
+ # fallo que este script existe para pillar -- ya ocurrio con cuatro documentos a la vez.
+ ("invariantes",         r"eleven invariants",                               [r"nine invariants", r"the tenth stated as a bounded"]),
+ # El estado de graph_ptds. Se comprueban las FILAS DE ESTADO, no la prosa: CONFORMANCE.md
+ # conserva a proposito las secciones 3c y 3d con su diagnostico equivocado, y marcarlas
+ # seria un falso positivo en cada ejecucion.
+ ("graph capture",       r"I11|I12|3e",  [r"\*\*confirmed, OPEN\*\* \| `graph_ptds`",
+                                          r"defect located, HALF fixed"]),
+ # La cifra de llama con grafos tras el arreglo, y su referencia.
+ ("llama tg16 grafos",   r"531\.3|528\.6",                                   []),
+ # I10 dejo de ser una suposicion externa: 13 invariantes, 12 descargadas sin condiciones.
+ ("invariantes I10",     r"thirteen invariants",           [r"eleven invariants", r"nine invariants"]),
+ # El precio de descargar A2. El 1,9x era de OTRA operacion (ucp_ep_flush, que ataca A1) y
+ # solo vale para el regimen fire-and-forget; citarlo como el coste de I10 es el error que
+ # esta comprobacion existe para no repetir.
+ ("visibilidad I10",     r"0\.09%|0\.729 us|HOST_FLUSH_REQUIRED",
+                         [r"priced at the measured \*\*1\.9x\*\*",
+                          r"not discharged -- see .6"]),
 ]
 
 md = sorted(glob.glob("*.md"))

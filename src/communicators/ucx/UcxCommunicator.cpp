@@ -1,5 +1,6 @@
 #include <pthread.h>
 #include "UcxCommunicator.h"
+#include "gvirtus/communicators/Visibility.h"
 
 #include <arpa/inet.h>
 #include <atomic>
@@ -86,6 +87,44 @@ void load_cuda_pinned_funcs() {
     }
     ucx_debug_log("rx_pool: cudaHostAlloc unavailable, falling back to posix_memalign");
 }
+
+// --- I10 / A1: ordenacion de transporte -------------------------------------------------
+//
+// A1 dice: el RmaPosted se observa DESPUES de que el payload haya aterrizado. NO es lo mismo
+// que A2 y NO lo arregla cuFlushGPUDirectRDMAWrites. `ucp_put_nbx` completa LOCALMENTE -- que
+// el buffer de origen se puede reutilizar, no que los bytes hayan llegado -- y `ucp_am_send_nbx`
+// no esta ordenado contra escrituras RDMA en vuelo.
+//
+// A1 se sostiene en ESTE despliegue porque ambas operaciones viajan por la MISMA queue pair RC
+// y InfiniBand entrega en orden dentro de una QP. Se rompe con striping multi-rail, o si los
+// mensajes activos salen por un transporte distinto del PUT -- y nuestro propio
+// UCX_TLS=rc_mlx5,ud_mlx5,tcp,self lo permite.
+//
+// Aqui no se inventa una garantia: se ofrece una POLITICA, y por defecto la de siempre para no
+// cambiar en silencio lo que ya estaba medido.
+//
+//   assume  (por defecto) se asume A1, se cuenta cuantas veces se confio en ella
+//   flush   ucp_ep_flush_nbx antes del RmaPosted: convierte A1 en una espera de completado
+//           remoto. Es SOUND y es el caro -- 1,9x de issue time medido en 2026-07-25
+//   strict  si no se puede establecer A1, se declina el camino directo (slot de host)
+enum class A1Politica { Asumir, Flush, Estricta };
+
+inline A1Politica gvs_a1_politica() {
+    static const A1Politica v = [] {
+        const char *e = std::getenv("GVIRTUS_A1_POLICY");
+        if (e == nullptr || e[0] == '\0') return A1Politica::Asumir;
+        if (std::strcmp(e, "flush")  == 0) return A1Politica::Flush;
+        if (std::strcmp(e, "strict") == 0) return A1Politica::Estricta;
+        return A1Politica::Asumir;
+    }();
+    return v;
+}
+inline const char *gvs_a1_nombre(A1Politica p) {
+    return p == A1Politica::Flush ? "flush" : (p == A1Politica::Estricta ? "strict" : "assume");
+}
+std::atomic<unsigned long long> g_a1_asumidas{0};
+std::atomic<unsigned long long> g_a1_flushes{0};
+std::atomic<unsigned long long> g_a1_declinadas{0};
 
 // --- Ciclo de vida de los slots bajo una captura de grafo abierta ----------------------
 //
@@ -2839,7 +2878,24 @@ void UcxCommunicator::send_rma_setup() {
                 continue;
             }
             // Pack GPU shadow rkey if present.
-            if (slot.gpu_memh != nullptr && slot.gpu_addr != nullptr) {
+            //
+            // I10 / A2: la sombra solo se anuncia si este backend puede GARANTIZAR que una
+            // lectura CUDA posterior vera las escrituras del NIC. Si no puede, no se publica
+            // el rkey: el cliente no tiene donde hacer peer-DMA y cae al slot de host, que es
+            // memoria que la CPU lee y donde A2 ni siquiera se plantea. El repliegue no
+            // necesita mensaje nuevo -- reutiliza el bit has_gpu_shadow que el formato ya
+            // lleva. Mismo patron que el gate de transporte de GPUDirect.
+            if (slot.gpu_memh != nullptr && slot.gpu_addr != nullptr &&
+                !gvirtus::communicators::sombra_gpu_permitida()) {
+                static std::once_flag gvs_aviso_vis;
+                std::call_once(gvs_aviso_vis, [] {
+                    std::fprintf(stderr,
+                        "[GVS VIS] la sombra de GPU NO se anuncia: visibilidad NIC->GPU %s. "
+                        "Las transferencias grandes van por el slot de host\n",
+                        gvirtus::communicators::nombre(gvirtus::communicators::modo()));
+                    std::fflush(stderr);
+                });
+            } else if (slot.gpu_memh != nullptr && slot.gpu_addr != nullptr) {
                 ucs_status_t gst = ucp_rkey_pack(context_, slot.gpu_memh,
                                                  &ps.gpu_rkey_buf, &ps.gpu_rkey_len);
                 if (gst == UCS_OK) {
@@ -3335,6 +3391,16 @@ void UcxCommunicator::destroy_rma_state() {
                      "advertisements aparcadas=%llu\n",
                      (unsigned long long)rma_ack_dropped_epoch_count_,
                      (unsigned long long)rma_swap_parked_count_);
+    gvirtus::communicators::informa("teardown");
+    if (g_a1_asumidas.load() || g_a1_flushes.load() || g_a1_declinadas.load()) {
+        std::fprintf(stderr,
+            "[GVS VIS] A1 teardown: politica=%s asumidas=%llu flushes=%llu declinadas=%llu\n",
+            gvs_a1_nombre(gvs_a1_politica()),
+            (unsigned long long)g_a1_asumidas.load(),
+            (unsigned long long)g_a1_flushes.load(),
+            (unsigned long long)g_a1_declinadas.load());
+        std::fflush(stderr);
+    }
         std::fflush(stderr);
     }
     // F3: se emite siempre (aunque todo sea cero) porque un cero explicito distingue
@@ -3644,6 +3710,17 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
     std::uint16_t retenido_slot = 0;
     std::uint64_t retenido_tag = 0;
     {
+        // I10 / A1, politica `strict`: sin prueba de ordenacion de transporte no se usa el
+        // camino directo. Se declina ANTES de reservar nada, de modo que el repliegue es el
+        // camino de mensajes activos de siempre -- que no tiene el problema, porque alli el
+        // payload viaja DENTRO del mensaje que lo anuncia y no hay dos operaciones que
+        // ordenar. Hoy no existe una consulta de UCX que PRUEBE que el AM y el PUT comparten
+        // una lane RC ordenada, asi que `strict` declina siempre: es un modo de medir el
+        // coste del repliegue y de acotar la afirmacion, no una deteccion.
+        if (gvs_a1_politica() == A1Politica::Estricta) {
+            g_a1_declinadas.fetch_add(1, std::memory_order_relaxed);
+            return 0;
+        }
         std::unique_lock<std::mutex> lk(rma_state_mu_);
         if (remote_slots_.empty()) return 0;
         size_t found = static_cast<size_t>(-1);
@@ -4250,6 +4327,31 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
     // 6 x 64 MB). It is therefore NOT applied -- an unmeasured cost for no demonstrated
     // benefit -- and the semantic gap is recorded as an open question rather than
     // papered over. Whatever breaks fire-and-forget RMA is upstream of arrival.
+
+    // I10 / A1 -- PUNTO DE DESCARGA DE LA ORDENACION DE TRANSPORTE.
+    //
+    // Aqui es donde la obligacion se cumple, se declina o se asume explicitamente. El bloque
+    // de arriba explica por que el flush no arreglaba OTRO fallo; eso no lo convierte en
+    // innecesario para A1, solo en insuficiente para aquello. La diferencia entre "no hace
+    // falta" y "no arreglo lo que yo miraba" es justo la que este selector hace visible.
+    switch (gvs_a1_politica()) {
+        case A1Politica::Flush: {
+            // Completado REMOTO: cuando esto vuelve, los bytes estan en el par. Es la unica
+            // de las tres que convierte A1 en una garantia, y la que cuesta.
+            ucp_request_param_t fp{};
+            void *freq = ucp_ep_flush_nbx(endpoint_, &fp);
+            wait_request_completion(freq, "a1_flush");
+            g_a1_flushes.fetch_add(1, std::memory_order_relaxed);
+            break;
+        }
+        case A1Politica::Estricta:
+            // La decision estricta se toma ANTES de reservar (ver el gate de entrada): si se
+            // llega aqui con la politica estricta es que A1 SI se pudo establecer.
+        case A1Politica::Asumir:
+        default:
+            g_a1_asumidas.fetch_add(1, std::memory_order_relaxed);
+            break;
+    }
 
     // Tiny RmaPosted notification — same protocol bytes regardless of which
     // data path filled the remote slot.
