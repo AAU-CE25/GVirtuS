@@ -192,8 +192,64 @@ enforce the slot-lifetime invariants of `CONTRACTS.md` §4. Under capture the co
 to graph launch**, so the source slot would have to stay reserved from capture until launch --
 a lifetime the current protocol does not model at all.
 
-So: **fixable, with a scoped change to the lifetime protocol; not fixable by deleting a
-synchronise.** Recorded as measured-and-localised, not fixed.
+### What it would take to make it work -- and my first answer was the wrong design
+
+Reading the handlers changed the design. Each synchronisation guards a specific hazard and the
+code says which:
+
+| site | what it guards |
+|---|---|
+| `CudaRtHandler_memory.cpp:1282` (`MemcpyAsync`) | *"the source buffer belongs to the marshalled input buffer / UCX slot. If we return immediately, the slot may be released or reused while the GPU is still reading from it."* |
+| `:925` (`Memcpy`) | when a synchronous RPC returns, its device work must be done -- made true by construction rather than by accident |
+| `gvirtus_shadow_drain()` at `:604`/`:622` | called from `ReleaseFrame`, **before** the RX slot is released, so the peer cannot peer-DMA the next transfer over a shadow the copy engine is still reading |
+
+**The whole design ties slot release to device-work completion.** Under capture the copy is
+never executed, only recorded, so that completion never arrives.
+
+**Option B -- extend the slot lifetime to capture-to-launch -- is what §3c of this document
+first proposed, and it is wrong.** The default pool is **two slots**
+(`GVIRTUS_RMA_SLOTS`, default 2). Pinning a slot from capture until the graph is destroyed would
+exhaust the pool on the *first* captured pair of copies, and a graph exists precisely to be
+launched many times. It converts a conformance bug into a deadlock. Retracted.
+
+**Option A -- copy out of the slot at capture time -- is the fix.** At the memcpy handler, when
+the target stream is capturing:
+
+1. copy the payload from the UCX slot into a **backend-owned staging buffer**;
+2. record `cudaMemcpyAsync(dst, staging, count, kind, stream)`, which is what enters the graph;
+3. **do not synchronise**, and release the slot normally -- the graph no longer references it;
+4. free the staging buffer when the graph that owns it is destroyed.
+
+The extra copy is paid **once, at capture**, never per launch. That is the right place to pay
+it: a graph is captured once and launched many times, so the amortised cost tends to zero --
+which is the whole reason the workload used a graph.
+
+**Everything it needs already exists**, which is why this is scoped work and not a rewrite:
+
+| needed | status |
+|---|---|
+| backend knows it is capturing | **yes** -- the capture lives on the backend's real stream; `StreamBeginCapture` and `StreamIsCapturing` are already handled (`CudaRtHandler_stream.cpp:129,145`). A local `cudaStreamIsCapturing(stream, &st)` at the handler suffices; **no protocol change** |
+| a place to hook the free | **yes** -- `GraphDestroy`, `GraphExecDestroy` and `GraphInstantiate` handlers all exist |
+| a failing test | **yes** -- `graphprobe.cu` and `graph_ptds`, both with a native control |
+
+**The work, honestly sized:** ~10 lines at `MemcpyAsync` (`:1185`) to branch on capture status;
+a per-connection staging registry keyed by graph, which is the real piece, perhaps 100 lines;
+and the free hooked into the two destroy handlers. Only the **Async** variants need it --
+synchronous `cudaMemcpy` during capture is illegal in CUDA itself.
+
+**And it adds an invariant rather than weakening one**, which is why it strengthens the contracts
+contribution instead of denting it:
+
+> **I11 -- no graph node ever references an RX slot.** A payload captured into a graph is copied
+> into backend-owned staging before the slot is released. Discharge point: the capture branch of
+> `MemcpyAsync`; the staging buffer is freed by `GraphDestroy` / `GraphExecDestroy`.
+
+**Two residual risks to state before anyone starts:** a graph that is never destroyed leaks its
+staging, bounded by the number of captured copies; and if the same graph is re-instantiated the
+registry must not double-free. Both are ordinary lifetime bookkeeping, and both are exactly the
+kind of thing the ablation harness in `SLOT_LIFETIME_RESULTS.md` is built to attack.
+
+**Recorded as measured, localised and designed -- not fixed.**
 
 ## The injected-wrong control: it did not fire, and that is reported rather than glossed
 
