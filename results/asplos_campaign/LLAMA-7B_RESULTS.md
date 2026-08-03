@@ -554,6 +554,62 @@ reviewer:
    saving** -- the 429 MiB per-process CUDA context measured in §2 -- and disaggregation itself,
    which is a deployment property rather than a performance one.
 
+### §3d -- All three tenant counts, and p99 as well as p95 (2026-08-03)
+
+The table above is N=8 only and p95 only. Both restrictions were unnecessary: the per-request
+JSONL was already on disk, so N=2 and N=4 and the 99th percentile are **re-derivable without
+re-running anything**.
+
+**Estimator, stated because it differs from §3c.** These are percentiles over **all requests
+pooled across the three repetitions** (100--190 requests per cell), not the mean of the
+per-repetition p95 that §3c reports. Both are legitimate; they are not interchangeable, and the
+two tables should never be read as if they were.
+
+| N | lambda | native p95 / p99 | native+MPS p95 / p99 | **Gusto p95 / p99** | native / Gusto, p95 |
+|---:|---:|---:|---:|---:|---:|
+| 2 | 0.50 | 843 / 1275 | 807 / 1096 | 875 / 1158 | 0.96x |
+| 2 | 0.75 | 2319 / 4269 | 1319 / 2693 | **1366 / 2979** | **1.70x** |
+| 2 | 1.00 | 5103 / 7125 | 2221 / 4303 | **2474 / 4684** | **2.06x** |
+| 2 | 1.50 | 17949 / 18902 | 9106 / 9721 | **10113 / 10703** | **1.77x** |
+| 4 | 0.50 | 837 / 1279 | 812 / 1098 | 868 / 1156 | 0.96x |
+| 4 | 0.75 | 1946 / 4293 | 1244 / 2235 | **1344 / 2301** | **1.45x** |
+| 4 | 1.00 | 5295 / 9905 | 1900 / 4344 | **2281 / 4809** | **2.32x** |
+| 4 | 1.50 | 21400 / 23241 | 9069 / 14322 | **10131 / 15086** | **2.11x** |
+| 8 | 0.50 | **46 / 890** | 59 / 687 | 457 / 940 | **0.10x** |
+| 8 | 0.75 | 1192 / 3777 | 724 / 1019 | **905 / 1562** | **1.32x** |
+| 8 | 1.00 | 4651 / 8366 | 1628 / 3453 | **1856 / 3491** | **2.51x** |
+| 8 | 1.50 | 21639 / 23735 | 9166 / 10014 | **9446 / 11629** | **2.29x** |
+
+**Two things change, and one of them is a correction to §3c's framing.**
+
+**1. The light-load tail penalty is an N=8 artefact, not a property of remoting.** §3c reads
+*"remoting costs an order of magnitude of tail latency at light load"* from the N=8, lambda=0.5
+cell -- and that cell is the only one where it is true (0.10x). At **N=2 and N=4 the same load
+gives 0.96x: the three systems are indistinguishable.** The reason is arithmetic: lambda is a
+*total* rate, so at N=8 each server receives 0.0625 req/s and sits essentially idle, which is
+the one regime where a network round trip has nothing to hide behind. **The penalty is a
+property of the idle regime, not of the tenant count**, and quoting it without lambda-per-tenant
+overstates it.
+
+**2. The advantage above the knee is consistent across every N, and survives at p99.** At
+lambda=1.0 native's p95 is **2.06x / 2.32x / 2.51x** Gusto's at N=2/4/8, and at lambda=1.5 it is
+1.77x / 2.11x / 2.29x. The ordering is identical at p99. This is a stronger statement than §3c's
+single N, and it was free.
+
+**MPS keeps a small edge over Gusto at every cell** (9106 against 10113 at N=2, lambda=1.5;
+1628 against 1856 at N=8, lambda=1.0) -- the network round trip, again -- and both are far ahead
+of default native.
+
+**What p99 is worth here, honestly.** With 100--190 pooled requests per cell, the 99th percentile
+is the first or second largest observation: an extreme order statistic with no useful confidence
+interval. It is reported because it **agrees** with p95 in every cell, which is evidence the p95
+ordering is not an artefact of where the cut falls -- not because p99 is separately reliable at
+this sample size. Making p99 a quotable number needs longer windows, which is the open item
+below.
+
+Data: `results/asplos_campaign/llama_ttft_p95_p99_pooled.csv` (36 cells), derived from the
+per-request JSONL in `llama_slo_sweep_v2/`.
+
 ### What may be claimed from this sweep
 
 **May be claimed.** That capacity under a 1 s TTFT SLO is indistinguishable between the three
@@ -565,9 +621,27 @@ better tail below saturation.
 
 **May not be claimed.** Any capacity difference. The +17.4% of §3b remains retracted. Also
 **withdrawn in this document's own earlier wording**: "an order of magnitude" of light-load tail
-(it is 2.1x), "+15.6%" at lambda=1.0 (it is +9.9%) and "+33%" at lambda=1.5 (it is +27.5%) --
-all three came from repetition 1. **No figure from a single repetition of this sweep may be
-quoted**, because TTFT p95 varies more than 10x between repetitions of the same cell.
+(it is 2.1x, and §3d shows it does not survive at N=2 or N=4 at all), "+15.6%" at lambda=1.0 (it
+is +9.9%) and "+33%" at lambda=1.5 (it is +27.5%) -- all three came from repetition 1. **No
+figure from a single repetition of this sweep may be quoted**, because TTFT p95 varies more than
+10x between repetitions of the same cell.
+
+### What this sweep still does not give
+
+Four gaps, all of them a re-run rather than a re-analysis, and none of them blocking a claim
+already made:
+
+1. **No points around the knee.** The grid is lambda in {0.50, 0.75, 1.00, 1.50} and the
+   capacity criterion collapses every system to 0.50 because 0.75 and 1.00 pass in some
+   repetitions and not others. **A grid of 0.55 / 0.60 / 0.65 / 0.70 is what would separate the
+   systems on capacity, if anything does.** Until it is run, "capacity does not discriminate"
+   means "does not discriminate at this resolution".
+2. **Windows are too short for p99.** `max(30, 40/lambda)` gives 80 / 53 / 40 / 30 s and
+   100--190 pooled requests per cell. p99 needs an order of magnitude more.
+3. **No sustained-load points.** Every window is under 90 s, so nothing here speaks to
+   thermal, memory-fragmentation or leak behaviour over hours.
+4. **Transport provenance is still not recorded in the sidecar** (`GAPS.md` §1): the arm is
+   fixed by the label and the harness, not by a field the data carries.
 
 Data: `LLAMA_SLO_capacidad_v2.csv` (**108 data rows** -- 3 systems x 3 tenant counts x 4
 loads x 3 repetitions; an earlier version of this line said 112), raw in
