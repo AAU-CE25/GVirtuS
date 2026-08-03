@@ -85,19 +85,32 @@ inline std::size_t quadrant_threshold(bool h2d, bool pinned) {
         { env_bytes("GVIRTUS_RMA_MIN_D2H_PAGEABLE", 2ull << 20),
           env_bytes("GVIRTUS_RMA_MIN_D2H_PINNED",   1ull << 20) },
         { env_bytes("GVIRTUS_RMA_MIN_H2D_PAGEABLE", 1ull << 20),
-          env_bytes("GVIRTUS_RMA_MIN_H2D_PINNED",   8ull << 10) },
+          // 16 KiB, no 8 KiB. Re-medido 2026-08-03 con 3 corridas de proceso independientes
+          // por celda: a 8 KiB AM gana en 3/3 (0,300 frente a 0,288 GB/s) y a 16 KiB pierde
+          // en 3/3. El 8 KiB anterior venia de una sola corrida donde la diferencia era x1,01
+          // -- un empate leido como cruce. NO lo movio el trabajo de correccion: `assume` y
+          // `flush` cruzan en el mismo tamano.
+          env_bytes("GVIRTUS_RMA_MIN_H2D_PINNED",   16ull << 10) },
     };
     return t[h2d ? 1 : 0][pinned ? 1 : 0];
 }
 
-// Oracle: the measured winner per size class, from the 2026-08-01 sweep. Sizes are the
-// power-of-two classes actually measured; anything between classes takes the lower class's
-// verdict, which is the conservative reading.
+// Oracle: the measured winner per size class. H2D from the 2026-08-03 re-measurement (3
+// independent process runs per cell, under the deployed safe A1 policy); D2H from the
+// 2026-08-01 sweep. Sizes are the power-of-two classes actually measured; anything between
+// classes takes the lower class's verdict, which is the conservative reading.
+//
+// Las dos entradas D2H NO se re-midieron con este metodo y se dejan como estaban a
+// proposito: `kGpuDirectD2HThreshold` esta compilado a 4 MiB en CudaRtHandler_memory.cpp y no
+// lo gobierna esta puerta, asi que por debajo de 4 MiB los dos brazos toman el mismo camino y
+// el barrido no puede separarlos. Cambiar una constante con datos confundidos seria peor que
+// dejarla: lo medido es que entre 4 KiB y 2 MiB no hay separacion en D2H (todas las celdas
+// dentro de +-1,3 %).
 //
 // This is a LOOKUP OF THE ANSWER. It is included to bound the quadrant policy, and a run
 // using it must never be reported as an achievable configuration.
 inline bool oracle_prefers_rma(bool h2d, bool pinned, std::size_t bytes) {
-    if (h2d && pinned)   return bytes >= (8ull << 10);
+    if (h2d && pinned)   return bytes >= (16ull << 10);   // re-medido 2026-08-03, ver arriba
     if (h2d && !pinned)  return bytes >= (1ull << 20);
     if (!h2d && pinned)  return bytes >= (1ull << 20);
     return bytes >= (2ull << 20);

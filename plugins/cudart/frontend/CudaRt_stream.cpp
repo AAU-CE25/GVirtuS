@@ -31,14 +31,18 @@
 
 // Definida en CudaRt_graph.cpp.
 void gvs_recoge_salidas(cudaStream_t solo_este, bool todos);
+void gvs_anota_stream(cudaStream_t s, unsigned int flags);
+void gvs_olvida_stream(cudaStream_t s);
 
 using namespace std;
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaStreamCreate(cudaStream_t* pStream) {
     CudaRtFrontend::Prepare();
     CudaRtFrontend::Execute("cudaStreamCreate");
-    if (CudaRtFrontend::Success())
+    if (CudaRtFrontend::Success()) {
         *pStream = (cudaStream_t)CudaRtFrontend::GetOutputDevicePointer();
+        gvs_anota_stream(*pStream, cudaStreamDefault);   // cudaStreamCreate crea BLOCKING
+    }
     return CudaRtFrontend::GetExitCode();
 }
 
@@ -47,12 +51,15 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaStreamCreateWithFlags(cudaStream_t
     CudaRtFrontend::Prepare();
     CudaRtFrontend::AddVariableForArguments(flags);
     CudaRtFrontend::Execute("cudaStreamCreateWithFlags");
-    if (CudaRtFrontend::Success())
+    if (CudaRtFrontend::Success()) {
         *pStream = (cudaStream_t)CudaRtFrontend::GetOutputDevicePointer();
+        gvs_anota_stream(*pStream, flags);
+    }
     return CudaRtFrontend::GetExitCode();
 }
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaStreamDestroy(cudaStream_t stream) {
+    gvs_olvida_stream(stream);
     CudaRtFrontend::Prepare();
     CudaRtFrontend::AddDevicePointerForArguments(stream);
     CudaRtFrontend::Execute("cudaStreamDestroy");
@@ -78,7 +85,11 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaStreamQuery(cudaStream_t stream) {
     CudaRtFrontend::Prepare();
     CudaRtFrontend::AddDevicePointerForArguments(stream);
     CudaRtFrontend::Execute("cudaStreamQuery");
-    return CudaRtFrontend::GetExitCode();
+    cudaError_t rc = CudaRtFrontend::GetExitCode();
+    // Solo en exito. cudaSuccess = el stream esta vacio, asi que la sincronizacion que el
+    // handler de recogida hace en el backend no bloquea y la consulta sigue sin bloquear.
+    if (rc == cudaSuccess) gvs_recoge_salidas(stream, false);
+    return rc;
 }
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaStreamCreateWithPriority(cudaStream_t* pStream,
@@ -88,8 +99,10 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaStreamCreateWithPriority(cudaStrea
     CudaRtFrontend::AddVariableForArguments(flags);
     CudaRtFrontend::AddVariableForArguments(priority);
     CudaRtFrontend::Execute("cudaStreamCreateWithPriority");
-    if (CudaRtFrontend::Success())
+    if (CudaRtFrontend::Success()) {
         *pStream = (cudaStream_t)CudaRtFrontend::GetOutputDevicePointer();
+        gvs_anota_stream(*pStream, flags);
+    }
     return CudaRtFrontend::GetExitCode();
 }
 

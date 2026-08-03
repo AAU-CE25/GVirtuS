@@ -1247,8 +1247,8 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
                 // implicita: sin este flush la lectura puede devolver memoria vieja. Cuesta
                 // 0,729 us medidos, un 0,4 % de una transferencia de 4 MiB.
                 if (!gvirtus::communicators::descarga_antes_de_consumir()) {
-                    std::fprintf(stderr, "[GVS VIS] no se pudo descargar la visibilidad "
-                                         "NIC->GPU; se rechaza el consumo directo\n");
+                    std::fprintf(stderr, "[GVS VIS] could not discharge NIC->GPU visibility; "
+                                         "refusing the direct-consumption path\n");
                     return std::make_shared<Result>(cudaErrorNotSupported);
                 }
 

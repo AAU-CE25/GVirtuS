@@ -104,6 +104,13 @@ struct VisState {
     std::atomic<unsigned long long> descargas{0};
     std::atomic<unsigned long long> fallos_flush{0};
     std::atomic<unsigned long long> declinados{0};   // veces que se rechazo el camino directo
+    // El DENOMINADOR correcto de la obligacion. `admit_rma` NO sirve: cuenta toda operacion
+    // admitida al camino RMA, incluido el RMA a slot de HOST, que no toca memoria de device y
+    // por tanto no genera obligacion A2. En modo UNSUPPORTED la sombra ni se anuncia y el
+    // trafico sigue por host RMA: admit_rma sube y descargas no, sin que nada este mal. Esto
+    // cuenta exactamente los consumos que SI requieren accion: una region de device escrita
+    // por el NIC y a punto de ser leida por CUDA.
+    std::atomic<unsigned long long> consumos_sombra{0};
 };
 
 inline VisState &vis() { static VisState s; return s; }
@@ -211,6 +218,11 @@ inline bool sombra_gpu_permitida() {
 // escribio el NIC. Devuelve true si la obligacion queda cumplida (o no existia).
 inline bool descarga_antes_de_consumir() {
     VisState &s = vis();
+    // Se cuenta el CONSUMO antes de decidir que hacer con el: el invariante publicable es
+    // "descargas == consumos_sombra" en los modos que exigen accion, y "consumos_sombra > 0
+    // con descargas == 0" en los que no la exigen. Contar solo las descargas hace
+    // indistinguible "no hacia falta" de "no se paso por aqui".
+    s.consumos_sombra.fetch_add(1, std::memory_order_relaxed);
     switch (modo()) {
         case Visibilidad::Implicita:
             return true;                       // el device lo ordena; nada que hacer
@@ -239,10 +251,13 @@ inline bool descarga_antes_de_consumir() {
 inline void informa(const char *quien) {
     VisState &s = vis();
     if (!s.listo.load()) return;
-    if (s.descargas.load() == 0 && s.declinados.load() == 0) return;
+    if (s.descargas.load() == 0 && s.declinados.load() == 0 &&
+        s.consumos_sombra.load() == 0) return;
     std::fprintf(stderr,
-        "[GVS VIS] %s: mode=%s discharges=%llu flush_failures=%llu declined=%llu%s\n",
+        "[GVS VIS] %s: mode=%s gpu_shadow_consumptions=%llu discharges=%llu "
+        "flush_failures=%llu declined=%llu%s\n",
         quien, nombre(s.modo),
+        (unsigned long long)s.consumos_sombra.load(),
         (unsigned long long)s.descargas.load(),
         (unsigned long long)s.fallos_flush.load(),
         (unsigned long long)s.declinados.load(),

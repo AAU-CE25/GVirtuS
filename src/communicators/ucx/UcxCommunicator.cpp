@@ -103,28 +103,52 @@ void load_cuda_pinned_funcs() {
 // Aqui no se inventa una garantia: se ofrece una POLITICA, y por defecto la de siempre para no
 // cambiar en silencio lo que ya estaba medido.
 //
-//   assume  (por defecto) se asume A1, se cuenta cuantas veces se confio en ella
-//   flush   ucp_ep_flush_nbx antes del RmaPosted: convierte A1 en una espera de completado
-//           remoto. Es SOUND y es el caro -- 1,9x de issue time medido en 2026-07-25
+//   assume  se asume A1 sin hacer nada, y se cuenta cuantas veces se confio en ella. NO
+//           descarga la obligacion: es el brazo de ablacion con el que se mide el coste de
+//           las otras tres.
+//   fence   ucp_worker_fence entre el PUT y el RmaPosted. La API garantiza que las
+//           operaciones emitidas en un endpoint ANTES del fence se completan antes que las
+//           emitidas DESPUES, sin esperar a nada en el retorno. Es la primitiva que expresa
+//           exactamente A1... siempre que ambas operaciones compartan lane; si el AM sale por
+//           un transporte distinto del PUT, el fence ordena cada iface por separado y NO
+//           ordena entre ellas. Barato, y condicionado.
+//   flush   ucp_ep_flush_nbx antes del RmaPosted: cuando vuelve, los bytes estan en el par.
+//           Es la unica INCONDICIONAL -- no supone nada sobre lanes -- y es la de por defecto.
 //   strict  si no se puede establecer A1, se declina el camino directo (slot de host)
-enum class A1Politica { Asumir, Flush, Estricta };
+enum class A1Politica { Asumir, Fence, Flush, Estricta };
 
 inline A1Politica gvs_a1_politica() {
     static const A1Politica v = [] {
         const char *e = std::getenv("GVIRTUS_A1_POLICY");
-        if (e == nullptr || e[0] == '\0') return A1Politica::Asumir;
+        // Por defecto FLUSH: la configuracion desplegada descarga A1 sin condiciones. Las
+        // otras tres son para medir (assume), para acotar (fence) y para el repliegue
+        // conservador (strict). Cambiado 2026-08-03; antes el defecto era `assume`, que
+        // contaba la obligacion sin cumplirla.
+        if (e == nullptr || e[0] == '\0') return A1Politica::Flush;
+        if (std::strcmp(e, "assume") == 0) return A1Politica::Asumir;
+        if (std::strcmp(e, "fence")  == 0) return A1Politica::Fence;
         if (std::strcmp(e, "flush")  == 0) return A1Politica::Flush;
         if (std::strcmp(e, "strict") == 0) return A1Politica::Estricta;
-        return A1Politica::Asumir;
+        return A1Politica::Flush;
     }();
     return v;
 }
 inline const char *gvs_a1_nombre(A1Politica p) {
-    return p == A1Politica::Flush ? "flush" : (p == A1Politica::Estricta ? "strict" : "assume");
+    switch (p) {
+        case A1Politica::Fence:    return "fence";
+        case A1Politica::Flush:    return "flush";
+        case A1Politica::Estricta: return "strict";
+        default:                   return "assume";
+    }
 }
 std::atomic<unsigned long long> g_a1_asumidas{0};
+std::atomic<unsigned long long> g_a1_fences{0};
 std::atomic<unsigned long long> g_a1_flushes{0};
 std::atomic<unsigned long long> g_a1_declinadas{0};
+// Se cuenta aparte el fence que devuelve algo distinto de UCS_OK: si la implementacion no
+// soporta la operacion sobre alguno de los ifaces del worker, la politica NO esta descargando
+// nada y hay que saberlo por contador, no por suposicion.
+std::atomic<unsigned long long> g_a1_fence_fallos{0};
 
 // --- Ciclo de vida de los slots bajo una captura de grafo abierta ----------------------
 //
@@ -3392,13 +3416,17 @@ void UcxCommunicator::destroy_rma_state() {
                      (unsigned long long)rma_ack_dropped_epoch_count_,
                      (unsigned long long)rma_swap_parked_count_);
     gvirtus::communicators::informa("teardown");
-    if (g_a1_asumidas.load() || g_a1_flushes.load() || g_a1_declinadas.load()) {
+    if (g_a1_asumidas.load() || g_a1_fences.load() || g_a1_flushes.load() ||
+        g_a1_declinadas.load()) {
         std::fprintf(stderr,
-            "[GVS VIS] A1 teardown: policy=%s assumed=%llu flushes=%llu declined=%llu\n",
+            "[GVS VIS] A1 teardown: policy=%s assumed=%llu fences=%llu flushes=%llu "
+            "declined=%llu fence_failures=%llu\n",
             gvs_a1_nombre(gvs_a1_politica()),
             (unsigned long long)g_a1_asumidas.load(),
+            (unsigned long long)g_a1_fences.load(),
             (unsigned long long)g_a1_flushes.load(),
-            (unsigned long long)g_a1_declinadas.load());
+            (unsigned long long)g_a1_declinadas.load(),
+            (unsigned long long)g_a1_fence_fallos.load());
         std::fflush(stderr);
     }
         std::fflush(stderr);
@@ -4317,16 +4345,19 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
         wait_request_completion(put_req, "rma_put");
     }
 
-    // NOTE on remote completion (tested 2026-07-25, NOT the fix).
+    // NOTA historica (2026-07-25) -- conservada porque explica por que el flush estuvo
+    // desactivado tanto tiempo, y por que ese razonamiento era un non sequitur.
     //
-    // ucp_put_nbx completion is LOCAL -- the source buffer may be reused, not the bytes
-    // have landed -- and the RmaPosted AM below is not ordered against RDMA writes still
-    // in flight. Adding ucp_ep_flush_nbx here to close that gap was measured and changed
-    // nothing: the fire-and-forget RMA failure reproduced identically (same transfers,
-    // same byte counts) while roughly doubling issue time (310 ms vs 166 ms for
-    // 6 x 64 MB). It is therefore NOT applied -- an unmeasured cost for no demonstrated
-    // benefit -- and the semantic gap is recorded as an open question rather than
-    // papered over. Whatever breaks fire-and-forget RMA is upstream of arrival.
+    // ucp_put_nbx completa LOCALMENTE -- el buffer de origen se puede reutilizar, no que los
+    // bytes hayan aterrizado -- y el RmaPosted de abajo no esta ordenado contra escrituras
+    // RDMA en vuelo. Se probo ucp_ep_flush_nbx aqui para cerrar ese hueco y NO arreglo el
+    // fallo de RMA fire-and-forget que se estaba investigando (mismas transferencias, mismos
+    // bytes) mientras casi doblaba el tiempo de emision (310 ms vs 166 ms para 6 x 64 MB). De
+    // ahi se concluyo que "no hacia falta", que es la falacia: no arreglar OTRO fallo no
+    // convierte una obligacion de ordenacion en innecesaria, y el 1,9x era del regimen
+    // fire-and-forget, no del peticion/respuesta sincrono en el que corre el sistema
+    // desplegado -- donde el mismo flush se mide por debajo del 0,1 %. Hoy el flush SI se
+    // aplica y es el defecto; ver el selector de abajo.
 
     // I10 / A1 -- PUNTO DE DESCARGA DE LA ORDENACION DE TRANSPORTE.
     //
@@ -4335,9 +4366,32 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
     // innecesario para A1, solo en insuficiente para aquello. La diferencia entre "no hace
     // falta" y "no arreglo lo que yo miraba" es justo la que este selector hace visible.
     switch (gvs_a1_politica()) {
+        case A1Politica::Fence: {
+            // Ordenacion SIN esperar: el PUT de arriba se completa antes que el RmaPosted de
+            // abajo, ambos sobre endpoint_. No hay bucle de progreso porque no hay peticion
+            // que esperar -- ese es justo el punto frente a `flush`.
+            //
+            // Condicion que NO se puede comprobar desde aqui: el fence ordena por iface, asi
+            // que si el AM y el PUT acaban en transportes distintos ordena cada uno por su
+            // lado. Por eso `fence` se documenta como condicionada y el defecto es `flush`.
+            ucs_status_t st = ucp_worker_fence(worker_);
+            if (st != UCS_OK) {
+                g_a1_fence_fallos.fetch_add(1, std::memory_order_relaxed);
+                // Si el fence no se pudo aplicar se cae al comportamiento incondicional en vez
+                // de seguir como si estuviera ordenado.
+                ucp_request_param_t fp{};
+                void *freq = ucp_ep_flush_nbx(endpoint_, &fp);
+                wait_request_completion(freq, "a1_fence_fallback_flush");
+                g_a1_flushes.fetch_add(1, std::memory_order_relaxed);
+            } else {
+                g_a1_fences.fetch_add(1, std::memory_order_relaxed);
+            }
+            break;
+        }
         case A1Politica::Flush: {
             // Completado REMOTO: cuando esto vuelve, los bytes estan en el par. Es la unica
-            // de las tres que convierte A1 en una garantia, y la que cuesta.
+            // de las cuatro que no supone nada sobre como se reparten las lanes, y por eso
+            // es la desplegada por defecto.
             ucp_request_param_t fp{};
             void *freq = ucp_ep_flush_nbx(endpoint_, &fp);
             wait_request_completion(freq, "a1_flush");

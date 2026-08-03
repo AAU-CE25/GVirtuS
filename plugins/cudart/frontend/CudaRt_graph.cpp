@@ -27,6 +27,9 @@
  */
 
 #include "CudaRt.h"
+#include <mutex>
+#include <unordered_map>
+#include <unordered_set>
 #include "CaptureMirror.h"
 #include <cstring>
 
@@ -134,6 +137,56 @@ static void gvs_refresca_staging(cudaGraphExec_t graphExec) {
     }
 }
 
+// A que stream se grabo cada evento.
+//
+// Hace falta para recoger en los puntos de observacion basados en eventos SIN cambiar la
+// semantica. `cudaEventSynchronize` espera a UN stream, no a todos: recoger "todo lo
+// pendiente" haria que esperase a streams con los que el evento no tiene relacion, y
+// convertiria una espera acotada en una global. El mapa mantiene la recogida tan estrecha
+// como la propia espera.
+static std::mutex g_ev_mu;
+static std::unordered_map<cudaEvent_t, cudaStream_t> g_ev_stream;
+
+// Streams BLOCKING (los creados sin cudaStreamNonBlocking). Importa porque una operacion
+// sincrona sobre el stream legacy los sincroniza IMPLICITAMENTE: un grafo lanzado en uno de
+// ellos puede volverse observable sin que el programa llame a ninguno de los cinco puntos
+// explicitos. Medido con tests/semantic/graphvis2.cu: nativo lo entrega, y antes de esto
+// nosotros devolviamos los bytes viejos.
+static std::mutex g_blk_mu;
+static std::unordered_set<cudaStream_t> g_no_blocking;   // los que NO son blocking
+
+void gvs_anota_stream(cudaStream_t s, unsigned int flags) {
+    std::lock_guard<std::mutex> lk(g_blk_mu);
+    if (flags & cudaStreamNonBlocking) g_no_blocking.insert(s);
+    else                               g_no_blocking.erase(s);
+}
+void gvs_olvida_stream(cudaStream_t s) {
+    std::lock_guard<std::mutex> lk(g_blk_mu);
+    g_no_blocking.erase(s);
+}
+static bool es_blocking(cudaStream_t s) {
+    std::lock_guard<std::mutex> lk(g_blk_mu);
+    return g_no_blocking.find(s) == g_no_blocking.end();
+}
+
+void gvs_anota_evento(cudaEvent_t ev, cudaStream_t s) {
+    std::lock_guard<std::mutex> lk(g_ev_mu);
+    g_ev_stream[ev] = s;
+}
+void gvs_olvida_evento(cudaEvent_t ev) {
+    std::lock_guard<std::mutex> lk(g_ev_mu);
+    g_ev_stream.erase(ev);
+}
+// Devuelve true y el stream si el evento se grabo alguna vez. Un evento nunca grabado no
+// tiene nada que recoger, y forzar una recogida por si acaso seria justamente el cambio de
+// semantica que se evita.
+bool gvs_stream_de_evento(cudaEvent_t ev, cudaStream_t &out) {
+    std::lock_guard<std::mutex> lk(g_ev_mu);
+    auto it = g_ev_stream.find(ev);
+    if (it == g_ev_stream.end()) return false;
+    out = it->second; return true;
+}
+
 // Recoge, en el punto de sincronizacion, las salidas de los nodos D2H capturados que se
 // lanzaron desde este hilo. El backend sincroniza el stream dentro del handler, que es donde
 // ya es legal hacerlo: dentro de la ventana de captura no lo era.
@@ -162,6 +215,21 @@ void gvs_recoge_salidas(cudaStream_t solo_este, bool todos) {
         }
     }
     pend.swap(quedan);
+}
+
+// Punto de observacion IMPLICITO: una operacion sincrona en el stream legacy sincroniza todos
+// los streams blocking, de modo que sus salidas capturadas pasan a ser legalmente legibles sin
+// que el programa haya llamado a ninguno de los cinco puntos explicitos.
+//
+// Coste cero cuando no hay nada pendiente -- que es el caso de cualquier aplicacion que no
+// capture copias D2H, llama.cpp incluida: la lista esta vacia y esto es una comparacion.
+void gvs_recoge_por_stream_legacy() {
+    auto &pend = gvs_capmirror::lanzados();
+    if (pend.empty()) return;
+    std::vector<cudaStream_t> objetivo;
+    for (const auto &L : pend)
+        if (es_blocking(L.stream)) objetivo.push_back(L.stream);
+    for (cudaStream_t s : objetivo) gvs_recoge_salidas(s, false);
 }
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaGraphLaunch(cudaGraphExec_t graphExec,

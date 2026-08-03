@@ -28,6 +28,12 @@
 
 #include "CudaRt.h"
 #include "CaptureMirror.h"
+
+// Definida en CudaRt_graph.cpp. I12, punto de observacion IMPLICITO: una operacion sincrona en
+// el stream legacy sincroniza los streams blocking, asi que las salidas D2H capturadas de un
+// grafo lanzado en uno de ellos pasan a ser legalmente legibles aqui. Sale inmediatamente si
+// no hay ningun lanzamiento con salidas pendientes, que es el caso normal.
+void gvs_recoge_por_stream_legacy();
 #include "CudaRt_lazyfatbin.h"
 #include <dlfcn.h>
 
@@ -563,7 +569,12 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpy(void *dst, const void *src,
             CudaRtFrontend::Execute("cudaMemcpy");
             break;
     }
-    return CudaRtFrontend::GetExitCode();
+    cudaError_t rc = CudaRtFrontend::GetExitCode();
+    // I12: cudaMemcpy es sincrona y va por el stream legacy, de modo que sincroniza los
+    // streams blocking. Si un grafo lanzado en uno de ellos dejo salidas D2H capturadas, aqui
+    // el host ya tiene derecho a leerlas.
+    if (rc == cudaSuccess) gvs_recoge_por_stream_legacy();
+    return rc;
 }
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpy2D(void *dst, size_t dpitch, const void *src,
@@ -1128,7 +1139,9 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemset(void *devPtr, int c, size_t
     CudaRtFrontend::AddVariableForArguments(c);
     CudaRtFrontend::AddVariableForArguments(count);
     CudaRtFrontend::Execute("cudaMemset");
-    return CudaRtFrontend::GetExitCode();
+    cudaError_t rc = CudaRtFrontend::GetExitCode();
+    if (rc == cudaSuccess) gvs_recoge_por_stream_legacy();
+    return rc;
 }
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaMemset2DAsync(void *devPtr, size_t pitch, int value,

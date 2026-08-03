@@ -25,6 +25,22 @@
 
 #include "CudaRt.h"
 
+// Definidas en CudaRt_graph.cpp.
+void gvs_recoge_salidas(cudaStream_t solo_este, bool todos);
+void gvs_anota_evento(cudaEvent_t ev, cudaStream_t s);
+void gvs_olvida_evento(cudaEvent_t ev);
+bool gvs_stream_de_evento(cudaEvent_t ev, cudaStream_t &out);
+
+// I12, puntos de observacion. Una copia D2H capturada deja sus bytes en un buffer del backend
+// hasta que el cliente los pide. "En la siguiente sincronizacion" no es UN punto: CUDA declara
+// el resultado visible al host en varios, y hasta 2026-08-03 este frontend solo recogia en
+// cudaStreamSynchronize y cudaDeviceSynchronize. Medido con tests/semantic/graphvis.cu: los
+// otros tres devolvian los bytes VIEJOS con cudaSuccess -- el mismo modo de fallo silencioso
+// que la semantica de relanzamiento.
+//
+// En los dos QUERY se recoge SOLO si la llamada devolvio cudaSuccess. El handler de recogida
+// sincroniza el stream en el backend, de modo que recoger tras un cudaErrorNotReady
+// convertiria una consulta no bloqueante en una espera.
 using namespace std;
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaEventCreate(cudaEvent_t *event) {
@@ -44,6 +60,7 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaEventCreateWithFlags(cudaEvent_t *
 }
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaEventDestroy(cudaEvent_t event) {
+    gvs_olvida_evento(event);
     CudaRtFrontend::Prepare();
     CudaRtFrontend::AddDevicePointerForArguments(event);
     CudaRtFrontend::Execute("cudaEventDestroy");
@@ -65,7 +82,12 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaEventQuery(cudaEvent_t event) {
     CudaRtFrontend::Prepare();
     CudaRtFrontend::AddDevicePointerForArguments(event);
     CudaRtFrontend::Execute("cudaEventQuery");
-    return CudaRtFrontend::GetExitCode();
+    cudaError_t rc = CudaRtFrontend::GetExitCode();
+    // Solo en exito: cudaSuccess aqui significa que el trabajo previo al record termino, que
+    // es exactamente cuando el host tiene derecho a leer el destino de la copia.
+    cudaStream_t s;
+    if (rc == cudaSuccess && gvs_stream_de_evento(event, s)) gvs_recoge_salidas(s, false);
+    return rc;
 }
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaEventRecord(cudaEvent_t event, cudaStream_t stream) {
@@ -73,6 +95,7 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaEventRecord(cudaEvent_t event, cud
     CudaRtFrontend::AddDevicePointerForArguments(event);
     CudaRtFrontend::AddDevicePointerForArguments(stream);
     CudaRtFrontend::ExecuteMaybeAsync("cudaEventRecord");
+    gvs_anota_evento(event, stream);
     return CudaRtFrontend::GetExitCode();
 }
 
@@ -82,6 +105,7 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaEventRecordWithFlags(cudaEvent_t e
     CudaRtFrontend::AddDevicePointerForArguments(stream);
     CudaRtFrontend::AddVariableForArguments(flags);
     CudaRtFrontend::ExecuteMaybeAsync("cudaEventRecordWithFlags");
+    gvs_anota_evento(event, stream);
     return CudaRtFrontend::GetExitCode();
 }
 
@@ -89,5 +113,10 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaEventSynchronize(cudaEvent_t event
     CudaRtFrontend::Prepare();
     CudaRtFrontend::AddDevicePointerForArguments(event);
     CudaRtFrontend::Execute("cudaEventSynchronize");
-    return CudaRtFrontend::GetExitCode();
+    cudaError_t rc = CudaRtFrontend::GetExitCode();
+    // Se recoge SOLO el stream al que se grabo el evento: cudaEventSynchronize no espera a
+    // los demas y esto tampoco debe hacerlo.
+    cudaStream_t s;
+    if (rc == cudaSuccess && gvs_stream_de_evento(event, s)) gvs_recoge_salidas(s, false);
+    return rc;
 }
