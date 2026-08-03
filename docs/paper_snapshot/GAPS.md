@@ -9,37 +9,39 @@ A living list of what the package does **not** contain. Each entry says what is 
 claim it blocks, whether it is reconstructible from the server or needs re-measuring, and the
 minimum experiment that closes it. Nothing here is estimated or filled in.
 
-# 1. Capacity under an SLO per N -- **rep 1 MEASURED, reps 2 and 3 pending**
+# 1. Capacity under an SLO per N -- **CLOSED 2026-08-03**
 
-Swept 2026-08-03: N  en  {2,4,8} x lambda total  en  {0.25 0.5 0.75 1.0 1.5 2.0}, native and Gusto paired
-cell by cell, lambda order randomised, **36 points**. Full result in `LLAMA-7B_RESULTS.md` §3 and
-`LLAMA_SLO_capacidad.csv`; figure `figures/fig5_slo_capacidad.pdf`.
+Swept twice. The first sweep used a fixed 30 s window and produced a +17.4 percent advantage at
+n=1 that did NOT survive n=3; it is retracted (`LLAMA-7B_RESULTS.md` section 3b). The second,
+with the window scaled as max(30, 40/lambda) so every point sees at least 40 offered requests,
+covers 108 points over 3 systems, 3 tenant counts, 4 loads and 3 repetitions, and includes the
+native+MPS arm the first lacked.
 
-| N | max lambda under SLO | native goodput | Gusto goodput |
-|---:|---:|---:|---:|
-| 2 | 0.50 | 51.2 | **55.5** (+8.4%) |
-| 4 | 0.50 | 51.2 | **55.5** (+8.4%) |
-| 8 | 1.00 | 98.1 | **115.2** (+17.4%) |
+**Result: capacity under a 1 s TTFT SLO is identical across all three systems** -- lambda 0.50,
+57.6 t/s, at every N. Paired difference Gusto minus native at the knee is -0.5 t/s with a
+bootstrap CI95 of [-1.6, +0.0]. The metric does not discriminate, and that is now a measured
+result rather than an artefact.
 
-**What is still missing, in order of importance:**
+**What does discriminate**, at N=8: remoting costs an order of magnitude of tail latency at
+light load (p95 603 ms against 43) and buys 15 to 33 percent more goodput with a far better
+tail above lambda 1.0 (p95 761 ms against 3364, goodput 118.4 against 102.4). The crossover is
+near lambda 1.0.
 
-1. **Repetitions 2 and 3.** With n=1 there are no confidence intervals. The direction is
-   consistent across all three N, but the difference has **no statistical backing** until they
-   land. Launched with a backend restart per cell, which rep 1 did not have.
-2. **Resolution around the knee.** Capacity measured in lambda comes out **identical** for both
-   systems at every N, because the grid steps are 50% (0.5->0.75 and 1.0->1.5) and both cross the
-   SLO inside the same interval. That is not a demonstrated tie: it is a resolution limit. A
-   fine sweep between those two points is what would let this metric decide.
-3. **The native+MPS arm** is not in this grid. For throughput the MPS control already closed
-   the gap in llama, so an honest comparison under an SLO should include it before the headline
-   is published.
-4. **Transport provenance was not recorded**: the sidecar's `transport` field is empty because
-   `bench.py` reads `GVIRTUS_CONFIG` from the invoking process and that variable lives inside
-   the container. The arm is fixed by the label and the harness, not by the sidecar. To correct
-   before the next packaging.
+**And native+MPS matches Gusto on goodput figure for figure** at every load, with a better
+light-load tail. That confirms context consolidation as the mechanism for the third time and
+removes multi-tenant goodput from the list of arguments for remoting.
 
-Harnesses: `~/mt_slo_sweep.sh`, `~/run_slo_grid.sh`, `~/analiza_capacidad.py`,
-`~/figura_capacidad.py`. `bench.py` already emits the strict-window metrics.
+Two things remain open and are small:
+
+1. **A finer grid between 0.50 and 1.00.** Every system meets the SLO in some repetitions and
+   not others at 0.75 and 1.00, so the all-repetitions criterion collapses them all to 0.50. A
+   finer sweep there would separate them if anything separates them.
+2. **Transport provenance is still not recorded** in the sidecar: bench.py reads GVIRTUS_CONFIG
+   from the invoking process and that variable lives inside the container. The arm is fixed by
+   the label and the harness. To correct before the next packaging.
+
+Data: `LLAMA_SLO_capacidad_v2.csv`, raw in `results/asplos_campaign/llama_slo_sweep_v2/`.
+Figure: `figures/fig5_slo_capacidad_v2.pdf`. Harness `~/sweep_v2.sh`, analysis `~/analiza_v2.py`.
 
 # 2. Native+MPS memory footprint per tenant -- **MEASUREMENT CLOSED, MECHANISM OPEN**
 

@@ -11,7 +11,7 @@ another runs 4.87x slower, where native and native+MPS share to within 1.03x. It
 establish **why**. This is the attempt, and it ends with two candidate mechanisms excluded by
 evidence and a third narrowed.
 
-# 1. The finding that survived: connection order decides
+# 1. The finding, and the correction the verification pass forced
 
 Ten cohorts of eight tenants, identical work, two backend configurations. In each cohort, the
 tenant with the lowest slowdown:
@@ -30,11 +30,22 @@ tenant with the lowest slowdown:
 | stream1 | 5 | **t1** | 1.05 | t4 | 6.46 |
 
 **The first tenant to connect is the fastest in 9 of 10 cohorts**, at 1.01--1.19x -- that is, at
-its single-client rate -- while the slowest sits at 2.0--7.2x. The containers are started in
-index order, so `t1` is the first to connect.
+its single-client rate -- while the slowest sits at 2.0--7.2x. The containers are started in index order, so `t1` is the first to connect.
+
+> ### That 9-of-10 is inflated by my own launcher, and must not be quoted
+>
+> The containers here are started in a tight loop, `mb1` through `mb8`, so start order and
+> connection order coincide exactly. Checking the **original** miniBUDE campaign, whose
+> launcher differs, the first tenant is fastest in only **16 of 34 cohorts (47%)** --
+> t2 in 9, t3 in 4, t4 and t5 in 2 each, t8 in 1.
+>
+> So the effect is **real but weaker than this run suggests**: 47% against the 12.5% that
+> random assignment over eight tenants would give is far beyond chance, but it is not the
+> 90% measured here. The citable statement is **the 47% from the independent campaign**;
+> the 9-of-10 is an artefact of a launcher that serialises the starts.
 
 This holds in **both** backend configurations, so it is independent of the intervention below.
-It is the strongest statement the data supports: **service order is decided at connection time
+The defensible statement is weaker than it first appeared: **connection order biases service in favour of the earliest connection, in about half of cohorts rather than almost all of them, and the advantage when it occurs is large** -- the favoured tenant runs at its single-client rate. **service order is decided at connection time
 and persists for the whole run.**
 
 # 2. Excluded: the shared legacy CUDA stream

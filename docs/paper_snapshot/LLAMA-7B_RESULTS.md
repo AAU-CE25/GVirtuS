@@ -71,9 +71,9 @@ N isolated pods, one `llama-server --parallel 1` each, open-loop Poisson, 30 s w
 >    | 4 | 221.9 | **290.1** | 285.9 |
 >    | 8 | 213.3 | **302.9** | 293.0 |
 >
-> 3. **La prosa usa el máximo donde la tabla usa la media.** La tabla da 293.0 (media de
->    285.9/290.1/302.9, correcto) pero el texto dice «rises -> 302.9» y el párrafo de
->    mechanism quotes 1.42x instead of the table's 1.37x. And 302.9 matches the value of
+> 3. **The prose quotes the maximum where the table quotes the mean.** The table gives 293.0
+>    (the mean of 285.9/290.1/302.9, correct) but the text says "rises -> 302.9", and the
+>    mechanism paragraph quotes 1.42x instead of the table's 1.37x. And 302.9 matches the value of
 >    MPS-on, which is how a number ends up attributed to the wrong arm.
 >
 > What **does** survive intact: the latency advantage. UCX gives 27.6 ms TPOT p50 at N=8
@@ -167,6 +167,7 @@ the native column reproduces the earlier one to within 3 MiB (4 947,9 against 4 
 `flag/N`, so a value of `1/8` means *"all eight came up"*, not *"one of eight"*. Confirmed by
 the peaks, which are exact multiples of the single-tenant footprint (39 584 = 8 x 4 948).
 Relabelled in the CSV as `arranque_ok`.
+
 
 
 
@@ -397,3 +398,75 @@ are counts, not rates, and do not suffer the window defect.
 
 **May not be quoted.** The +17.4%, the lambda=1.00 capacity, and any goodput figure from a point
 whose window held fewer than ~40 requests.
+
+## §3c -- The corrected sweep (v2): capacity does not discriminate, the tail does, and MPS matches Gusto
+
+Run 2026-08-03, 02:56--04:56. **108 points**: 3 systems x N  en  {2,4,8} x lambda  en  {0.5, 0.75, 1.0,
+1.5} x 3 repetitions, window scaled as `max(30, 40/lambda)` so every point sees at least 40 offered
+requests, backend restarted per cell, lambda order randomised within each repetition. This is the
+sweep that replaces the retracted one in §3b, and it adds the **native+MPS** arm the first
+lacked.
+
+### Capacity under the SLO is identical across all three systems
+
+| system | N | max lambda under SLO | goodput at that load |
+|---|---:|---:|---:|
+| native | 2 / 4 / 8 | **0.50** | 57.6 t/s |
+| native+MPS | 2 / 4 / 8 | **0.50** | 57.6 t/s |
+| Gusto | 2 / 4 / 8 | **0.50** | 57.6 t/s |
+
+Paired difference Gusto - native at the knee: **-0.5 t/s, bootstrap CI95 [-1.6, +0.0]**, at
+every N. **The capacity metric does not separate the systems**, and with a corrected window and
+n=3 that is now a result rather than an artefact.
+
+The reason is visible in the sweep: at lambda=0.75 and 1.00 every system meets the SLO in *some*
+repetitions and not others (1/3 to 3/4), so the all-repetitions criterion drops them all to
+0.50. A finer grid between 0.50 and 1.00 would separate them; this one cannot.
+
+### What does discriminate are two opposite effects, at N=8
+
+| lambda | TTFT p95 native | MPS | **Gusto** | goodput native | MPS | **Gusto** |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0.50 | 43 ms | 48 | **603** | 57.6 | 57.6 | 57.6 |
+| 0.75 | 206 ms | 115 | **437** | 86.9 | 89.4 | 89.4 |
+| 1.00 | **3364 ms** | 601 | **761** | 102.4 | **118.4** | **118.4** |
+| 1.50 | 6820 ms | 6320 | **4983** | 115.2 | **153.6** | **153.6** |
+
+**At light load remoting costs tail latency.** 603 ms against native's 43 at lambda=0.5 -- an order of
+magnitude. This is the network round trip, and at low load there is no queueing to hide it.
+
+**At heavy load remoting buys throughput and a better tail.** At lambda=1.0 native's p95 is
+**3364 ms** against Gusto's 761, and goodput is 102.4 against **118.4 (+15.6%)**. At lambda=1.5 the
+goodput gap is **115.2 against 153.6 (+33%)**.
+
+**The crossover is near lambda=1.0.** Below it, use the local GPU; above it, remoting is ahead on
+both metrics that matter.
+
+### The uncomfortable part: MPS matches Gusto on goodput exactly
+
+89.4 / 118.4 / 153.6 for both, figure for figure at every load -- and MPS has the **better tail at
+light load** (48 and 115 ms against 603 and 437), because it pays no network cost.
+
+Two consequences, and they should be written into the paper rather than discovered by a
+reviewer:
+
+1. **This confirms context consolidation as the mechanism for the multi-tenant throughput
+   advantage**, for a third time and now under a corrected measurement. It is the same
+   conclusion the §1b control reached.
+2. **It removes multi-tenant goodput from the list of arguments for remoting.** MPS obtains it
+   locally, without a network. What remoting still obtains that MPS does not is the **memory
+   saving** -- the 429 MiB per-process CUDA context measured in §2 -- and disaggregation itself,
+   which is a deployment property rather than a performance one.
+
+### What may be claimed from this sweep
+
+**May be claimed.** That capacity under a 1 s TTFT SLO is indistinguishable between the three
+systems at this grid resolution; that remoting costs roughly an order of magnitude of tail
+latency at light load; that above lambda~=1.0 remoting delivers 15--33% more goodput with a
+substantially better tail than default native; and that native+MPS matches remoting's goodput
+exactly while keeping the better light-load tail.
+
+**May not be claimed.** Any capacity difference. The +17.4% of §3b remains retracted.
+
+Data: `LLAMA_SLO_capacidad_v2.csv` (112 rows), raw in
+`results/asplos_campaign/llama_slo_sweep_v2/`. Analysis: `analiza_v2.py`.
