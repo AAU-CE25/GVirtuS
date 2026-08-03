@@ -144,6 +144,57 @@ was at least as likely. **Native now passes it**, so the test is sound and
 **`cudaErrorStreamCaptureInvalidated` is produced by the remoting layer**: stream capture does
 not survive the round trip. This is a genuine, newly-established defect and it is *not* fixed.
 
+## 3c. The two remaining defects, attacked
+
+### `driver_ptds`: fixed
+
+Same shape as the `_ptds` defect above, one API down. The test failed at
+`cuStreamSynchronize(CU_STREAM_PER_THREAD)` with **801, `CUDA_ERROR_NOT_SUPPORTED`**, and
+`CudaDr_compat_stubs.cpp` held **56 driver `_ptsz` stubs** against just two real forwards.
+
+**Only two were implemented**, and the restraint is the point: `cuStreamSynchronize_ptsz` and
+`cuStreamQuery_ptsz`, the two whose **base function actually exists** in this frontend. Of the
+eight candidates checked, `cuStreamWaitEvent`, `cuMemcpyAsync`, `cuMemcpyDtoDAsync_v2` and
+`cuMemsetD8Async` are **not implemented at all**, so forwarding them would replace an honest
+"not supported" with a failure further down and harder to diagnose. The other 52 stubs stay.
+
+**`driver_ptds` now passes in all three arms.**
+
+Build note, because it cost twenty minutes: the driver plugin **cannot be built on the host** --
+`CudaDr.h` includes `GL/gl.h`, which is not installed -- so it is built inside
+`aauce25/gvirtus-dev`. That is also why `build/plugins/cudadr/` was full of root-owned objects,
+and why removing them broke `flags.make` until `cmake` regenerated it.
+
+### `graph_ptds`: localised, not fixed
+
+A four-cell probe (`tests/semantic/graphprobe.cu`) captures the same stream with different
+contents:
+
+| capture contains | native | Gusto |
+|---|---|---|
+| nothing | pass | **pass** |
+| a kernel only | pass | **pass** |
+| **a memcpy only** | pass | **FAIL** `cudaErrorStreamCaptureInvalidated` |
+| kernel + memcpy | pass | **FAIL** |
+
+**Stream capture survives remoting. `cudaMemcpyAsync` inside a capture does not.** The error is
+raised by the copy itself -- `cudaGetLastError` immediately after already reports it -- not by
+`cudaStreamEndCapture`. This also explains why the CUDA-graphs work on llama holds: llama
+captures **kernels**.
+
+**The cause, and why the fix is design work rather than a patch.** The frontend has no CUDA
+context, so `BeginCapture` is forwarded and the capture lives on the **backend**. The backend's
+memcpy handler synchronises -- `cudaStreamSynchronize(0)`, `cudaStreamSynchronize(stream)` and
+`cudaDeviceSynchronize()` all appear in `CudaRtHandler_memory.cpp` -- and **synchronising a
+stream that is being captured invalidates the capture**. Suppressing those calls while a capture
+is active is the obvious fix, and it is not safe as written: those synchronisations are what
+enforce the slot-lifetime invariants of `CONTRACTS.md` §4. Under capture the copy is **deferred
+to graph launch**, so the source slot would have to stay reserved from capture until launch --
+a lifetime the current protocol does not model at all.
+
+So: **fixable, with a scoped change to the lifetime protocol; not fixable by deleting a
+synchronise.** Recorded as measured-and-localised, not fixed.
+
 ## The injected-wrong control: it did not fire, and that is reported rather than glossed
 
 The criterion asks that wrong variants fail **and only they**. A fourth arm ran with
@@ -183,8 +234,9 @@ would have refuted had it gone the other way.)*
   implemented.** Found by this suite, localised by `nm -u`, fixed, and the suite goes 21/21 and
   28/28 afterwards.
 - **`event_crossstream` is conformant**; its earlier intermittent failure was the same defect.
-- **The driver-API `_ptds` surface is still stubbed** -- `driver_ptds` fails only in the `ptsz`
-  arm, with native and `handle` clean.
+- **The driver-API `_ptsz` surface was 56 stubs; the two whose base exists are now implemented**
+  and `driver_ptds` passes in all three arms. The other 52 are left stubbed on purpose -- their
+  base functions do not exist, so a forward would hide the real gap.
 - **Stream capture does not survive remoting.** `graph_ptds` passes native and fails **both**
   Gusto arms with `cudaErrorStreamCaptureInvalidated`. Newly established, not fixed.
 

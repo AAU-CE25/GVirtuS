@@ -353,10 +353,14 @@ __attribute__((visibility("default"))) CUresult cuStreamGetPriority(void) { retu
 __attribute__((visibility("default"))) CUresult cuStreamGetPriority_ptsz(void) { return CUDA_ERROR_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) CUresult cuStreamIsCapturing(void) { return CUDA_ERROR_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) CUresult cuStreamIsCapturing_ptsz(void) { return CUDA_ERROR_NOT_SUPPORTED; }
-__attribute__((visibility("default"))) CUresult cuStreamQuery_ptsz(void) { return CUDA_ERROR_NOT_SUPPORTED; }
+// RETIRADO 2026-08-03: implementado en CudaDr_stream.cpp (lo encontro
+// tests/semantic/ptds_conformance.cu, propiedad driver_ptds).
+// __attribute__((visibility("default"))) CUresult cuStreamQuery_ptsz(void) { return CUDA_ERROR_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) CUresult cuStreamSetAttribute(void) { return CUDA_ERROR_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) CUresult cuStreamSetAttribute_ptsz(void) { return CUDA_ERROR_NOT_SUPPORTED; }
-__attribute__((visibility("default"))) CUresult cuStreamSynchronize_ptsz(void) { return CUDA_ERROR_NOT_SUPPORTED; }
+// RETIRADO 2026-08-03: implementado en CudaDr_stream.cpp (lo encontro
+// tests/semantic/ptds_conformance.cu, propiedad driver_ptds).
+// __attribute__((visibility("default"))) CUresult cuStreamSynchronize_ptsz(void) { return CUDA_ERROR_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) CUresult cuStreamUpdateCaptureDependencies(void) { return CUDA_ERROR_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) CUresult cuStreamUpdateCaptureDependencies_ptsz(void) { return CUDA_ERROR_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) CUresult cuStreamUpdateCaptureDependencies_v2(void) { return CUDA_ERROR_NOT_SUPPORTED; }

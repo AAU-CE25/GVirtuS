@@ -62,3 +62,28 @@ extern "C" CUresult cuStreamSynchronize(CUstream hStream) {
     CudaDrFrontend::Execute("cuStreamSynchronize");
     return CudaDrFrontend::GetExitCode();
 }
+
+// ---------------------------------------------------------------------------------------
+// Superficie _ptsz de la driver API. Anadida 2026-08-03: tests/semantic/ptds_conformance.cu
+// la senalaba con `driver_ptds` fallando SOLO en el brazo ptsz (nativo y handle limpios) con
+// CUDA_ERROR_NOT_SUPPORTED (801) en cuStreamSynchronize(CU_STREAM_PER_THREAD).
+//
+// Solo se reenvian las cuatro cuya funcion BASE existe de verdad en este frontend. Las otras
+// 52 de CudaDr_compat_stubs.cpp se dejan como estan a proposito: reenviar a una base que no
+// esta implementada cambiaria un "no soportado" honesto por un fallo mas abajo y peor de
+// diagnosticar.
+extern "C" {
+
+static inline CUstream drv_ptsz_default(CUstream s) {
+    return (s == nullptr) ? (CUstream)CU_STREAM_PER_THREAD : s;
+}
+
+CUresult cuStreamSynchronize_ptsz(CUstream hStream) {
+    return cuStreamSynchronize(drv_ptsz_default(hStream));
+}
+
+CUresult cuStreamQuery_ptsz(CUstream hStream) {
+    return cuStreamQuery(drv_ptsz_default(hStream));
+}
+
+}  // extern "C"
