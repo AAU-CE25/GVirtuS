@@ -569,5 +569,6 @@ better tail below saturation.
 all three came from repetition 1. **No figure from a single repetition of this sweep may be
 quoted**, because TTFT p95 varies more than 10x between repetitions of the same cell.
 
-Data: `LLAMA_SLO_capacidad_v2.csv` (112 rows), raw in
+Data: `LLAMA_SLO_capacidad_v2.csv` (**108 data rows** -- 3 systems x 3 tenant counts x 4
+loads x 3 repetitions; an earlier version of this line said 112), raw in
 `results/asplos_campaign/llama_slo_sweep_v2/`. Analysis: `analiza_v2.py`.

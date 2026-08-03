@@ -167,8 +167,8 @@ Files produced on 2026-08-02/03 that were **not** in the previous package:
 ```
 FAIRNESS_RESULTS.md / .pdf              the audit: method and cross-workload synthesis
 LLAMA-7B_RESULTS.md / .pdf              all llama detail, consolidated
-tenants_canonico.csv                    3688 per-tenant rows, four workloads
-fairness_trabajo_fijo_por_corrida.csv   493 cohorts
+tenants_canonico.csv                    3838 per-tenant rows, four workloads
+fairness_trabajo_fijo_por_corrida.csv   523 cohorts
 fairness_trabajo_fijo_resumen.csv       median across cohorts
 llama_fairness_por_corrida.csv          39 runs, with the permutation null
 llama_fairness_por_tenant.csv           169 tenant-run rows

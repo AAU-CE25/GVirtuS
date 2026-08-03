@@ -51,8 +51,8 @@ streams of one context nothing arbitrates. Consistent with all three observation
 testbed and asserting their internals from memory is the failure this campaign exists to
 avoid. Sentences that need a verified prior-work citation are marked **[CITE]**.
 
-`IMPLEMENTATION_COVERAGE.md`: **940 of 2023** exported CUDA-family entry points are real
-(46.5%), and it says where that is bad -- cusolver is **1.7%**, ABI padding rather than an
+`IMPLEMENTATION_COVERAGE.md`: **942 of 2023** exported CUDA-family entry points are real
+(46.6%), and it says where that is bad -- cusolver is **1.7%**, ABI padding rather than an
 implementation. Fallback rate over 620 teardowns and **14.78 million operations**: **80
 fallbacks in 2 643 921 RMA admissions, 0.003%**. Extension cost **44--54 lines per API**.
 

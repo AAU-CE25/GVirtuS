@@ -127,7 +127,7 @@ Two further facts that a reviewer can check cheaply:
 - **The fast path essentially never gives up**: 80 fallbacks in 2 643 921 RMA admissions,
   0.003%, over 14.78 million operations and 620 teardowns. A placement policy that were merely
   a heuristic knob would not behave like that.
-- **Coverage is stated honestly, including where it is bad**: 46.5% of the exported CUDA-family
+- **Coverage is stated honestly, including where it is bad**: 46.6% of the exported CUDA-family
   ABI is real, and cusolver is 1.7% — ABI padding, not an implementation. We say that
   ourselves.
 
