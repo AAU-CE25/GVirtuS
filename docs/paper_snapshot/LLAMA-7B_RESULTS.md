@@ -169,6 +169,7 @@ the peaks, which are exact multiples of the single-tenant footprint (39 584 = 8 
 Relabelled in the CSV as `arranque_ok`.
 
 
+
 # 3. Useful capacity under an SLO, against tenant count (2026-08-03, rep 1)
 
 The gap §8 and §8b left open. The two earlier campaigns measured in disjoint regimes: lambda total

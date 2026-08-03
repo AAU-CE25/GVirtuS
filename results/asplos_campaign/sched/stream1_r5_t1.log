@@ -1,0 +1,67 @@
+DEBUG: protocol string is [ucx]
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS IDX] epoch 1 anuncia server_idx=[0,1,2,3,4,5,6,7]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+UCX control-plane connected: Connect (25.25.25.2:32222)
+DEBUG: protocol string is [ucx]
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS IDX] epoch 1 anuncia server_idx=[0,1,2,3,4,5,6,7]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GVS IDX] epoch 2 anuncia server_idx=[0,1,2,3,4,5,6,7]
+[GVS] rma_setup: epoch 2 arrived, 0/8 slots in flight -> install now
+UCX control-plane connected: Connect (25.25.25.2:32222)
+miniBUDE:  
+compile_commands:
+   - "/usr/local/cuda/bin/nvcc -forward-unknown-to-host-compiler -DCUDA -DUSE_PPWI="1\\,2\\,4\\,8\\,16\\,32\\,64\\,128" -I<SRC>/cuda -I/home/student.aau.dk/ll33pq/GVirtuS/examples/minibude/miniBUDE/build/generated  -std=c++17 -forward-unknown-to-host-compiler -extended-lambda -use_fast_math -restrict -arch=sm_89   -DNDEBUG -O3 -ffast-math -std=c++17 -x cu -c <SRC>/main.cpp -o <OUT>/src/main.cpp.o"
+vcs:
+  commit:  570f66c1fd0c29b7f3ab6fa96fba87f4561aa44c
+  author:  "Tom Lin (tom91136@gmail.com)"
+  date:    "2024-10-15 17:53:57 +0100"
+  subject: "Merge pull request #40 from colleeneb/cuda_best_flops"
+host_cpu:
+  ~
+time: { epoch_s:1785718107, formatted: "Mon Aug  3 00:48:27 2026 GMT" }
+deck:
+  path:         "data/bm1"
+  poses:        65536
+  proteins:     938
+  ligands:      26
+  forcefields:  34
+config:
+  iterations:   8
+  poses:        65536
+  ppwi:
+    available:  [1]
+    selected:   [1]
+  wgsize:       [1]
+device: { index: 0,  name: "NVIDIA L40S (GVirtuS) (45457MB;sm_89)" }
+# Device and kernel cc: sm_89
+[GVS IDX] epoch 3 anuncia server_idx=[9,10,11,12,13,14,15,16]
+[GVS] rma_setup: epoch 3 arrived, 0/8 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=0.3 MiB shadow=no total=0.6 MiB (sin presupuesto definido)
+# (ppwi=1,wgsize=1,valid=1)
+results:
+  - outcome:             { valid: true, max_diff_%: 0.014 }
+    param:               { ppwi: 1, wgsize: 1 }
+    raw_iterations:      [295.599,295.548,310.912,310.804,295.748,325.821,295.672,326.013,310.618,295.586]
+    context_ms:          614.146225
+    sum_ms:              2471.174
+    avg_ms:              308.897
+    min_ms:              295.586
+    max_ms:              326.013
+    stddev_ms:           11.806
+    giga_interactions/s: 5.174
+    gflop/s:             207.084
+    gfinst/s:            129.355
+    energies:            
+      - 865.52
+      - 25.07
+      - 368.43
+      - 14.67
+      - 574.99
+      - 707.35
+      - 33.95
+      - 135.59
+[GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+GUSTO_METRIC tag=teardown slots_total=8 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=66 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+best: { min_ms: 295.59, max_ms: 326.01, sum_ms: 2471.17, avg_ms: 308.90, ppwi: 1, wgsize: 1 }
