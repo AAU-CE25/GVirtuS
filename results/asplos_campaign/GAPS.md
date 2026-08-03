@@ -183,6 +183,23 @@ applied only when negotiation says ordering is not guaranteed, priced at the mea
 Until both exist this entry stays open **by choice**: the bound is defensible, the guarantee
 would not be.
 
+# 3c. Semantic conformance -- **EXECUTED 2026-08-03**, two defects fixed, one open
+
+Phase 2 ran in three arms (native, `gusto_handle`, `gusto_ptsz`) plus an injected-wrong arm.
+Full write-up in `CONFORMANCE.md`; the short version:
+
+| outcome | what |
+|---|---|
+| **fixed** | the synchronous **`_ptds`** surface: eight silent stubs returning `cudaErrorNotSupported`. Phase 1 fixed `_ptsz` (async) and left `_ptds` (sync) alone, so a program built `--default-stream per-thread` got 71 from `cudaMemcpy` and, unchecked, carried on **with uncopied data**. Suite goes 21/21 at one thread and 28/28 at eight afterwards |
+| **fixed** | `driver_ptds`: two driver `_ptsz` forwards, the only two whose base function exists. The other 52 stubs are left alone on purpose |
+| **dissolved** | `event_crossstream` -- it was the same code 71 |
+| **confirmed, OPEN** | `graph_ptds`: **stream capture does not survive `cudaMemcpyAsync`**. Native passes, both Gusto arms fail. Designed, implemented, **and the design proved insufficient** -- instrumentation shows the capture is already invalidated *before* the memcpy handler, so there are at least two sources. Reverted, because the change did not make the test pass |
+| **criterion not met** | "injected-wrong variants fail and only they" -- the `pointer_keyed` arm activates and everything still passes, because the run makes only 9 RMA reservations. Met at campaign level by `SLOT_LIFETIME_RESULTS.md` B.1, not inside this suite |
+
+**Minimum experiment to close the open one:** bracket the invalidation RPC by RPC, logging
+capture status on entry and exit of every handler for that stream, so the exact call is named
+rather than inferred. Four-minute backend rebuild per iteration; one to two hours.
+
 # 4. Per-tenant serving timeline -- **not reconstructible, needs re-measuring**
 
 The multi-tenant llama campaign is from 2026-07-26 and carries **no per-request timestamp**

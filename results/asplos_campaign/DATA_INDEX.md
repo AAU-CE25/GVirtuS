@@ -421,6 +421,18 @@ The same rule now holds throughout: `MINIBUDE_RESULTS.md`, `XSBENCH_RESULTS.md`,
 the comparison across workloads (table B) and the synthesis. `GAPS.md` lists what is still
 missing and the minimum experiment for each.
 
+# The conformance document, 2026-08-03
+
+`CONFORMANCE.md` is phase 2, executed. It carries the audit that preceded the run (kept, because
+it records what was not claimable before a native control existed), the three-arm results, two
+fixes, and one defect that is confirmed and open. Raw in
+`results/asplos_campaign/semantic_conformance/` plus the pre-existing
+`results/asplos_campaign/ptds/`.
+
+Read it for the reading rule as much as the results: a property failing in **native too** is the
+harness, not the system -- which is how a test-invocation error of ours was caught in the same
+session.
+
 # The contracts document, 2026-08-03
 
 `CONTRACTS.md` is new and is the specification the evaluation was missing: what state the RMA

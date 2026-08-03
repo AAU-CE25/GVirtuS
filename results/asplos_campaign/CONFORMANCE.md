@@ -1,5 +1,5 @@
 ---
-title: "Semantic conformance: three failures already in the data, and why none of them can be read yet"
+title: "Semantic conformance: executed -- one defect fixed, one confirmed, one attempted and reverted"
 date: "2026-08-03"
 geometry: margin=2.3cm
 fontsize: 10pt
@@ -8,9 +8,18 @@ fontsize: 10pt
 Phase 2 of the campaign. Its acceptance criterion is *"every listed property has a row; 0
 mismatches on the full system; injected-wrong variants fail and only they."*
 
-**Status: the suite is built and compiles; execution is pending a free GPU.** What follows is
-already established: an audit of the 58 conformance rows that exist, which contains **three
-failures nobody has written up**, and the reason none of them can currently be interpreted.
+**Status: executed 2026-08-03.** Sections 1 and 2 are the audit that preceded the run and are
+kept because they record what was and was not claimable *before* the control existed. Section 3b
+is the execution: **the suite found a defect that is now fixed**, `driver_ptds` is fixed too, and
+the graph-capture defect is confirmed real against a native control, attempted, and reverted.
+
+| outcome | property |
+|---|---|
+| **conformant** | stream ordering (4 kinds, both compilations), `event_crossstream`, and the seven new properties |
+| **defect found and FIXED** | the synchronous `_ptds` surface -- eight silent stubs returning 71 |
+| **defect found and FIXED** | `driver_ptds` -- two driver `_ptsz` forwards whose base existed |
+| **defect CONFIRMED, not fixed** | `graph_ptds` -- `cudaMemcpyAsync` inside a stream capture. Designed, implemented, and the design proved insufficient; reverted |
+| **criterion NOT met** | "injected-wrong variants fail and only they" -- not inside this suite; met at campaign level |
 
 # 1. What the existing data already says
 
@@ -249,7 +258,50 @@ staging, bounded by the number of captured copies; and if the same graph is re-i
 registry must not double-free. Both are ordinary lifetime bookkeeping, and both are exactly the
 kind of thing the ablation harness in `SLOT_LIFETIME_RESULTS.md` is built to attack.
 
-**Recorded as measured, localised and designed -- not fixed.**
+### The design was implemented, and it is NOT sufficient -- retraction of the paragraph above
+
+The section above says Option A "is the fix". **It was implemented the same day and the test
+still fails.** That sentence is withdrawn, and what replaced it is better information.
+
+**What was built** (kept out of the tree, see below): `CaptureStaging.h` -- a staging registry
+with the ownership chain `capture id -> graph -> exec` in `shared_ptr`, a host path that copies
+with the CPU (no CUDA synchronisation at all) and a device path that uses an internal stream
+plus an event poll rather than `cudaStreamSynchronize`; the capture branch wired into both
+sub-paths of `MemcpyAsync`; and the hand-off wired into `StreamEndCapture`. It compiles, the
+backend starts, and `graphprobe` reports **exactly the same four cells as before**.
+
+**Instrumenting the backend explains why, and it changes the diagnosis:**
+
+    [CAPDIAG] host stream=0x7f7e5c1b1d50 rc=0 st=2 id=0   <- ALREADY invalidated on arrival
+    [CAPDIAG] host stream=0x7f7e5c1b1d50 rc=0 st=1 id=5   <- active, the branch ran, still failed
+
+`st=2` is `cudaStreamCaptureStatusInvalidated`. **On the first copy the capture was already
+broken before the memcpy handler was reached**, so staging it could not have helped. On the
+second the capture was *active*, the staging branch did run -- and `cudaStreamEndCapture` failed
+anyway.
+
+**So there are at least two invalidation sources, and neither is confirmed.** The memcpy is one
+of them, not the only one, and it is not even the first. A named suspect, recorded as a suspect
+and nothing more: in `cudaStreamCaptureModeThreadLocal` a `cudaMalloc` / `cudaHostAlloc` in the
+same thread invalidates a capture, and this backend allocates the GPU shadow **lazily**, on the
+first transfer that proves device-destined bulk traffic -- which lands inside the capture window.
+That fits `st=2` on the first copy and `st=1` on the second. **It has not been measured**, and
+this document has already paid twice today for a hypothesis that fitted.
+
+**The change was reverted.** The campaign's standing rule is that a functional change ships with
+a test that fails before and passes after; this one does not make the test pass, so it does not
+ship. The backend was restored to the deployed configuration and verified clean
+(`GVIRTUS_RMA_SLOT_MIN_MB=16`, `GPUDIRECT=1`, `ZEROCOPY=1`, nothing else).
+
+**What it would actually take**, now that guessing has been tried twice: bracket the
+invalidation RPC by RPC -- capture status logged on entry and exit of every handler for that
+stream -- so the exact call is named rather than inferred. Each iteration costs a four-minute
+backend rebuild. Estimate **one to two hours**, not ten minutes.
+
+**Recorded as measured, localised, designed, attempted and reverted -- not fixed.** That is a
+worse outcome than a fix and a better one than a plausible story: the next person starts from
+"there are two sources and here is the instrumentation that will name them", not from
+"try staging the copy".
 
 ## The injected-wrong control: it did not fire, and that is reported rather than glossed
 
