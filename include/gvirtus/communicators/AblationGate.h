@@ -40,6 +40,9 @@ enum class Ablation {
     PointerKeyed,    // cache de registro por direccion, sin invalidacion en free
     NoGeneration,    // sin guarda ABA
     NoEpoch,         // sin guarda de epoch
+    NoEpochGen,      // sin NINGUNA de las dos: la unica celda en la que un ack viejo puede
+                     // llegar a liberar un slot vivo, porque la guarda de generacion esta
+                     // DETRAS de la de epoch y atrapa lo que aquella deja pasar.
 };
 
 inline Ablation ablation_mode() {
@@ -56,6 +59,11 @@ inline Ablation ablation_mode() {
                                  "-- variante DEFECTUOSA a proposito\n");
             return Ablation::NoGeneration;
         }
+        if (std::strcmp(v, "no_epoch_gen") == 0) {
+            std::fprintf(stderr, "[GVS ABLATE] *** guardas de epoch Y de generacion "
+                                 "DESACTIVADAS -- variante DEFECTUOSA a proposito\n");
+            return Ablation::NoEpochGen;
+        }
         if (std::strcmp(v, "no_epoch") == 0) {
             std::fprintf(stderr, "[GVS ABLATE] *** guarda de epoch DESACTIVADA "
                                  "-- variante DEFECTUOSA a proposito\n");
@@ -68,7 +76,15 @@ inline Ablation ablation_mode() {
     return m;
 }
 
-inline bool ablated(Ablation a) { return ablation_mode() == a; }
+inline bool ablated(Ablation a) {
+    const Ablation m = ablation_mode();
+    // La variante combinada tiene que responder que SI a las dos guardas por separado: cada
+    // punto del codigo pregunta por la suya, y sin esto la celda "las dos fuera" apagaria
+    // solo una y mediria lo mismo que la celda simple.
+    if (m == Ablation::NoEpochGen)
+        return a == Ablation::NoEpoch || a == Ablation::NoGeneration;
+    return m == a;
+}
 
 // ---------------------------------------------------------------------------
 // Inyeccion de fallos (complemento de la ablacion).

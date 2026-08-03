@@ -66,7 +66,7 @@ other result is demoted with an explicit destination.
 |---|---|---|
 | 5 | second hardware validation | **role reversal ruled out by the user; partial cross-driver check done** |
 | 6 | attribute the ~460 MiB | **CLOSED, with a mechanism, confirmed on both GPUs** |
-| 7 | harmful epoch-collision demonstration | **still open; my first explanation of why was wrong and is retracted** |
+| 7 | harmful epoch-collision demonstration | **CLOSED 2026-08-03 with a stated boundary** -- the state is now producible on demand and the guard measurably rejects 126--280 stale acks per run; byte corruption still not reached, and §5 of `N7_EPOCH.md` says why |
 
 ## 6 -- the memory saving is the per-process CUDA context, measured directly
 

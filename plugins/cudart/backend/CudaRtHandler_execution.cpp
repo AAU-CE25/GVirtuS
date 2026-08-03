@@ -27,6 +27,25 @@
  */
 
 #include "CudaRtHandler.h"
+#include "gvirtus/communicators/SchedTrace.h"
+
+// --- sustitucion de stream por conexion ---
+// Aqui SI hay cuda_runtime.h, asi que la parte que necesita CUDA vive en este fichero y no en
+// la cabecera comun. Stream non-blocking: si fuera bloqueante se sincronizaria implicitamente
+// con el stream legacy y la intervencion no cambiaria nada.
+namespace gvs {
+inline cudaStream_t conn_stream() {
+    static thread_local cudaStream_t s = nullptr;
+    if (s == nullptr &&
+        cudaStreamCreateWithFlags(&s, cudaStreamNonBlocking) != cudaSuccess) s = nullptr;
+    return s;
+}
+inline cudaStream_t map_stream(cudaStream_t in) {
+    if (!per_conn_stream() || in != nullptr) return in;
+    cudaStream_t s = conn_stream();
+    return s ? s : in;
+}
+}  // namespace gvs
 #include "cuda_runtime_compat.h"
 
 CUDA_ROUTINE_HANDLER(ConfigureCall) {
@@ -115,7 +134,9 @@ CUDA_ROUTINE_HANDLER(LaunchKernel) {
     // << blockDim.z << endl; cout << "SharedMem: " << sharedMem << endl; cout
     // << "Stream: " << stream << endl;
 
-    cudaError_t exit_code = cudaLaunchKernel(func, gridDim, blockDim, args, sharedMem, stream);
+    gvs::fair_wait();
+    cudaError_t exit_code = cudaLaunchKernel(func, gridDim, blockDim, args, sharedMem, gvs::map_stream(stream));
+    gvs::fair_done();
     LOG4CPLUS_DEBUG(pThis->GetLogger(), "LaunchKernel exit_code: " << exit_code);
     return std::make_shared<Result>(exit_code);
 }

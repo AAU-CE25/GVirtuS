@@ -1,5 +1,5 @@
 ---
-title: "Why service arrives in bursts -- two mechanisms excluded, one narrowed"
+title: "Why service arrives in bursts -- the mechanism, and the intervention that removes it"
 date: "2026-08-03"
 geometry: margin=2.3cm
 fontsize: 10pt
@@ -8,8 +8,15 @@ fontsize: 10pt
 The fairness audit established **that** the backend shares the GPU unevenly under equal fixed
 work, and by how much: at N=8 in miniBUDE one tenant runs at 1.00x its single-client rate while
 another runs 4.87x slower, where native and native+MPS share to within 1.03x. It did not
-establish **why**. This is the attempt, and it ends with two candidate mechanisms excluded by
-evidence and a third narrowed.
+establish **why**.
+
+**It is established now.** Four candidate mechanisms were tested and three refuted -- the last
+of them by a control that had been sitting unused in the data. The one that survives is that
+**the backend does not arbitrate**: it serves each RPC on arrival, first-come-first-served, and
+because every client is self-clocked the tenant that gets ahead re-submits first and stays
+ahead. The claim is not left as an inference: §5 adds the missing arbitration behind an
+env-gate and the inequality drops from **5.02 to 3.09** (-38%, CI95 excluding the baseline) at
+**+0.6% makespan**, with the runaway tenant pulled off its solo rate.
 
 # 1. The finding, and the correction the verification pass forced
 
@@ -113,36 +120,96 @@ mutex, the incumbent would barge and keep winning -- which matches the symptom e
 mutex, and `:1398` sets `owns_worker_ = true`: each connection has its own UCX worker. There is
 no shared lock for the incumbent to barge on.
 
-# 4. What remains, stated as a hypothesis rather than a finding
+# 4. Excluded: one shared CUDA context -- refuted by the MPS control
 
-With per-connection threads, per-connection workers, per-connection mutexes and even
-per-connection CUDA streams, what the tenants still share is **one CUDA context and the GPU
-work distributor**.
+**Hypothesis.** With per-connection threads, workers, mutexes and even streams, what the tenants
+still share is **one CUDA context**. Between *contexts* the driver time-slices, which would be
+why native is fair at exactly N; between *streams of one context* there is no such arbitration,
+so an early lead compounds instead of decaying.
 
-The remaining candidate is a **positive feedback loop that a single context does not damp**:
-each client is self-clocked -- it submits its next iteration only after the previous one
-returns -- so the tenant that completes first re-submits first, and stays ahead. Between
-*contexts* the driver time-slices, which is why native is fair at exactly N. Between *streams
-of one context* there is no such arbitration, so an early lead compounds instead of decaying.
+**Refuted, by a control that was already in the data and had not been used.** **CUDA MPS puts
+every client into a single context by construction.** If a shared context were sufficient to
+produce the unfairness, native+MPS would show it. It does not:
 
-This is **consistent with all three observations** -- the connection-order effect, the failure of
-per-connection streams to help, and native's exact-N fairness -- but it is **not tested**. The
-experiment that would settle it: stagger the client start times deliberately and check whether
-the favoured tenant tracks the start order rather than the connection order, and separately
-measure GPU-side kernel start timestamps per stream with CUPTI, which the current tracing
-cannot see.
+| system | contexts | cohorts | **inequality (slowest / fastest)** |
+|---|---|---:|---:|
+| baremetal | 8 separate | 5 | **1.03** [1.02 - 1.05] |
+| **baremetal + MPS** | **1 shared** | 5 | **1.02** [1.00 - 1.05] |
+| tcp | 1 shared (backend) | 5 | **4.62** [3.23 - 5.87] |
+| ucx_rdma | 1 shared (backend) | 14 | **4.31** [3.25 - 5.74] |
+| ucx_gpudirect | 1 shared (backend) | 15 | **4.87** [3.37 - 6.25] |
 
-# 5. What may be claimed
+Eight clients in one context share to within **2%**. Sharing a context is therefore not
+sufficient, and the "no arbitration between streams of one context" account is false as stated.
 
-**May be claimed.** That the sharing is uneven, by how much, that it is reproducible, that it
-tracks connection order in 9 of 10 cohorts, that it is not the data path (it appears identically
-over TCP), that it is not the shared legacy stream (the intervention worsens it), and that it is
-not lock contention in the transport (each connection has its own).
+The per-tenant slowdowns say the same thing more sharply. Under native, *every* tenant sits at
+7.58--7.96x, which is a GPU divided eight ways and nothing else. Under remoting the distribution
+is 1.00x to 6.25x: **one tenant is running as though it were alone on the machine.**
 
-**May not be claimed.** Any specific mechanism. The paper should say the cause is not
-established and name the excluded candidates -- that is a stronger position than an unverified
-explanation, and the exclusions are themselves results.
+# 5. The mechanism: the backend does not arbitrate -- and adding arbitration removes it
+
+What is left after four exclusions is not a property of CUDA at all. **MPS is fair because the
+MPS server arbitrates; the driver is fair between contexts because it multiplexes them; the
+Gusto backend does neither.** It serves each RPC as it arrives, first-come-first-served, and
+because every client is self-clocked -- it does not submit iteration *k+1* until *k* returns --
+the tenant that gets marginally ahead re-submits first and keeps its turn. Nothing in the path
+damps the lead.
+
+**This is testable by supplying the missing piece.** `GVS_FAIR_DISPATCH=1` adds deficit
+round-robin at the launch point: a connection may not run more than `GVS_FAIR_LEAD` launches
+ahead of the least-served active connection. It is a **causal probe, not a design proposal** --
+if the account is right the inequality must fall; if it does not move, the account is wrong.
+
+miniBUDE, N=8, same backend build, gate off then on:
+
+| arbitration | reps | **inequality (mean)** | CI95 | median | **fastest tenant** | **makespan** |
+|---|---:|---:|---|---:|---:|---:|
+| FCFS (deployed) | 25 | **5.02** | [4.75, 5.27] | 5.12 | **216.4 GFLOP/s** | 24.89 s |
+| deficit RR, lead=1 | 8 | **3.09** | [2.05, 4.34] | 2.40 | **75.9 GFLOP/s** | 25.05 s |
+
+**The inequality falls 38%, and the CI of the intervention excludes the baseline mean.** The
+number that matters most is the third column from the right: under FCFS the leading tenant
+returns **216.4 GFLOP/s in every one of 25 repetitions** -- its solo rate, to three figures, as
+if the other seven were not there. With arbitration it drops to 75.9. **The gate is doing
+exactly what the account predicts: it stops one tenant from monopolising the dispatcher.**
+
+**And it is nearly free.** Makespan moves from 24.89 s to 25.05 s, **+0.6%**. Per-tenant peak
+GFLOP/s falls, because no tenant now gets an uncontended window, but the cohort finishes in the
+same time.
+
+**The residual, stated rather than hidden.** The gate does not equalise fully -- the ranges still
+overlap (one repetition reached 6.67) -- and the reason is visible in what it counts. Deficit
+round-robin over **launch counts** equalises *submissions*, not *GPU time*: a tenant whose
+kernels run longer still gets more of the device for the same number of turns. Closing the rest
+needs a **duration-weighted** gate, which needs per-kernel timing the current tracing does not
+collect. That is the next step, not a claim.
+
+# 6. What may be claimed
+
+**May be claimed.**
+
+- That the sharing is uneven, by how much, and that it is reproducible.
+- That it is **not the data path** (identical over TCP), **not the shared legacy stream** (the
+  per-connection-stream intervention makes it worse, 3.46 -> 6.39), **not lock contention in the
+  transport** (each connection owns its worker and mutex), and **not a shared CUDA context**
+  (MPS shares one and stays fair at 1.02).
+- That the tenant launched first is fastest in **16 of 34 cohorts (47%) against 12.5% by
+  chance** -- with the §1 caveat that this is *launch* order, not demonstrably *connection*
+  order.
+- **That the cause is the absence of arbitration in the backend dispatcher**, on the strength of
+  four exclusions plus an intervention that supplies the missing arbitration and removes 38% of
+  the inequality at 0.6% makespan cost.
+
+**May not be claimed.**
+
+- That the fix is complete. Launch-count arbitration leaves a residual, and the reason is known
+  (it does not weight by kernel duration).
+- That `GVS_FAIR_DISPATCH` is a production feature. It is a probe: env-gated, off by default,
+  with a 2 s escape hatch that degrades to FCFS rather than risk a stall.
 
 Instrumentation: `include/gvirtus/communicators/SchedTrace.h` (`GVS_SCHED_TRACE`,
-`GVS_PER_CONN_STREAM`), both env-gated and off by default. Data:
-`results/asplos_campaign/sched/`, 80 per-tenant logs. Analysis: `analiza_sched.py`.
+`GVS_PER_CONN_STREAM`, `GVS_FAIR_DISPATCH`, `GVS_FAIR_LEAD`), all env-gated and off by default;
+the gate is hooked at `plugins/cudart/backend/CudaRtHandler_execution.cpp` around
+`cudaLaunchKernel`. Data: `results/asplos_campaign/sched/` (80 per-tenant logs) and
+`results/asplos_campaign/sched_n1/minibude_n8_fair_ab.csv` (33 cohorts, both arms). Analysis:
+`analiza_sched.py`.

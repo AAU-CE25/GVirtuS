@@ -103,21 +103,39 @@ way here: a re-measurement taken on a backend another experiment had left at `sl
 (4x the deployed pool) briefly appeared to cut the saving to ~170 MiB. It is withdrawn; the
 deployed-configuration column reproduces the original to within 2 MiB.
 
-# 3. Cause of the uneven sharing -- **missing, needs instrumentation**
+# 3. Cause of the uneven sharing -- **CLOSED 2026-08-03, mechanism plus intervention**
 
-It is established **that** the sharing is uneven and **by how much** (`FAIRNESS_RESULTS.md`):
-at N=8 in miniBUDE, 34% of iterations are served with no wait while others queue behind up to
-ten quanta. **Why** is not.
+It was established **that** the sharing is uneven and **by how much**; **why** is now
+established too, by four exclusions and one causal intervention (`N1_SCHEDULER.md`).
 
-The current data cannot distinguish three hypotheses:
+**Refuted:** the data path (identical over TCP), the shared legacy stream (per-connection
+streams make it *worse*, 3.46 -> 6.39), lock contention in the transport (each connection owns
+its worker and mutex), and -- the one that closed it -- **a shared CUDA context**. CUDA MPS puts
+eight clients into one context by construction and shares to within **1.02x**, against 4.3--4.9x
+for all three remoting transports. Sharing a context is not sufficient.
 
-- connection arrival order (is the favoured tenant always the one that connects first?);
-- monopolisation of a backend thread or stream;
-- head-of-line blocking in the dispatcher.
+**The mechanism:** the backend does not arbitrate. It serves RPCs first-come-first-served, and
+every client is self-clocked, so the tenant that gets marginally ahead re-submits first and keeps
+its turn. MPS is fair because the MPS server arbitrates; the driver is fair between contexts
+because it multiplexes them; the backend does neither.
 
-**Minimum experiment.** Record in the backend, per connection, the queue-entry and dispatch
-instant of every RPC; repeat miniBUDE at N=8. Without that trace one cannot separate backend
-wait, GPU wait and RPC time.
+**Confirmed causally.** `GVS_FAIR_DISPATCH=1` adds deficit round-robin at the launch point.
+miniBUDE N=8:
+
+| arbitration | reps | inequality (mean) | CI95 | fastest tenant | makespan |
+|---|---:|---:|---|---:|---:|
+| FCFS (deployed) | 25 | **5.02** | [4.75, 5.27] | **216.4 GFLOP/s** (its solo rate, in all 25) | 24.89 s |
+| deficit RR, lead=1 | 8 | **3.09** | [2.05, 4.34] | 75.9 GFLOP/s | 25.05 s |
+
+**-38% inequality for +0.6% makespan**, and the CI of the intervention excludes the baseline.
+
+**What is still open** is only the residual: launch-count arbitration equalises *submissions*,
+not *GPU time*, so a tenant with longer kernels still gets more device for the same turns. A
+duration-weighted gate would close it and needs per-kernel timing the current tracing does not
+collect.
+
+Data: `results/asplos_campaign/sched_n1/minibude_n8_fair_ab.csv` (33 cohorts, both arms),
+`results/asplos_campaign/fairness/tabla_D_minibude_por_tenant.csv` (the MPS control).
 
 # 4. Per-tenant serving timeline -- **not reconstructible, needs re-measuring**
 

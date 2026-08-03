@@ -1,0 +1,29 @@
+DEBUG: protocol string is [ucx]
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS IDX] epoch 1 anuncia server_idx=[0,1]
+[GVS FAULT] *** NO-PARK: el layout se instala CON transferencias en vuelo (inseguro a proposito)
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+UCX control-plane connected: Connect (25.25.25.2:32222)
+DEBUG: protocol string is [ucx]
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS IDX] epoch 1 anuncia server_idx=[0,1]
+[GVS FAULT] *** NO-PARK: el layout se instala CON transferencias en vuelo (inseguro a proposito)
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GVS ABLATE] *** guardas de epoch Y de generacion DESACTIVADAS -- variante DEFECTUOSA a proposito
+[GVS IDX] epoch 2 anuncia server_idx=[3,4]
+[GVS] rma_setup: epoch 2 arrived, 1/2 slots in flight -> INSTALL NOW (NO-PARK forzado)
+[GVS IDX] epoch 3 anuncia server_idx=[3,4]
+[GVS] rma_setup: epoch 3 arrived, 1/2 slots in flight -> INSTALL NOW (NO-PARK forzado)
+[GVS IDX] epoch 4 anuncia server_idx=[3,4]
+[GVS] rma_setup: epoch 4 arrived, 2/2 slots in flight -> INSTALL NOW (NO-PARK forzado)
+[GVS IDX] epoch 5 anuncia server_idx=[3,4]
+[GVS] rma_setup: epoch 5 arrived, 1/2 slots in flight -> INSTALL NOW (NO-PARK forzado)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+epochharm: iters=20 fase1=8388608 fase2=25165824 buffers=8
+Deferred D2H execution exception: DrainPendingD2H: reply for unknown request_id
+Execution exception: DrainPendingD2H: reply for unknown request_id
+[GVS IDX] epoch 6 anuncia server_idx=[3,4]
+[GVS] rma_setup: epoch 6 arrived, 0/2 slots in flight -> install now
+[GVS] rma coste: reservas=8 (esperaron 1) media=3.69us | cache de registro: aciertos=0 fallos=0 (0.0%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=5 avg_inflight=2.280 peak_waiters=1 reservations=8 waited=1 wait_us_avg=3.69 admit_rma=8 admit_am=15 rma_pct=34.78 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=3 ack_applied=3 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0

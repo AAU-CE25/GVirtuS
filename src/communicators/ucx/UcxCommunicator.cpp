@@ -814,6 +814,27 @@ ucs_status_t UcxCommunicator::am_recv_handler(void *arg, const void *header,
                 // where to put the consolidation cudaMemcpy destination).
                 const size_t gpu_size   = static_cast<size_t>(peek.routine_size);
                 const size_t gpu_offset = static_cast<size_t>(peek.status_code);
+                // F16 slow_read: retrasar la LECTURA del slot, no el ack. La carrera que la
+                // guarda de epoch existe para evitar es esta: un ack viejo marca el slot Free,
+                // el cliente lo reserva de nuevo y escribe encima MIENTRAS el backend todavia
+                // lo esta leyendo. Con los tiempos reales el backend gana siempre -- medidos
+                // 89 liberaciones prematuras por corrida y CERO corrupciones -- de modo que
+                // sin ensanchar la ventana el dano no es observable ni existiendo el estado.
+                // Esto solo la ensancha; no cambia ninguna decision del protocolo.
+                static const long gusto_slow_read_ms = []() -> long {
+                    const char *f = std::getenv("GVS_FAULT_SLOWREAD_MS");
+                    const long v = (f != nullptr && f[0] != '\0')
+                                       ? std::strtol(f, nullptr, 10) : 0;
+                    if (v > 0) {
+                        std::fprintf(stderr, "[GVS FAULT] *** LECTURA del slot retrasada "
+                                             "%ld ms (ensancha la ventana de la colision)\n", v);
+                        std::fflush(stderr);
+                    }
+                    return v > 0 ? v : 0;
+                }();
+                if (gusto_slow_read_ms > 0)
+                    std::this_thread::sleep_for(
+                        std::chrono::milliseconds(gusto_slow_read_ms));
                 std::lock_guard<std::mutex> lk(self->rx_pool_->mu);
                 if (slot_idx >= self->rx_pool_->slots.size()) {
                     std::fprintf(stderr,
@@ -2546,6 +2567,33 @@ void UcxCommunicator::send_slot_consumed(size_t slot_idx,
     }();
     if (gusto_slow_ack_ms > 0)
         std::this_thread::sleep_for(std::chrono::milliseconds(gusto_slow_ack_ms));
+
+    // F16 readvertise: reanunciar el pool VIGENTE sin reconstruirlo. send_rma_setup() publica
+    // los rx_slots actuales -- mismos server_idx, porque el indice ES la posicion en el vector
+    // -- e incrementa el epoch. Ese par (indices reutilizados, epoch nuevo) es el UNICO estado
+    // en el que un ack del layout viejo puede nombrar un slot vivo del nuevo, es el que se
+    // observo en cuDF ([0-7] en el epoch 1 y en el 2), y NINGUNA reconstruccion lo produce:
+    // al reconstruir, los indices renumeran y la colision es imposible por construccion.
+    // Sin esta compuerta la demostracion de dano no se puede montar, y la campana entera
+    // midio la ausencia del ESTADO creyendo medir la ausencia del DANO.
+    static const long gusto_readvert_cada = []() -> long {
+        const char *f = std::getenv("GVS_FAULT");
+        if (f == nullptr || std::strcmp(f, "readvertise") != 0) return 0;
+        const char *e = std::getenv("GVS_FAULT_EVERY");
+        long v = (e != nullptr && e[0] != '\0') ? std::strtol(e, nullptr, 10) : 4;
+        if (v <= 0) v = 4;
+        std::fprintf(stderr,
+                     "[GVS FAULT] *** REANUNCIO del pool vigente cada %ld acks "
+                     "(mismos server_idx, epoch nuevo)\n", v);
+        std::fflush(stderr);
+        return v;
+    }();
+    if (gusto_readvert_cada > 0) {
+        static std::atomic<long> gusto_acks_vistos{0};
+        const long n = gusto_acks_vistos.fetch_add(1, std::memory_order_relaxed) + 1;
+        // Fuera del worker_mutex_ que se toma mas abajo: send_rma_setup() lo toma tambien.
+        if (n % gusto_readvert_cada == 0) send_rma_setup();
+    }
     if (endpoint_ == nullptr || worker_ == nullptr) return;
     gvirtus::communicators::ucxam::EnvelopeHeader ack{};
     ack.magic = gvirtus::communicators::ucxam::kEnvelopeMagic;
@@ -2951,6 +2999,22 @@ void UcxCommunicator::handle_rma_setup_am(const void *data, size_t length) {
         // Park the new layout and let release_remote_slot() install it once the last
         // in-flight transfer has been acknowledged. Meanwhile WriteIovRma stops
         // handing out slots, so the drain is guaranteed to finish.
+        // F16 no_park: instalar el layout NUEVO aunque haya transferencias vivas.
+        // La capa de slots tiene DOS defensas y la campana solo ha ejercitado la primera: el
+        // park impide que el estado peligroso llegue a existir, asi que la guarda de epoch
+        // nunca tuvo nada que atajar y no se pudo medir que aporta. Esta compuerta desactiva
+        // la primera a proposito -- es deliberadamente insegura -- para aislar la segunda.
+        // Apagada salvo que se pida; ninguna corrida de medida la lleva.
+        static const bool gusto_no_park = []() {
+            const char *e = std::getenv("GVS_FAULT_NOPARK");
+            const bool on = (e != nullptr && e[0] != '\0' && e[0] != '0');
+            if (on)
+                std::fprintf(stderr,
+                             "[GVS FAULT] *** NO-PARK: el layout se instala CON transferencias "
+                             "en vuelo (inseguro a proposito)\n");
+            return on;
+        }();
+
         bool any_inflight = false;
         size_t inflight_n = 0;
         for (const auto &rs : remote_slots_)
@@ -2963,10 +3027,13 @@ void UcxCommunicator::handle_rma_setup_am(const void *data, size_t length) {
         std::fprintf(stderr,
                      "[GVS] rma_setup: epoch %u arrived, %zu/%zu slots in flight -> %s\n",
                      hdr.status_code, inflight_n, remote_slots_.size(),
-                     any_inflight ? "PARK" : "install now");
+                     (any_inflight && !gusto_no_park)
+                         ? "PARK"
+                         : (any_inflight ? "INSTALL NOW (NO-PARK forzado)"
+                                         : "install now"));
         std::fflush(stderr);
 
-        if (any_inflight) {
+        if (any_inflight && !gusto_no_park) {
             // A second advertisement arriving while an earlier one is still parked
             // supersedes it; drop the older parked rkeys rather than leak them.
             if (rma_swap_pending_) {
