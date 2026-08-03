@@ -172,6 +172,10 @@ looked plausible -- an ablation that silently did not happen. **Every `.so` that
 header must be rebuilt together**; `strings <lib> | grep <new-token>` is the check that catches
 it.
 
+**Figure:** `figures/fig7_n7_epoch.pdf` -- one bar per arm, coloured and labelled by which
+defence fired. Rows 1 and 2 are the campaign in miniature: with the park on, the epoch guard is
+unreachable, so ablating it measures nothing.
+
 Data: `results/asplos_campaign/epoch_n7/` (`n7_2x2.csv`, 29 client logs with the full
 `[GVS IDX]` / `[GVS] rma_setup` sequences, and both harnesses). Bench
 `examples/rmatest/epochharm.cu`.

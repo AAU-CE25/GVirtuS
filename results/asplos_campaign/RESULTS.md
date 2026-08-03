@@ -259,11 +259,22 @@ What matters at this level:
   difference +0.00 t/s at three of the four loads) and keeps the better tail below saturation.
   Every figure here is a mean over n=3: TTFT p95 varies more than 10x between repetitions of the
   same cell, so no single repetition may be quoted. See LLAMA-7B_RESULTS.md §3b-§3c.
-- **Fairness.** Normalised by demand, serving fairness is **statistically equivalent** to
-  native (paired Jain difference -0.0027, CI95 [-0.0079, +0.0009] inside a declared +-0.05
-  margin) while Gusto completes significantly more of the offered work (+0.0764, CI95 excludes
-  zero). The Jain decline of 1.000 -> 0.804 in the raw table is an **arrival artefact**: the
-  per-tenant demand imbalance reaches 7.0x, and normalised fairness is 1.0000 exactly.
+- **Fairness in serving -- equivalent to native.** Normalised by demand, serving fairness is
+  **statistically equivalent** (paired Jain difference -0.0027, CI95 [-0.0079, +0.0009] inside a
+  declared +-0.05 margin) while Gusto completes significantly more of the offered work (+0.0764,
+  CI95 excludes zero). The Jain decline of 1.000 -> 0.804 in the raw table is an **arrival
+  artefact**: per-tenant demand imbalance reaches 7.0x, and normalised fairness is 1.0000 exactly.
+- **Fairness under equal fixed work -- NOT equivalent, and this is the fourth contribution.**
+  At N=8 in miniBUDE one tenant runs at **1.00x** its single-client rate, as if alone on the
+  machine, while another runs **4.87x** slower; native and native+MPS share to within 1.03x.
+  Reproduced in XSBench (5.98x), identical over TCP. **The mechanism is now established**: not
+  the data path, not the shared legacy stream, not transport lock contention, and **not a shared
+  CUDA context** -- MPS puts eight clients in one context and stays fair at 1.02x. What is left
+  is that **the backend does not arbitrate**: FCFS service plus self-clocked clients lets an
+  early lead compound. **Confirmed by intervention**: deficit round-robin at the launch point
+  cuts the inequality **5.02 -> 3.09** (CI95 [2.05, 4.34], excluding the baseline) for **+0.6%
+  makespan**, pulling the leader off its solo rate (216.4 -> 75.9 GFLOP/s). Workload-dependent:
+  1.03x in BabelStream and CloverLeaf at the same N. See `N1_SCHEDULER.md`.
 
 
 ## 9. Slot-count sensitivity -- withdrawn, and now explained
@@ -421,6 +432,15 @@ from PCIe arithmetic, and *larger* -- not smaller -- when the baseline's memory 
 **The honest qualifier**: cuDF's parity with native at N>=4 holds against native as it is
 deployed by default. Against a native baseline with pinned host memory, retention is
 72.7-76.7%. Both numbers are reported, because the second is the one a reviewer will compute.
+
+**The correctness qualifier, and it must travel with every GPUDirect number.** On this path the
+NIC peer-DMAs into device memory and a CUDA read consumes it with only an active message in
+between. **We do not claim that visibility is guaranteed.** The ordering it relies on is not a
+UCX guarantee -- `ucp_put_nbx` completion is *local* -- it holds because both operations take one
+RC queue pair, and it is not negotiated or checked at runtime. What is claimed: **no visibility
+failure across 2.64 M RMA admissions with end-to-end checksum validation, on UCX 1.20.0 with a
+single RC lane**. See `CONTRACTS.md` §6, where this is invariant I10, stated as a bounded
+assumption and deliberately kept outside the table of nine that *are* discharged.
 
 **Still open**: why TCP's aggregate throughput *falls* as tenants are added (235 -> 170 -> 83
 MB/s) when eight independent round-trip-bound connections should give eight times more.

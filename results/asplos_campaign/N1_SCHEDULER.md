@@ -207,6 +207,11 @@ collect. That is the next step, not a claim.
 - That `GVS_FAIR_DISPATCH` is a production feature. It is a probe: env-gated, off by default,
   with a 2 s escape hatch that degrades to FCFS rather than risk a stall.
 
+**Figure:** `figures/fig6_n1_arbitraje.pdf`. Panel (a) is the cross-system context and
+contains the control that closed the question -- native+MPS, eight clients in ONE CUDA context,
+sitting at 1.02x beside three remoting arms at 4.3--4.9x. Panel (b) is the paired intervention,
+both arms from the same source.
+
 Instrumentation: `include/gvirtus/communicators/SchedTrace.h` (`GVS_SCHED_TRACE`,
 `GVS_PER_CONN_STREAM`, `GVS_FAIR_DISPATCH`, `GVS_FAIR_LEAD`), all env-gated and off by default;
 the gate is hooked at `plugins/cudart/backend/CudaRtHandler_execution.cpp` around
