@@ -28,7 +28,7 @@ DEBUG: protocol string is [ucx]
 [GVS IDX] epoch 2 anuncia server_idx=[1,2]
 [GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
 UCX control-plane connected: Connect (25.25.25.2:32222)
-CSVROW,roundtrip_pinned,ptsz,1,1,18,1,0,none,493.467
+CSVROW,roundtrip_pinned,ptsz,1,1,18,1,0,none,581.306
 DEBUG: protocol string is [ucx]
 [GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
 [GVS IDX] epoch 1 anuncia server_idx=[]
@@ -48,7 +48,7 @@ DEBUG: protocol string is [ucx]
 [GVS IDX] epoch 2 anuncia server_idx=[1,2]
 [GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
 UCX control-plane connected: Connect (25.25.25.2:32222)
-CSVROW,roundtrip_pageable,ptsz,1,1,18,1,0,none,516.010
+CSVROW,roundtrip_pageable,ptsz,1,1,18,1,0,none,643.816
 DEBUG: protocol string is [ucx]
 [GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
 [GVS IDX] epoch 1 anuncia server_idx=[]
@@ -68,7 +68,7 @@ DEBUG: protocol string is [ucx]
 [GVS IDX] epoch 2 anuncia server_idx=[1,2]
 [GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
 UCX control-plane connected: Connect (25.25.25.2:32222)
-CSVROW,pinned_equiv,ptsz,1,1,18,1,0,none,531.181
+CSVROW,pinned_equiv,ptsz,1,1,18,1,0,none,652.996
 DEBUG: protocol string is [ucx]
 [GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
 [GVS IDX] epoch 1 anuncia server_idx=[]
@@ -88,40 +88,40 @@ DEBUG: protocol string is [ucx]
 [GVS IDX] epoch 2 anuncia server_idx=[1,2]
 [GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
 UCX control-plane connected: Connect (25.25.25.2:32222)
-CSVROW,d2d_fidelity,ptsz,1,1,18,1,0,none,603.528
+CSVROW,d2d_fidelity,ptsz,1,1,18,1,0,none,567.613
 DEBUG: protocol string is [ucx]
 [GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
 [GVS IDX] epoch 1 anuncia server_idx=[]
 [GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
 [GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
 UCX control-plane connected: Connect (25.25.25.2:32222)
-CSVROW,memset_ordered,ptsz,1,1,18,1,0,none,706.583
+CSVROW,memset_ordered,ptsz,1,1,18,1,0,none,392.293
 DEBUG: protocol string is [ucx]
 [GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
 [GVS IDX] epoch 1 anuncia server_idx=[]
 [GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
 UCX control-plane connected: Connect (25.25.25.2:32222)
-CSVROW,event_query,ptsz,1,1,10,1,0,none,428.920
+CSVROW,event_query,ptsz,1,1,10,1,0,none,450.416
 DEBUG: protocol string is [ucx]
 [GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
 [GVS IDX] epoch 1 anuncia server_idx=[]
 [GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
 UCX control-plane connected: Connect (25.25.25.2:32222)
-CSVROW,error_sticky,ptsz,1,1,18,1,0,none,356.168
+CSVROW,error_sticky,ptsz,1,1,18,1,0,none,369.346
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
 GUSTO_METRIC tag=teardown slots_total=0 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=4 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=9 (esperaron 0) media=0.13us | cache de registro: aciertos=0 fallos=12 (0.0%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
-[GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.089 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.13 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=9 (esperaron 0) media=0.13us | cache de registro: aciertos=0 fallos=12 (0.0%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
-[GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.146 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.13 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=19 (esperaron 0) media=0.13us | cache de registro: aciertos=0 fallos=12 (0.0%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
-[GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.111 peak_waiters=0 reservations=19 waited=0 wait_us_avg=0.13 admit_rma=19 admit_am=107 rma_pct=15.08 rma_fellback=13 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=19 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
 [GVS] rma coste: reservas=9 (esperaron 0) media=0.11us | cache de registro: aciertos=0 fallos=12 (0.0%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.109 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.11 admit_rma=9 admit_am=117 rma_pct=7.14 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.090 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.11 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=9 (esperaron 0) media=0.12us | cache de registro: aciertos=0 fallos=12 (0.0%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.731 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.12 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=19 (esperaron 0) media=0.11us | cache de registro: aciertos=0 fallos=12 (0.0%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.111 peak_waiters=0 reservations=19 waited=0 wait_us_avg=0.11 admit_rma=19 admit_am=107 rma_pct=15.08 rma_fellback=13 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=19 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=9 (esperaron 0) media=0.10us | cache de registro: aciertos=0 fallos=12 (0.0%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.109 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.10 admit_rma=9 admit_am=117 rma_pct=7.14 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
 GUSTO_METRIC tag=teardown slots_total=0 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=144 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0

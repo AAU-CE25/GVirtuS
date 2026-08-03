@@ -28,6 +28,9 @@
 
 #include "CudaRt.h"
 
+// Definida en CudaRt_graph.cpp.
+void gvs_recoge_salidas(cudaStream_t solo_este, bool todos);
+
 using namespace std;
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaDeviceSetCacheConfig(cudaFuncCache cacheConfig) {
@@ -121,6 +124,7 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaDeviceReset(void) {
 extern "C" __host__ cudaError_t CUDARTAPI cudaDeviceSynchronize(void) {
     CudaRtFrontend::Prepare();
     CudaRtFrontend::Execute("cudaDeviceSynchronize");
+    gvs_recoge_salidas(nullptr, true);   // sincronizacion global: se recogen todas
     return CudaRtFrontend::GetExitCode();
 }
 

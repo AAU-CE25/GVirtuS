@@ -254,7 +254,12 @@ extern thread_local size_t tls_device_destined_bytes;
 // reserva un slot del tamano del mensaje por cada mensaje que llega, asi que la primera
 // transferencia por ese camino rompia toda captura. Medido: con la bandera, cudaMemcpyAsync
 // capturado pasa de invalidar siempre a no invalidar nunca.
-extern std::atomic<bool> g_capture_open;
+// Profundidad de captura de grafos abierta en el backend. NO es un booleano: con varias
+// capturas simultaneas, el EndCapture de una ponia la bandera a false mientras las otras
+// seguian dentro de su ventana, y el pool de slots volvia a hacer llamadas CUDA inseguras
+// contra una captura viva. Se incrementa en BeginCapture y se decrementa en EndCapture.
+extern std::atomic<int> g_capture_depth;
+inline bool capture_open() { return g_capture_depth.load(std::memory_order_acquire) > 0; }
 
 // Per-thread flag set by Process.cpp before each handler Execute() to
 // client_comm->rma_put_capable(). The cudart D2H handler reads it to gate the

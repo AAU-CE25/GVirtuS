@@ -664,9 +664,13 @@ void Frontend::ExecuteInternal(const char *routine, const Buffer *input_buffer,
         // WriteIovRma peer-DMAs ONLY that one into the peer GPU shadow. When
         // there is no direct input (fatbin, module loads, nvrtc, plain args —
         // control-path), pass nullptr so the whole payload stays host-side.
+        // ...salvo cuando el llamante declara que su splice acaba en memoria de HOST del
+        // backend (refresco de staging de grafos): entonces no es un fragmento device-destined
+        // y tiene que viajar por el slot de host, o el handler lee un hueco.
+        const bool frag_device = has_direct && !frontend->DirectInputHostDestined();
         frontend->_communicator->obj_ptr()->SetNextDeviceFragment(
-            has_direct ? frontend->mDirectInputSrc : nullptr,
-            has_direct ? frontend->mDirectInputBytes : 0);
+            frag_device ? frontend->mDirectInputSrc : nullptr,
+            frag_device ? frontend->mDirectInputBytes : 0);
         frontend->_communicator->obj_ptr()->WriteIov(iov, static_cast<size_t>(n));
         auto tC = steady_clock::now();
 

@@ -27,6 +27,7 @@
  */
 
 #include "CudaRt.h"
+#include "CaptureMirror.h"
 #include "CudaRt_lazyfatbin.h"
 #include <dlfcn.h>
 
@@ -826,6 +827,11 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpyAsync(void *dst, const void 
             // control keeps them async while a free remote slot exists and
             // transparently demotes to synchronous (draining the ring) otherwise.
             CudaRtFrontend::ExecuteMaybeAsync("cudaMemcpyAsync");
+            // Con una captura abierta esta copia NO se ejecuta: se graba. El nodo leera su
+            // origen en cada lanzamiento, asi que hay que recordar (src, count) en orden para
+            // refrescar el staging del backend antes de lanzar. Se anota DESPUES de enviar:
+            // solo cuenta lo que el backend efectivamente registro.
+            if (gvs_capmirror::capturando()) gvs_capmirror::anota_h2d(src, count);
             break;
         case cudaMemcpyDeviceToHost:
             // cout << "cudaMemcpyAsync DeviceToHost" << endl;
@@ -839,6 +845,14 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpyAsync(void *dst, const void 
             // tracked pinned buffers, defer: the frontend writes dst at the next
             // sync point (Phase 3). Otherwise (gate off, or pageable dst) copy
             // synchronously as before.
+            // Con una captura abierta esta copia se GRABA: el backend la dirige a un buffer
+            // suyo y no adjunta datos a la respuesta, asi que aqui no hay nada que copiar.
+            // Se anota (dst, count) para recogerlo tras sincronizar.
+            if (gvs_capmirror::capturando()) {
+                CudaRtFrontend::Execute("cudaMemcpyAsync");
+                gvs_capmirror::anota_d2h(dst, count);
+                break;
+            }
             if (CudaRtFrontend::AsyncDispatchEnabled() && gvirtus_is_pinned(dst, count)) {
                 // TRUE async: non-blocking. The backend delivers via the client-GET
                 // (GPUDirect, 24 GB/s) — the GET is issued at the next stream sync

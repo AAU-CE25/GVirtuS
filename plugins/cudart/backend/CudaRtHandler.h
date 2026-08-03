@@ -293,6 +293,8 @@ CUDA_ROUTINE_HANDLER(GraphExecUpdate);
 CUDA_ROUTINE_HANDLER(GraphInstantiateWithFlags);
 CUDA_ROUTINE_HANDLER(GraphExecDestroy);
 CUDA_ROUTINE_HANDLER(GraphUpload);
+CUDA_ROUTINE_HANDLER(GraphStagingRefresh);
+CUDA_ROUTINE_HANDLER(GraphStagingFetch);
 
 /* CudaRtHandler_version */
 CUDA_ROUTINE_HANDLER(DriverGetVersion);

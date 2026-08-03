@@ -384,6 +384,8 @@ void CudaRtHandler::Initialize() {
     mspHandlers->insert(CUDA_ROUTINE_HANDLER_PAIR(GraphInstantiateWithFlags));
     mspHandlers->insert(CUDA_ROUTINE_HANDLER_PAIR(GraphExecDestroy));
     mspHandlers->insert(CUDA_ROUTINE_HANDLER_PAIR(GraphUpload));
+    mspHandlers->insert(CUDA_ROUTINE_HANDLER_PAIR(GraphStagingRefresh));
+    mspHandlers->insert(CUDA_ROUTINE_HANDLER_PAIR(GraphStagingFetch));
 
     /* CudaRtHandler_version */
     mspHandlers->insert(CUDA_ROUTINE_HANDLER_PAIR(DriverGetVersion));

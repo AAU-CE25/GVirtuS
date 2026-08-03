@@ -601,6 +601,13 @@ void h2d_trace(const char *who, const char *branch, const void *buf, bool buf_is
 }
 
 void gvirtus_shadow_drain() {
+    // Con una captura abierta ni cudaStreamSynchronize ni cudaDeviceSynchronize son legales:
+    // invalidan la ventana (medido). Las banderas NO se consumen -- el drenaje sigue siendo
+    // obligatorio, solo que al cerrar, donde StreamEndCapture vuelve a llamar aqui. Dentro de
+    // la ventana el handler bajo captura sale por el camino de staging antes de marcarlas, y
+    // BeginCapture drena primero, asi que en la practica no deberia quedar nada: esto es la
+    // red, no el mecanismo.
+    if (gvirtus::communicators::capture_open()) return;
     if (g_shadow_copy_pending && g_shadow_stream != nullptr) {
         cudaStreamSynchronize(g_shadow_stream);
         g_shadow_copy_pending = false;
@@ -1229,8 +1236,12 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
                     void *stg = gvs_capture::stage_dev(cid, gpu_src, count, g_shadow_stream);
                     if (stg == nullptr)
                         return std::make_shared<Result>(cudaErrorMemoryAllocation);
+                    // stage_dev saca la sombra a memoria de HOST (malloc), no a device: dentro
+                    // de la ventana no se puede llamar a cudaMalloc. El nodo tiene que grabarse
+                    // como H2D. Grabarlo como D2D desde un puntero de host entrega CEROS en el
+                    // lanzamiento -- medido, y sin que fallara ninguna llamada.
                     exit_code = cudaMemcpyAsync(dst, stg, count,
-                                                cudaMemcpyDeviceToDevice, stream);
+                                                cudaMemcpyHostToDevice, stream);
                     result = std::make_shared<Result>(exit_code);
                     break;   // sin sincronizar ni marcar pendientes: el slot ya no se usa
                 }
@@ -1319,6 +1330,21 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
                 } catch (const std::exception &e) {
                     cerr << e.what() << endl;
                     return std::make_shared<Result>(cudaErrorMemoryAllocation);
+                }
+
+                // I11, lado de salida: con la ventana de captura abierta NO se puede
+                // sincronizar, y los dos subcaminos de abajo lo hacen sobre el stream que se
+                // esta capturando. Ademas el nodo escribe en cada lanzamiento, asi que su
+                // destino tiene que ser un buffer del backend, no el buffer temporal de esta
+                // respuesta. El frontend lo recoge tras sincronizar (cudaGraphStagingFetch).
+                if (unsigned long long cid = gvs_capture::id_de_captura(stream)) {
+                    void *stg = gvs_capture::stage_salida(cid, count);
+                    if (stg == nullptr)
+                        return std::make_shared<Result>(cudaErrorMemoryAllocation);
+                    exit_code = cudaMemcpyAsync(stg, src, count,
+                                                cudaMemcpyDeviceToHost, stream);
+                    result = std::make_shared<Result>(exit_code);
+                    break;   // sin sincronizar y sin adjuntar datos: se graba, no se ejecuta
                 }
 
                 // ASYNC D2H via client-GET (24 GB/s, symmetric with H2D) — mirrors

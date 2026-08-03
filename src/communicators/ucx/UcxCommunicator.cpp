@@ -87,6 +87,43 @@ void load_cuda_pinned_funcs() {
     ucx_debug_log("rx_pool: cudaHostAlloc unavailable, falling back to posix_memalign");
 }
 
+// --- Ciclo de vida de los slots bajo una captura de grafo abierta ----------------------
+//
+// El hilo de una conexion del backend es EL MISMO que abrio la captura, asi que cualquier
+// llamada CUDA insegura que haga el pool de slots la invalida. Medido en este driver
+// (tests/semantic/capturetruth.cu): cudaMalloc, cudaFree, cudaHostAlloc, cudaFreeHost,
+// cudaStreamSynchronize, cudaDeviceSynchronize y cudaMemcpy sincrono INVALIDAN; malloc/free,
+// cudaMemcpyAsync sobre otro stream y cudaPointerGetAttributes NO.
+//
+// AQUI NO SE DESACTIVA NADA DEL DISENO. El pool de slots, las epocas, el retiro diferido y la
+// sombra de GPU siguen exactamente igual: lo unico que cambia es CUANDO se ejecutan sus
+// llamadas CUDA. Dentro de la ventana se APLAZAN; en el primer punto seguro fuera de ella se
+// ejecutan y el pool converge al mismo estado que habria tenido. Una ventana de captura es una
+// fase de grabacion, no el camino caliente: el camino caliente es el lanzamiento, y ahi el RMA
+// y el peer-DMA estan intactos.
+//
+// La bandera es GLOBAL, no por hilo, y a proposito: en cudaStreamCaptureModeGlobal la llamada
+// insegura de CUALQUIER hilo invalida la captura, asi que aplazar de mas es lo correcto. El
+// coste de equivocarse por exceso es memoria retenida unos milisegundos.
+bool captura_abierta() {
+    return gvirtus::communicators::capture_open();
+}
+
+struct LiberacionAplazada {
+    unsigned char *host = nullptr;   // solo si venia de cudaHostAlloc
+    unsigned char *gpu  = nullptr;
+};
+std::mutex                       g_aplazadas_mu;
+std::vector<LiberacionAplazada>  g_aplazadas;
+std::atomic<unsigned long long>  g_aplazadas_total{0};
+
+void encola_liberacion(unsigned char *host_cuda, unsigned char *gpu) {
+    if (host_cuda == nullptr && gpu == nullptr) return;
+    std::lock_guard<std::mutex> lk(g_aplazadas_mu);
+    g_aplazadas.push_back(LiberacionAplazada{host_cuda, gpu});
+    ++g_aplazadas_total;
+}
+
 // Allocate `n` bytes of pinned host memory. is_cuda set to true if the buffer
 // was allocated via cudaHostAlloc (so cudaFreeHost is needed for release).
 unsigned char *alloc_pinned_host(size_t n, bool &is_cuda) {
@@ -94,8 +131,7 @@ unsigned char *alloc_pinned_host(size_t n, bool &is_cuda) {
     // Con una captura de grafo abierta NO se puede llamar a cudaHostAlloc: la asignacion
     // invalida la captura. Se cae a posix_memalign, que es lo que este mismo helper ya hace
     // cuando CUDA no esta disponible -- memoria paginable, mismo contrato para el camino AM.
-    auto fn = gvirtus::communicators::g_capture_open.load(std::memory_order_acquire)
-                  ? nullptr : g_cuda_host_alloc.load();
+    auto fn = captura_abierta() ? nullptr : g_cuda_host_alloc.load();
     if (fn != nullptr) {
         void *p = nullptr;
         if (fn(&p, n, /*cudaHostAllocDefault*/ 0u) == 0 && p != nullptr) {
@@ -114,13 +150,19 @@ unsigned char *alloc_pinned_host(size_t n, bool &is_cuda) {
 void free_pinned_host(unsigned char *p, bool is_cuda) {
     if (p == nullptr) return;
     if (is_cuda) {
+        // cudaFreeHost dentro de una ventana de captura la invalida (medido). Se aplaza: el
+        // buffer se libera en el primer punto seguro, no se pierde.
+        if (captura_abierta()) {
+            encola_liberacion(p, nullptr);
+            return;
+        }
         auto fn = g_cuda_free_host.load();
         if (fn != nullptr) {
             fn(p);
             return;
         }
     }
-    std::free(p);
+    std::free(p);   // paginable: seguro incluso capturando
 }
 
 // Allocate `n` bytes of GPU memory (cudaMalloc). Forward-declared usage —
@@ -687,6 +729,10 @@ bool probe_gpudirect(ucp_context_h ctx, std::string &reason) {
 // requested, g_cuda_malloc may still be nullptr — callers must check.
 unsigned char *alloc_gpu_slot(size_t n) {
     std::call_once(g_cuda_dev_once, load_cuda_device_funcs);
+    // cudaMalloc invalida la captura (medido). Un slot sin sombra sigue sirviendo por host:
+    // es exactamente la degradacion que este mismo helper ya aplica cuando la reserva falla,
+    // y el pool recupera la sombra en la primera reconstruccion fuera de la ventana.
+    if (captura_abierta()) return nullptr;
     auto fn = g_cuda_malloc.load();
     if (fn == nullptr) return nullptr;
     void *p = nullptr;
@@ -696,8 +742,37 @@ unsigned char *alloc_gpu_slot(size_t n) {
 
 void free_gpu_slot(unsigned char *p) {
     if (p == nullptr) return;
+    if (captura_abierta()) {           // cudaFree invalida: se aplaza
+        encola_liberacion(nullptr, p);
+        return;
+    }
     auto fn = g_cuda_free.load();
     if (fn != nullptr) fn(p);
+}
+
+// Punto seguro: ejecuta las liberaciones que se aplazaron durante una ventana de captura.
+// Se sincroniza el device ANTES de liberar porque una copia de staging desde la sombra pudo
+// quedar en vuelo dentro de la ventana (ver CaptureStaging.h, stage_dev): liberar la sombra
+// con la copia viva seria un use-after-free en el device. Fuera de la ventana sincronizar es
+// seguro, y esto solo corre cuando hay algo encolado, es decir casi nunca.
+void drena_liberaciones_aplazadas() {
+    if (captura_abierta()) return;
+    std::vector<LiberacionAplazada> lote;
+    {
+        std::lock_guard<std::mutex> lk(g_aplazadas_mu);
+        if (g_aplazadas.empty()) return;
+        lote.swap(g_aplazadas);
+    }
+    if (auto sync = g_cuda_device_sync.load()) sync();
+    auto libera_host = g_cuda_free_host.load();
+    auto libera_gpu  = g_cuda_free.load();
+    for (const auto &l : lote) {
+        if (l.host != nullptr) {
+            if (libera_host != nullptr) libera_host(l.host); else std::free(l.host);
+        }
+        if (l.gpu != nullptr && libera_gpu != nullptr) libera_gpu(l.gpu);
+    }
+    ucx_debug_log("captura: drenadas %zu liberaciones aplazadas", lote.size());
 }
 }
 
@@ -1594,6 +1669,10 @@ size_t UcxCommunicator::Read(char *buffer, size_t size) {
     // Safe point for the deferred pool build: no worker_mutex_ is held here.
     // Also fires for a REGROW, not just the first build: rma_pool_requested_ is set
     // again whenever a message arrives eagerly that the current slots cannot hold.
+    // Mismo punto seguro para las liberaciones que se aplazaron por una captura abierta.
+    // Va PRIMERO: reconstruir el pool con la memoria vieja aun retenida es gastar el doble
+    // sin motivo, y aqui la ventana ya esta cerrada.
+    drena_liberaciones_aplazadas();
     if (rma_pool_requested_.load(std::memory_order_acquire)) {
         GVS_RTRACE("disparo diferido: entrando a materialise_rma_pool");
         materialise_rma_pool();
@@ -1672,6 +1751,10 @@ bool UcxCommunicator::TryAcquireFrame(const unsigned char *&data, size_t &size) 
     // never materialise on the side that receives the large payloads.
     // Also fires for a REGROW, not just the first build: rma_pool_requested_ is set
     // again whenever a message arrives eagerly that the current slots cannot hold.
+    // Mismo punto seguro para las liberaciones que se aplazaron por una captura abierta.
+    // Va PRIMERO: reconstruir el pool con la memoria vieja aun retenida es gastar el doble
+    // sin motivo, y aqui la ventana ya esta cerrada.
+    drena_liberaciones_aplazadas();
     if (rma_pool_requested_.load(std::memory_order_acquire)) {
         GVS_RTRACE("disparo diferido: entrando a materialise_rma_pool");
         materialise_rma_pool();
@@ -2224,6 +2307,9 @@ void UcxCommunicator::init_rx_pool() {
 // callback that observes the epoch: that runs under worker_mutex_ and freeing a slot
 // calls cudaFreeHost/cudaFree, which can block and would stall worker progress.
 void UcxCommunicator::reclaim_retired_slots() {
+    // Igual que materialise_rma_pool: liberar un slot retirado llama a cudaFreeHost/cudaFree.
+    // Se comprueba ANTES del exchange para no consumir la peticion; se reclama al cerrar.
+    if (captura_abierta()) return;
     if (!rma_reclaim_requested_.exchange(false, std::memory_order_acq_rel)) return;
     std::lock_guard<std::mutex> lk(rx_pool_->mu);
     retire_and_free_locked(rma_pool_epoch_.load(std::memory_order_acquire));
@@ -2250,6 +2336,14 @@ void UcxCommunicator::NoteDeviceDestinedPayload(size_t bytes) {
 void UcxCommunicator::materialise_rma_pool() {
     GVS_RTRACE("materialise_rma_pool: ENTRADA");
     struct GvsExitTrace { ~GvsExitTrace() { GVS_RTRACE("materialise_rma_pool: SALIDA"); } } gvs_et;
+    // Con una captura abierta, construir el pool haria cudaHostAlloc + cudaMalloc + los frees
+    // del retiro: cuatro maneras distintas de invalidarla. Se sale SIN consumir la peticion,
+    // de modo que el primer TryAcquireFrame posterior al EndCapture lo construye igual. Hasta
+    // entonces el transporte sigue por mensajes activos: degradacion, no fallo.
+    if (captura_abierta()) {
+        GVS_RTRACE("materialise_rma_pool: aplazado (captura abierta)");
+        return;
+    }
     // Re-entrant by design: the pool is built the first time a large message arrives
     // and REBUILT, larger, if a later message turns out not to fit. The build and the
     // advertisement must be atomic with respect to a second grow request, or two
@@ -2308,7 +2402,16 @@ size_t UcxCommunicator::acquire_rx_slot(size_t needed) {
     const bool gpudirect_active = g_gpudirect_enabled.load();
 
     // No free slot big enough — grow the first free one (or append if none free).
-    for (size_t i = 0; i < rx_pool_->slots.size(); ++i) {
+    //
+    // CON UNA CAPTURA ABIERTA NO SE RECICLA: crecer un slot lo libera primero, y si ese slot
+    // vino de cudaHostAlloc o lleva sombra de GPU, ese free invalida la captura. Este era el
+    // fallo real -- reproducido: el primer mensaje de un tamano nuevo dispara el crecimiento,
+    // y por eso una copia de calentamiento del MISMO tamano fuera de la ventana hacia pasar
+    // todos los tamanos (tests/semantic/graphprobe5.cu). Se anade un slot nuevo en vez de
+    // reciclar: solo reserva (paginable dentro de la ventana) y mapea host. Los slots de mas
+    // se reutilizan por capacidad en cuanto la ventana se cierra; no se pierde ninguno.
+    const bool no_reciclar = captura_abierta();
+    for (size_t i = 0; !no_reciclar && i < rx_pool_->slots.size(); ++i) {
         if (rx_pool_->slots[i].rma_persistent) continue;  // never repurpose an RMA slot
         if (!rx_pool_->slots[i].in_use) {
             unmap_slot_from_ucp(context_, rx_pool_->slots[i]);
@@ -2660,6 +2763,11 @@ void UcxCommunicator::send_slot_consumed(size_t slot_idx,
 // is amortized across the whole in-flight batch (typically the ring depth).
 void UcxCommunicator::drain_device_if_async_pending() {
     if (!gvirtus::communicators::tls_async_gpu_pending) return;
+    // cudaDeviceSynchronize invalida una captura abierta. NO se consume la bandera: el drenaje
+    // se debe seguir haciendo, solo que al cerrar la ventana. Dentro de ella la bandera no
+    // deberia llegar a ponerse -- el handler bajo captura sale por el camino de staging antes
+    // de marcarla -- asi que esto es la red, no el mecanismo.
+    if (captura_abierta()) return;
     gvirtus::communicators::tls_async_gpu_pending = false;
     auto fn = g_cuda_device_sync.load();
     if (fn != nullptr) fn();

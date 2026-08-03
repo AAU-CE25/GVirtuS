@@ -27,6 +27,10 @@
  */
 
 #include "CudaRt.h"
+#include "CaptureMirror.h"
+
+// Definida en CudaRt_graph.cpp.
+void gvs_recoge_salidas(cudaStream_t solo_este, bool todos);
 
 using namespace std;
 
@@ -93,6 +97,9 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaStreamSynchronize(cudaStream_t str
     CudaRtFrontend::Prepare();
     CudaRtFrontend::AddDevicePointerForArguments(stream);
     CudaRtFrontend::Execute("cudaStreamSynchronize");
+    // El stream ya se sincronizo: si algun grafo lanzado en el dejo salidas D2H capturadas en
+    // el backend, este es el momento en que el cliente espera verlas en su buffer.
+    gvs_recoge_salidas(stream, false);
     return CudaRtFrontend::GetExitCode();
 }
 
@@ -113,6 +120,9 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaStreamBeginCapture(cudaStream_t st
     // cout << "Stream starts capturing." << endl;
     CudaRtFrontend::AddVariableForArguments(mode);
     CudaRtFrontend::Execute("cudaStreamBeginCapture");
+    // Espejo de captura: a partir de aqui se anota cada H2D para poder refrescar el staging
+    // del backend antes de cada lanzamiento (ver CaptureMirror.h).
+    if (CudaRtFrontend::Success()) gvs_capmirror::abre();
     
     return CudaRtFrontend::GetExitCode();
 }
@@ -191,6 +201,9 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaStreamEndCapture(cudaStream_t stre
     // cout << "End capture." << *pGraph << endl;
     CudaRtFrontend::Execute("cudaStreamEndCapture");
     if (CudaRtFrontend::Success()) *pGraph = CudaRtFrontend::GetOutputVariable<cudaGraph_t>();
+    // Se cierra el espejo pase lo que pase: si EndCapture fallo (captura invalidada) hay que
+    // soltar la lista igual, o la siguiente captura de este hilo heredaria sus entradas.
+    gvs_capmirror::cierra(CudaRtFrontend::Success() ? *pGraph : nullptr);
     // cout << "End capture." << *pGraph << endl;
     
     return CudaRtFrontend::GetExitCode();

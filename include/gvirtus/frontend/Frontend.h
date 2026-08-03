@@ -175,11 +175,18 @@ class Frontend {
         mDirectInputSrc          = ptr;
         mDirectInputBytes        = bytes;
     }
+    // Marca el splice directo como destinado a HOST en el backend. Por defecto un splice se
+    // considera device-destined y se peer-DMA a la sombra de GPU del slot; para el refresco de
+    // staging de grafos eso es exactamente lo que NO se quiere, porque el destino es un buffer
+    // de host y el slot de host se quedaria con un hueco.
+    inline void MarkDirectInputHostDestined() { mDirectInputHostDestined = true; }
+    inline bool DirectInputHostDestined() const { return mDirectInputHostDestined; }
     inline bool HasDirectInput()  const { return mDirectInputSrc != nullptr; }
     inline void ClearDirectInput()      {
         mDirectInputSrc          = nullptr;
         mDirectInputBytes        = 0;
         mDirectInputBufferOffset = 0;
+        mDirectInputHostDestined = false;
     }
 
     inline communicators::Buffer *GetLaunchBuffer() { return mpLaunchBuffer.get(); }
@@ -350,6 +357,7 @@ class Frontend {
     const void *mDirectInputSrc          = nullptr;
     size_t      mDirectInputBytes        = 0;
     size_t      mDirectInputBufferOffset = 0;
+    bool        mDirectInputHostDestined = false;
     std::shared_ptr<communicators::Buffer> mpLaunchBuffer;
 
     // Phase 3 async dispatcher: outstanding deferred D2H copies, keyed by AM

@@ -148,11 +148,20 @@ CUDA_ROUTINE_HANDLER(StreamBeginCapture) {
         cudaStream_t stream = input_buffer->Get<cudaStream_t>();
         cudaStreamCaptureMode mode = input_buffer->Get<cudaStreamCaptureMode>();
         // std::cout << "Begin capturing\n";
+        // Se drena ANTES de abrir la ventana: si queda una copia de sombra en vuelo, el
+        // gancho que la espera (gvirtus_shadow_drain, desde ReleaseFrame) correria YA DENTRO
+        // de la captura y la invalidaria con un cudaStreamSynchronize. Drenando aqui, dentro
+        // de la ventana las banderas estan limpias y el gancho no hace nada.
+        gvirtus::communicators::RunFrameDrainHook();
         cudaError_t _rc = cudaStreamBeginCapture(stream, mode);
         if (_rc == cudaSuccess) {
             gvs_capture::g_stream_vigilado() = stream;
             gvs_capture::g_ventana_abierta() = true;
-            gvirtus::communicators::g_capture_open.store(true, std::memory_order_release);
+            // El emparejamiento se lleva por hilo para que el decremento no dependa de que la
+            // captura siga SANA: si se invalida, id_de_captura ya devuelve 0 y el contador se
+            // quedaria arriba para siempre, con el backend aplazando liberaciones sin fin.
+            ++gvs_capture::profundidad_local();
+            gvirtus::communicators::g_capture_depth.fetch_add(1, std::memory_order_release);
         }
         return std::make_shared<Result>(_rc);
     } catch (const std::exception& e) {
@@ -170,8 +179,15 @@ CUDA_ROUTINE_HANDLER(StreamEndCapture) {
         cudaError_t exit_code = cudaStreamEndCapture(stream, &pGraph);
         gvs_capture::g_ventana_abierta() = false;
         gvs_capture::g_stream_vigilado() = nullptr;
-        gvirtus::communicators::g_capture_open.store(false, std::memory_order_release);
+        if (gvs_capture::profundidad_local() > 0) {
+            --gvs_capture::profundidad_local();
+            gvirtus::communicators::g_capture_depth.fetch_sub(1, std::memory_order_release);
+        }
         if (cid) gvs_capture::captura_termina(cid, exit_code == cudaSuccess ? pGraph : nullptr);
+        // La ventana ya esta cerrada: lo que se aplazo dentro puede ejecutarse. El drenaje de
+        // las liberaciones de slots lo hace el comunicador en su punto seguro (el siguiente
+        // TryAcquireFrame); aqui solo se cierra lo que es del plugin.
+        gvirtus::communicators::RunFrameDrainHook();
         std::shared_ptr<Buffer> out = std::make_shared<Buffer>();
         out->Add<cudaGraph_t>(pGraph);
         // std::cout <<" Graph: "<< pGraph << std::endl;
