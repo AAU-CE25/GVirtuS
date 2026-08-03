@@ -24,7 +24,7 @@ static void celda(const char *nombre, int calentar) {
     cudaMemcpyAsync(d, h, nb, cudaMemcpyHostToDevice, s);
     cudaError_t dentro = cudaGetLastError();
     cudaError_t e = cudaStreamEndCapture(s, &g);
-    std::printf("PROBE2,%s,calentado=%d,end=%s,dentro=%s\n",
+    std::printf("PROBE2,%s,warmed=%d,end=%s,inside=%s\n",
                 nombre, calentar, cudaGetErrorName(e), cudaGetErrorName(dentro));
     std::fflush(stdout);
     cudaFree(d); cudaFreeHost(h); cudaStreamDestroy(s);

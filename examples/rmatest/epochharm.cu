@@ -28,7 +28,7 @@
 #include <cuda_runtime.h>
 
 #define CK(x) do { cudaError_t e=(x); if(e!=cudaSuccess){ \
-  std::printf("CUDA FALLO %s:%d %s\n",__FILE__,__LINE__,cudaGetErrorString(e)); \
+  std::printf("CUDA FAILED %s:%d %s\n",__FILE__,__LINE__,cudaGetErrorString(e)); \
   return 2; } } while(0)
 
 static void llena(unsigned char *p, size_t n, int tag) {
@@ -82,7 +82,7 @@ int main(int argc, char **argv) {
         for (int k = 0; k < NB; ++k) {
             long mal = comprueba(back[k], nb, it * 16 + k);
             if (mal) {
-                std::printf("CORRUPCION it=%d buf=%d bytes_malos=%ld de %zu muestras\n",
+                std::printf("CORRUPTION it=%d buf=%d bad_bytes=%ld of %zu samples\n",
                             it, k, mal, nb / 512);
                 total_mal += mal;
             }

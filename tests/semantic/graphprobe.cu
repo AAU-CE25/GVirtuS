@@ -18,7 +18,7 @@ static int prueba(const char *nombre, int con_kernel, int con_memcpy) {
     if (con_kernel) k<<<(unsigned)((nb+255)/256),256,0,s>>>((unsigned char*)d, nb);
     cudaError_t dentro = cudaGetLastError();
     e = cudaStreamEndCapture(s, &g);
-    std::printf("PROBE,%s,end,%s,dentro=%s\n", nombre, cudaGetErrorName(e), cudaGetErrorName(dentro));
+    std::printf("PROBE,%s,end,%s,inside=%s\n", nombre, cudaGetErrorName(e), cudaGetErrorName(dentro));
     if (e == cudaSuccess) {
         cudaError_t i2 = cudaGraphInstantiate(&ge, g, nullptr, nullptr, 0);
         cudaError_t l  = ge ? cudaGraphLaunch(ge, s) : cudaErrorUnknown;

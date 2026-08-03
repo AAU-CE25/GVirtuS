@@ -68,8 +68,8 @@ inline bool fair_dispatch() {
     static const bool v = [] {
         const char *e = std::getenv("GVS_FAIR_DISPATCH");
         const bool on = e && e[0] == '1';
-        if (on) std::fprintf(stderr, "[GVS SCHED] *** reparto equitativo ACTIVO "
-                                     "(deficit round-robin sobre los lanzamientos)\n");
+        if (on) std::fprintf(stderr, "[GVS SCHED] *** fair sharing ACTIVE "
+                                     "(deficit round-robin over launches)\n");
         return on;
     }();
     return v;

@@ -39,7 +39,7 @@ static void hilo(int id, size_t bytes) {
     cudaStream_t s = nullptr;
     cudaError_t e = cudaStreamCreateWithFlags(&s, cudaStreamNonBlocking);
     if (e != cudaSuccess) {
-        std::fprintf(stderr, "hilo %d: cudaStreamCreateWithFlags -> %s\n", id,
+        std::fprintf(stderr, "thread %d: cudaStreamCreateWithFlags -> %s\n", id,
                      cudaGetErrorString(e));
         g_err.fetch_add(1);
         return;
@@ -47,13 +47,13 @@ static void hilo(int id, size_t bytes) {
     void *d = nullptr;
     e = cudaMalloc(&d, bytes);
     if (e != cudaSuccess) {
-        std::fprintf(stderr, "hilo %d: cudaMalloc -> %s\n", id, cudaGetErrorString(e));
+        std::fprintf(stderr, "thread %d: cudaMalloc -> %s\n", id, cudaGetErrorString(e));
         g_err.fetch_add(1);
         return;
     }
     e = cudaMemcpy(d, src.data(), bytes, cudaMemcpyHostToDevice);
     if (e != cudaSuccess) {
-        std::fprintf(stderr, "hilo %d: H2D -> %s\n", id, cudaGetErrorString(e));
+        std::fprintf(stderr, "thread %d: H2D -> %s\n", id, cudaGetErrorString(e));
         g_err.fetch_add(1);
         return;
     }
@@ -62,14 +62,14 @@ static void hilo(int id, size_t bytes) {
     // el que el hilo cree.
     e = cudaStreamSynchronize(s);
     if (e != cudaSuccess) {
-        std::fprintf(stderr, "hilo %d: cudaStreamSynchronize -> %s\n", id,
+        std::fprintf(stderr, "thread %d: cudaStreamSynchronize -> %s\n", id,
                      cudaGetErrorString(e));
         g_err.fetch_add(1);
         return;
     }
     e = cudaMemcpy(dst.data(), d, bytes, cudaMemcpyDeviceToHost);
     if (e != cudaSuccess) {
-        std::fprintf(stderr, "hilo %d: D2H -> %s\n", id, cudaGetErrorString(e));
+        std::fprintf(stderr, "thread %d: D2H -> %s\n", id, cudaGetErrorString(e));
         g_err.fetch_add(1);
         return;
     }
@@ -78,7 +78,7 @@ static void hilo(int id, size_t bytes) {
         if (dst[k] != pat) ++malos;
     if (dst[bytes - 1] != (unsigned char)(id & 0xff)) ++malos;
     if (malos) {
-        std::fprintf(stderr, "hilo %d: %ld posiciones con datos de otro\n", id, malos);
+        std::fprintf(stderr, "thread %d: %ld positions hold another thread's data\n", id, malos);
         g_malos.fetch_add(malos);
     }
     cudaFree(d);

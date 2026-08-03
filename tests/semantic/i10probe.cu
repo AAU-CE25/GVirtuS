@@ -17,7 +17,7 @@ static const char *orden(int v) {
 
 int main() {
     CUresult r = cuInit(0);
-    if (r != CUDA_SUCCESS) { std::printf("cuInit fallo %d\n", r); return 1; }
+    if (r != CUDA_SUCCESS) { std::printf("cuInit failed %d\n", r); return 1; }
     CUdevice dev; cuDeviceGet(&dev, 0);
     char nombre[128]; cuDeviceGetName(nombre, sizeof nombre, dev);
 

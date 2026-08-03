@@ -15,7 +15,7 @@
 using namespace std::chrono;
 
 #define CK(x) do{ cudaError_t e=(x); if(e!=cudaSuccess){ \
-  std::printf("ERROR %s en %s:%d\n", cudaGetErrorString(e), __FILE__, __LINE__); return 1; } }while(0)
+  std::printf("ERROR %s at %s:%d\n", cudaGetErrorString(e), __FILE__, __LINE__); return 1; } }while(0)
 
 int main(int argc, char **argv) {
     const int N = (argc > 1) ? atoi(argv[1]) : 20000;

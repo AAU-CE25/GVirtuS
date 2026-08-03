@@ -80,7 +80,7 @@ int main() {
     }
     std::vector<size_t> sizes = parse_sizes(env_or("SIZES", defsizes.c_str()));
     if (sizes.empty()) {
-        std::fprintf(stderr, "sin tamanos\n");
+        std::fprintf(stderr, "no sizes given\n");
         return 2;
     }
     const size_t maxn = *std::max_element(sizes.begin(), sizes.end());
@@ -96,15 +96,15 @@ int main() {
     if (!cold) {
         if (pinned) CK(cudaHostAlloc(&host_fijo, maxn, cudaHostAllocDefault));
         else        host_fijo = std::malloc(maxn);
-        if (host_fijo == nullptr) { std::fprintf(stderr, "sin memoria de host\n"); return 2; }
+        if (host_fijo == nullptr) { std::fprintf(stderr, "out of host memory\n"); return 2; }
         std::memset(host_fijo, 0xA5, maxn);
     }
 
     FILE *f = std::fopen(out, "w");
-    if (f == nullptr) { std::fprintf(stderr, "no puedo escribir %s\n", out); return 2; }
+    if (f == nullptr) { std::fprintf(stderr, "cannot write %s\n", out); return 2; }
     std::fprintf(f, "tag,bytes,direction,mem,reg,iters,median_s,gbytes_per_s,min_s,max_s\n");
 
-    std::printf("  sweep_bench  mem=%s reg=%s iters=%d (+%d)  %zu tamanos\n",
+    std::printf("  sweep_bench  mem=%s reg=%s iters=%d (+%d)  %zu sizes\n",
                 pinned ? "pinned" : "pageable", cold ? "cold" : "cached", iters, warmup,
                 sizes.size());
     std::printf("  %12s %5s %13s %10s\n", "size", "dir", "median (ms)", "GB/s");
@@ -122,7 +122,7 @@ int main() {
                 if (cold) {
                     if (pinned) CK(cudaHostAlloc(&h, n, cudaHostAllocDefault));
                     else        h = std::malloc(n);
-                    if (h == nullptr) { std::fprintf(stderr, "sin memoria\n"); return 2; }
+                    if (h == nullptr) { std::fprintf(stderr, "out of memory\n"); return 2; }
                     std::memset(h, 0xA5, n);
                 }
                 void *src = h2d ? h : dev;

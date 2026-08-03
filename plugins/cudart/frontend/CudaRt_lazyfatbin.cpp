@@ -255,8 +255,8 @@ void report_stats() {
     const char *v = std::getenv("GVIRTUS_LAZY_FATBIN_STATS");
     if (v == nullptr || v[0] != '1') return;
     std::fprintf(stderr,
-                 "[GVS LAZY FATBIN] enviados %ld de %ld registrados | dedup: %ld aciertos, "
-                 "%ld fallos\n",
+                 "[GVS LAZY FATBIN] sent %ld of %ld registered | dedup: %ld hits, "
+                 "%ld misses\n",
                  g_shipped.load(), g_total.load(), g_dedup_hits.load(), g_dedup_miss.load());
     std::fflush(stderr);
 }

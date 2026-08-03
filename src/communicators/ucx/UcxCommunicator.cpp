@@ -417,11 +417,11 @@ inline void gvs_mm_count(const char *name, bool is_map) {
     const long n = total.fetch_add(1) + 1;
     if (n % 2000 != 0) return;
     std::lock_guard<std::mutex> lk(gvs_mm_mu);
-    std::fprintf(stderr, "[GVS MEMMAP] --- tras %ld operaciones ---\n", n);
+    std::fprintf(stderr, "[GVS MEMMAP] --- after %ld operations ---\n", n);
     for (auto *x : gvs_mm_sites) {
         const long m = x->maps.load(), u = x->unmaps.load();
-        std::fprintf(stderr, "[GVS MEMMAP]   %-24s map=%-8ld unmap=%-8ld vivas=%ld%s\n",
-                     x->name.c_str(), m, u, m - u, (m - u > 500) ? "   <-- FUGA" : "");
+        std::fprintf(stderr, "[GVS MEMMAP]   %-24s map=%-8ld unmap=%-8ld live=%ld%s\n",
+                     x->name.c_str(), m, u, m - u, (m - u > 500) ? "   <-- LEAK" : "");
     }
     std::fflush(stderr);
 }
@@ -458,7 +458,7 @@ static void gvs_srcreg_report(const char *what) {
         ctxs = seen.size();
     }
     std::fprintf(stderr,
-                 "[GVS SRCREG] %-22s entradas=%zu  bytes=%.1f MiB  contextos_distintos=%zu\n",
+                 "[GVS SRCREG] %-22s entries=%zu  bytes=%.1f MiB  distinct_contexts=%zu\n",
                  what, n, bytes / 1048576.0, ctxs);
     std::fflush(stderr);
 }
@@ -968,8 +968,8 @@ ucs_status_t UcxCommunicator::am_recv_handler(void *arg, const void *header,
                     const long v = (f != nullptr && f[0] != '\0')
                                        ? std::strtol(f, nullptr, 10) : 0;
                     if (v > 0) {
-                        std::fprintf(stderr, "[GVS FAULT] *** LECTURA del slot retrasada "
-                                             "%ld ms (ensancha la ventana de la colision)\n", v);
+                        std::fprintf(stderr, "[GVS FAULT] *** slot READ delayed "
+                                             "%ld ms (widens the collision window)\n", v);
                         std::fflush(stderr);
                     }
                     return v > 0 ? v : 0;
@@ -2115,8 +2115,8 @@ void UcxCommunicator::retire_and_free_locked(std::uint32_t now_epoch) {
             const unsigned long n = ++kept;
             if (n == 1 || n % 16 == 0) {
                 std::fprintf(stderr,
-                             "[GVS] rx_pool: KEEP_RETIRED conserva slot (%zu B host%s, "
-                             "retirado en epoch %u, acked %u) -- %lu conservados\n",
+                             "[GVS] rx_pool: KEEP_RETIRED keeps slot (%zu B host%s, "
+                             "retired in epoch %u, acked %u) -- %lu kept\n",
                              sl.capacity, sl.gpu_addr ? " + GPU shadow" : "", sl.rma_epoch,
                              acked, n);
                 std::fflush(stderr);
@@ -2148,27 +2148,27 @@ bool UcxCommunicator::gusto_validate_pool_cfg(size_t slots, size_t cap_bytes,
     const size_t max_slots = (size_t)env_u64("GUSTO_RMA_MAX_SLOTS", 1024);
 
     if (slots == 0 || slots > max_slots) {
-        std::fprintf(stderr, "[GUSTO CFG] RECHAZADO: GVIRTUS_RMA_SLOTS=%zu fuera de [1,%zu]. "
-                             "No se construye el pool; el transporte usa el camino AM.\n",
+        std::fprintf(stderr, "[GUSTO CFG] REJECTED: GVIRTUS_RMA_SLOTS=%zu outside [1,%zu]. "
+                             "The pool is not built; the transport uses the AM path.\n",
                      slots, max_slots);
         std::fflush(stderr);
         return false;
     }
     if (cap_bytes == 0) {
-        std::fprintf(stderr, "[GUSTO CFG] RECHAZADO: capacidad de slot 0.\n");
+        std::fprintf(stderr, "[GUSTO CFG] REJECTED: slot capacity is 0.\n");
         std::fflush(stderr);
         return false;
     }
     // Desbordamiento ANTES de reservar: por slot se paga host + (shadow ? GPU : 0).
     const size_t per_slot = with_shadow ? (cap_bytes * 2u) : cap_bytes;
     if (with_shadow && per_slot / 2u != cap_bytes) {
-        std::fprintf(stderr, "[GUSTO CFG] RECHAZADO: desbordamiento al doblar la capacidad "
-                             "(%zu B) por el shadow GPU.\n", cap_bytes);
+        std::fprintf(stderr, "[GUSTO CFG] REJECTED: overflow doubling the capacity "
+                             "(%zu B) for the GPU shadow.\n", cap_bytes);
         std::fflush(stderr);
         return false;
     }
     if (per_slot != 0 && slots > (size_t)-1 / per_slot) {
-        std::fprintf(stderr, "[GUSTO CFG] RECHAZADO: %zu slots x %zu B desborda size_t.\n",
+        std::fprintf(stderr, "[GUSTO CFG] REJECTED: %zu slots x %zu B overflows size_t.\n",
                      slots, per_slot);
         std::fflush(stderr);
         return false;
@@ -2177,8 +2177,8 @@ bool UcxCommunicator::gusto_validate_pool_cfg(size_t slots, size_t cap_bytes,
     const unsigned long long budget = env_u64("GUSTO_RMA_HOST_POOL_BUDGET_BYTES", 0);
     if (budget != 0 && (unsigned long long)total > budget) {
         std::fprintf(stderr,
-                     "[GUSTO CFG] RECHAZADO: el pool pide %.1f MiB y el presupuesto "
-                     "GUSTO_RMA_HOST_POOL_BUDGET_BYTES es %.1f MiB. No se construye.\n",
+                     "[GUSTO CFG] REJECTED: the pool asks for %.1f MiB and the budget "
+                     "GUSTO_RMA_HOST_POOL_BUDGET_BYTES is %.1f MiB. Not built.\n",
                      total / 1048576.0, budget / 1048576.0);
         std::fflush(stderr);
         return false;
@@ -2187,11 +2187,11 @@ bool UcxCommunicator::gusto_validate_pool_cfg(size_t slots, size_t cap_bytes,
     // que es exactamente como una campana entera acabo midiendo el camino AM creyendo medir
     // el pool.
     std::fprintf(stderr,
-                 "[GUSTO CFG] pool efectivo: slots=%zu cap=%.1f MiB shadow=%s "
+                 "[GUSTO CFG] effective pool: slots=%zu cap=%.1f MiB shadow=%s "
                  "total=%.1f MiB%s\n",
-                 slots, cap_bytes / 1048576.0, with_shadow ? "si" : "no",
+                 slots, cap_bytes / 1048576.0, with_shadow ? "yes" : "no",
                  total / 1048576.0,
-                 budget ? "" : " (sin presupuesto definido)");
+                 budget ? "" : " (no budget defined)");
     std::fflush(stderr);
     return true;
 }
@@ -2225,8 +2225,8 @@ void UcxCommunicator::init_rx_pool() {
             char *end = nullptr;
             unsigned long long p = std::strtoull(raw, &end, 10);
             if (end == raw || *end != '\0' || p == 0) {
-                std::fprintf(stderr, "[GUSTO CFG] RECHAZADO: GVIRTUS_RMA_SLOTS='%s' no es un "
-                                     "entero positivo. No se construye el pool.\n", raw);
+                std::fprintf(stderr, "[GUSTO CFG] REJECTED: GVIRTUS_RMA_SLOTS='%s' is not a "
+                                     "positive integer. The pool is not built.\n", raw);
                 std::fflush(stderr);
                 return;
             }
@@ -2617,8 +2617,8 @@ void UcxCommunicator::release_remote_slot(size_t server_idx,
         const bool on = (e != nullptr && (std::strcmp(e, "hold_ack") == 0 ||
                                           std::strcmp(e, "epoch_ack") == 0 ||
                                           std::strcmp(e, "epoch_ack_idx") == 0));
-        if (on) std::fprintf(stderr, "[GVS FAULT] *** SlotConsumed RETENIDO hasta la "
-                                     "reasignacion del slot (ABA determinista)\n");
+        if (on) std::fprintf(stderr, "[GVS FAULT] *** SlotConsumed HELD until the slot is "
+                                     "reassigned (deterministic ABA)\n");
         return on;
     }();
     // En que ack se arma. Para `hold_ack` (condicion ABA por reasignacion del MISMO slot) hay
@@ -2651,8 +2651,8 @@ void UcxCommunicator::release_remote_slot(size_t server_idx,
         ++rma_ack_held_count_;
         // epoch y generacion explicitos: sin ellos no se puede saber si la celda del ablation
         // midio la guarda de epoch o la de generacion, que es la confusion que se busca evitar.
-        std::fprintf(stderr, "[GVS FAULT] ack marcado para REPLAY: slot=%zu tag=%llu "
-                             "(epoch=%u gen=%llu, en el ack #%llu)\n",
+        std::fprintf(stderr, "[GVS FAULT] ack marked for REPLAY: slot=%zu tag=%llu "
+                             "(epoch=%u gen=%llu, at ack #%llu)\n",
                      server_idx, (unsigned long long)tag,
                      (unsigned)slot_tag_epoch(tag),
                      (unsigned long long)slot_tag_generation(tag),
@@ -2730,8 +2730,8 @@ void UcxCommunicator::send_slot_consumed(size_t slot_idx,
         if (f == nullptr || std::strcmp(f, "slow_ack") != 0) return 0;
         const char *e = std::getenv("GVS_FAULT_MS");
         long v = (e && e[0]) ? std::strtol(e, nullptr, 10) : 50;
-        std::fprintf(stderr, "[GVS FAULT] *** SlotConsumed RETRASADO %ld ms en el servidor "
-                             "(saturacion deliberada del pool)\n", v);
+        std::fprintf(stderr, "[GVS FAULT] *** SlotConsumed DELAYED %ld ms at the server "
+                             "(deliberate pool saturation)\n", v);
         std::fflush(stderr);
         return v > 0 ? v : 50;
     }();
@@ -2753,8 +2753,8 @@ void UcxCommunicator::send_slot_consumed(size_t slot_idx,
         long v = (e != nullptr && e[0] != '\0') ? std::strtol(e, nullptr, 10) : 4;
         if (v <= 0) v = 4;
         std::fprintf(stderr,
-                     "[GVS FAULT] *** REANUNCIO del pool vigente cada %ld acks "
-                     "(mismos server_idx, epoch nuevo)\n", v);
+                     "[GVS FAULT] *** RE-ADVERTISE of the current pool every %ld acks "
+                     "(same server_idx, new epoch)\n", v);
         std::fflush(stderr);
         return v;
     }();
@@ -3202,8 +3202,8 @@ void UcxCommunicator::handle_rma_setup_am(const void *data, size_t length) {
             const bool on = (e != nullptr && e[0] != '\0' && e[0] != '0');
             if (on)
                 std::fprintf(stderr,
-                             "[GVS FAULT] *** NO-PARK: el layout se instala CON transferencias "
-                             "en vuelo (inseguro a proposito)\n");
+                             "[GVS FAULT] *** NO-PARK: the layout is installed WITH transfers "
+                             "in flight (deliberately unsafe)\n");
             return on;
         }();
 
@@ -3221,7 +3221,7 @@ void UcxCommunicator::handle_rma_setup_am(const void *data, size_t length) {
                      hdr.status_code, inflight_n, remote_slots_.size(),
                      (any_inflight && !gusto_no_park)
                          ? "PARK"
-                         : (any_inflight ? "INSTALL NOW (NO-PARK forzado)"
+                         : (any_inflight ? "INSTALL NOW (NO-PARK forced)"
                                          : "install now"));
         std::fflush(stderr);
 
@@ -3391,9 +3391,9 @@ void UcxCommunicator::destroy_rma_state() {
     // exactamente lo que hay que poder distinguir. tests/adversarial/ lo exige.
     if (rma_acquire_count_ > 0 || rma_ack_send_count_ > 0) {
         std::fprintf(stderr,
-                     "[GVS] rma coste: reservas=%llu (esperaron %llu) media=%.2fus | "
-                     "cache de registro: aciertos=%llu fallos=%llu (%.1f%%) | "
-                     "acks enviados=%llu media=%.2fus | "
+                     "[GVS] rma cost: reservations=%llu (waited %llu) mean=%.2fus | "
+                     "registration cache: hits=%llu misses=%llu (%.1f%%) | "
+                     "acks sent=%llu mean=%.2fus | "
                      "acks con generacion desajustada=%llu\n",
                      (unsigned long long)rma_acquire_count_,
                      (unsigned long long)rma_acquire_waited_count_,
@@ -3411,8 +3411,8 @@ void UcxCommunicator::destroy_rma_state() {
     }
     {
         std::fprintf(stderr,
-                     "[GVS] rma teardown: acks descartados por epoch=%llu, "
-                     "advertisements aparcadas=%llu\n",
+                     "[GVS] rma teardown: acks dropped by epoch=%llu, "
+                     "advertisements parked=%llu\n",
                      (unsigned long long)rma_ack_dropped_epoch_count_,
                      (unsigned long long)rma_swap_parked_count_);
     gvirtus::communicators::informa("teardown");
@@ -3881,7 +3881,7 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
         // F8 hold_ack: si el slot que acabamos de reasignar es el del ack retenido, la
         // condicion ABA ya existe. Se marca para entregarlo en cuanto soltemos el cerrojo.
         if (gusto_hold_armed_) {
-            std::fprintf(stderr, "[GVS FAULT] replay? armado slot=%u vs reasignado slot=%u\n",
+            std::fprintf(stderr, "[GVS FAULT] replay? armed slot=%u vs reassigned slot=%u\n",
                          (unsigned)gusto_hold_slot_,
                          (unsigned)remote_slots_[slot_idx].server_idx);
             std::fflush(stderr);
@@ -3911,8 +3911,8 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
     // del cerrojo porque release_remote_slot lo toma. Con la guarda puesta debe rechazarlo
     // (gen_mismatch++ y el slot sigue InFlight); sin ella liberara un slot vivo.
     if (entregar_retenido) {
-        std::fprintf(stderr, "[GVS FAULT] entregando ack retenido: slot=%u tag=%llu "
-                             "(el slot ya se reasigno)\n",
+        std::fprintf(stderr, "[GVS FAULT] delivering held ack: slot=%u tag=%llu "
+                             "(the slot has already been reassigned)\n",
                      (unsigned)retenido_slot, (unsigned long long)retenido_tag);
         std::fflush(stderr);
         release_remote_slot(retenido_slot, retenido_tag);

@@ -25,32 +25,32 @@ static void prueba(const char *nombre, cudaStream_t s, bool async) {
     cudaError_t e;
 
     if ((e = cudaMalloc(&d, N)) != cudaSuccess) {
-        std::printf("  %-28s cudaMalloc FALLO: %s\n", nombre, cudaGetErrorString(e));
+        std::printf("  %-28s cudaMalloc FAILED: %s\n", nombre, cudaGetErrorString(e));
         ++fallos; return;
     }
     if ((e = cudaHostAlloc(&h, N, cudaHostAllocDefault)) != cudaSuccess) {
-        std::printf("  %-28s cudaHostAlloc FALLO: %s\n", nombre, cudaGetErrorString(e));
+        std::printf("  %-28s cudaHostAlloc FAILED: %s\n", nombre, cudaGetErrorString(e));
         cudaFree(d); ++fallos; return;
     }
 
     if (async) e = cudaMemcpyAsync(d, h, N, cudaMemcpyHostToDevice, s);
     else       e = cudaMemcpy(d, h, N, cudaMemcpyHostToDevice);
     if (e != cudaSuccess) {
-        std::printf("  %-28s H2D FALLO: %s\n", nombre, cudaGetErrorString(e));
+        std::printf("  %-28s H2D FAILED: %s\n", nombre, cudaGetErrorString(e));
         ++fallos; cudaFree(d); cudaFreeHost(h); return;
     }
 
     // ESTE es el punto bajo prueba: la misma llamada que aborta en llama.
     e = cudaStreamSynchronize(s);
     if (e != cudaSuccess) {
-        std::printf("  %-28s cudaStreamSynchronize(%p) FALLO: %s   <== REPRODUCIDO\n",
+        std::printf("  %-28s cudaStreamSynchronize(%p) FAILED: %s   <== REPRODUCED\n",
                     nombre, (void *)s, cudaGetErrorString(e));
         ++fallos;
     } else {
         // Y una D2H detras, que es lo que hace get_tensor.
         e = cudaMemcpy(h, d, N, cudaMemcpyDeviceToHost);
-        std::printf("  %-28s ok (sync y D2H correctos)%s\n", nombre,
-                    e == cudaSuccess ? "" : " pero la D2H fallo");
+        std::printf("  %-28s ok (sync and D2H correct)%s\n", nombre,
+                    e == cudaSuccess ? "" : " but the D2H failed");
         if (e != cudaSuccess) ++fallos;
     }
     cudaFree(d); cudaFreeHost(h);
@@ -69,15 +69,15 @@ int main() {
         prueba("stream creado", propio, true);
         cudaStreamDestroy(propio);
     } else {
-        std::printf("  no se pudo crear el stream\n"); ++fallos;
+        std::printf("  could not create the stream\n"); ++fallos;
     }
 
     std::printf("\n-- caso 3: cudaStreamLegacy (0x1) --\n");
     prueba("cudaStreamLegacy", cudaStreamLegacy, true);
 
-    std::printf("\n-- caso 4: cudaStreamPerThread (0x2)  <-- el de llama --\n");
+    std::printf("\n-- case 4: cudaStreamPerThread (0x2)  <-- the one llama uses --\n");
     prueba("cudaStreamPerThread", cudaStreamPerThread, true);
 
-    std::printf("\n== %s ==\n", fallos ? "HAY FALLOS" : "todo correcto");
+    std::printf("\n== %s ==\n", fallos ? "FAILURES" : "all correct");
     return fallos ? 1 : 0;
 }

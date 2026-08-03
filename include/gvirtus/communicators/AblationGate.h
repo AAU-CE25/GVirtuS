@@ -50,27 +50,26 @@ inline Ablation ablation_mode() {
         const char *v = std::getenv("GVS_ABLATE");
         if (v == nullptr || v[0] == '\0' || std::strcmp(v, "full") == 0) return Ablation::Full;
         if (std::strcmp(v, "pointer_keyed") == 0) {
-            std::fprintf(stderr, "[GVS ABLATE] *** cache de registro POR DIRECCION, sin "
-                                 "invalidacion en free -- variante DEFECTUOSA a proposito\n");
+            std::fprintf(stderr, "[GVS ABLATE] *** registration cache keyed BY ADDRESS, with no "
+                                 "invalidation on free -- deliberately DEFECTIVE variant\n");
             return Ablation::PointerKeyed;
         }
         if (std::strcmp(v, "no_generation") == 0) {
-            std::fprintf(stderr, "[GVS ABLATE] *** guarda de generacion (ABA) DESACTIVADA "
-                                 "-- variante DEFECTUOSA a proposito\n");
+            std::fprintf(stderr, "[GVS ABLATE] *** generation (ABA) guard DISABLED "
+                                 "-- deliberately DEFECTIVE variant\n");
             return Ablation::NoGeneration;
         }
         if (std::strcmp(v, "no_epoch_gen") == 0) {
-            std::fprintf(stderr, "[GVS ABLATE] *** guardas de epoch Y de generacion "
-                                 "DESACTIVADAS -- variante DEFECTUOSA a proposito\n");
+            std::fprintf(stderr, "[GVS ABLATE] *** epoch AND generation guards DISABLED "
+                                 "-- deliberately DEFECTIVE variant\n");
             return Ablation::NoEpochGen;
         }
         if (std::strcmp(v, "no_epoch") == 0) {
-            std::fprintf(stderr, "[GVS ABLATE] *** guarda de epoch DESACTIVADA "
-                                 "-- variante DEFECTUOSA a proposito\n");
+            std::fprintf(stderr, "[GVS ABLATE] *** epoch guard DISABLED "
+                                 "-- deliberately DEFECTIVE variant\n");
             return Ablation::NoEpoch;
         }
-        std::fprintf(stderr, "[GVS ABLATE] valor no reconocido '%s'; se usa el protocolo "
-                             "completo\n", v);
+        std::fprintf(stderr, "[GVS ABLATE] unrecognised value '%s'; using the full protocol\n", v);
         return Ablation::Full;
     }();
     return m;
@@ -116,15 +115,15 @@ inline Fault fault_mode() {
         const char *v = std::getenv("GVS_FAULT");
         if (v == nullptr || v[0] == '\0' || std::strcmp(v, "none") == 0) return Fault::None;
         if (std::strcmp(v, "dup_ack") == 0) {
-            std::fprintf(stderr, "[GVS FAULT] *** SlotConsumed DUPLICADO a proposito\n");
+            std::fprintf(stderr, "[GVS FAULT] *** SlotConsumed deliberately DUPLICATED\n");
             return Fault::DupAck;
         }
         if (std::strcmp(v, "stale_ack") == 0) {
-            std::fprintf(stderr, "[GVS FAULT] *** SlotConsumed con generacion OBSOLETA\n");
+            std::fprintf(stderr, "[GVS FAULT] *** SlotConsumed with a STALE generation\n");
             return Fault::StaleAck;
         }
         if (std::strcmp(v, "delay_ack") == 0) {
-            std::fprintf(stderr, "[GVS FAULT] *** SlotConsumed RETRASADO a proposito\n");
+            std::fprintf(stderr, "[GVS FAULT] *** SlotConsumed deliberately DELAYED\n");
             return Fault::DelayAck;
         }
         // hold_ack / epoch_ack / epoch_ack_idx / slow_ack son inyecciones REALES, solo que
@@ -133,7 +132,7 @@ inline Fault fault_mode() {
         if (std::strcmp(v, "hold_ack") == 0 || std::strcmp(v, "epoch_ack") == 0 ||
             std::strcmp(v, "epoch_ack_idx") == 0 || std::strcmp(v, "slow_ack") == 0)
             return Fault::None;
-        std::fprintf(stderr, "[GVS FAULT] valor no reconocido '%s'; sin inyeccion\n", v);
+        std::fprintf(stderr, "[GVS FAULT] unrecognised value '%s'; no injection\n", v);
         return Fault::None;
     }();
     return m;
