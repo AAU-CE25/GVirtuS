@@ -137,6 +137,45 @@ collect.
 Data: `results/asplos_campaign/sched_n1/minibude_n8_fair_ab.csv` (33 cohorts, both arms),
 `results/asplos_campaign/fairness/tabla_D_minibude_por_tenant.csv` (the MPS control).
 
+# 3b. NIC-to-GPU visibility -- **BOUNDED 2026-08-03, not closed, and deliberately so**
+
+The one assumption the system rests on and does not verify. Written up as invariant **I10** in
+`CONTRACTS.md` §6, kept **outside** the discharged table on purpose.
+
+**What is at stake.** On the GPUDirect path the client PUTs into the server's GPU shadow and
+then sends a small `RmaPosted` active message; a handler consumes the region with
+`cudaMemcpyDeviceToDevice`. A **CUDA read therefore follows a NIC write to the same device
+memory** with only an AM between them. Two assumptions carry it:
+
+- **A1 (ordering)** -- the AM is observed only after the RDMA WRITE has landed. **Not a UCX
+  guarantee**: `ucp_put_nbx` completion is *local*, and the AM is not ordered against writes in
+  flight (the code says so at the call site). It holds here because both travel **one RC queue
+  pair** and IB delivers in order on a QP. It would break under multi-rail striping or if AMs
+  took a different transport than the PUT -- and our own `UCX_TLS` permits that.
+- **A2 (visibility)** -- the GPUDirect read-after-write question. The documented mitigation is a
+  flush read; we perform none.
+
+**Evidence, and what it is worth.** Adding `ucp_ep_flush_nbx` before the notification was
+measured (2026-07-25): it reproduced the bug under investigation *identically* while roughly
+doubling issue time, **310 ms against 166 for 6 x 64 MB**. That is a **cost bound, not a proof** --
+it shows the flush did not fix *that* bug. Against it: XSBench reports identical verification
+checksums (408237) across every arm, and 2 643 921 RMA admissions over 14.78 M operations show
+no corruption attributable to ordering.
+
+**The claim, reduced to the evidence.** *"No visibility failure was observed across 2.64 M RMA
+admissions with end-to-end checksum validation, on ConnectX-7 / RoCEv2, **UCX 1.20.0**, drivers
+580.95.05 and 560.35.05, one RC lane per connection -- and A1 and A2 are configuration-dependent,
+neither negotiated nor checked at runtime."* **Not** a guarantee, and not portable across UCX or
+driver versions without re-validation.
+
+**What would close it**, in order, and it is not large: (1) **capability negotiation** at the
+handshake -- the same shape already used to gate GPUDirect on endpoints that actually negotiated
+an RDMA lane, and the field fits the existing `RmaSetup` header; (2) a **conditional** flush,
+applied only when negotiation says ordering is not guaranteed, priced at the measured 1.9x.
+
+Until both exist this entry stays open **by choice**: the bound is defensible, the guarantee
+would not be.
+
 # 4. Per-tenant serving timeline -- **not reconstructible, needs re-measuring**
 
 The multi-tenant llama campaign is from 2026-07-26 and carries **no per-request timestamp**

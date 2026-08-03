@@ -92,8 +92,18 @@ saying it is not.
 The bulk path lands **in device memory** rather than in a host bounce buffer. The contribution
 is not the mechanism but the fact that the paper asks the right question about it: **"PUT
 completed" is not the same as "a kernel may consume the data"**, and the guarantee depends on
-the concrete driver and UCX version. This is open in the current artifact
-(`GAPS.md`) and must be either closed or explicitly bounded before submission.
+the concrete driver and UCX version.
+
+**Bounded, 2026-08-03** (`CONTRACTS.md` §6). It is stated as invariant **I10 and explicitly not
+discharged**, which is the honest form. Two assumptions carry it -- **A1**, that the `RmaPosted`
+active message is observed only after the RDMA WRITE has landed (not a UCX guarantee: PUT
+completion is *local*; it holds here because both travel one RC queue pair), and **A2**, the
+GPUDirect read-after-write question, for which we perform no flush. What the paper claims is
+therefore *"no visibility failure was observed across 2.64 M RMA admissions with end-to-end
+checksum validation, on UCX 1.20.0 with a single RC lane"*, together with the statement that
+both assumptions are configuration-dependent and neither negotiated nor checked at runtime.
+**Not** a guarantee. §6.5 names what would discharge it -- capability negotiation plus a
+*conditional* flush -- and prices the flush at the measured **1.9x issue time**.
 
 ## 2.4 A negative result about this class of system that we found in our own work
 
@@ -107,6 +117,27 @@ reproduced in XSBench (5.98× against native's 1.001×).
 measured, controlled, mechanism-level finding about API-remoting backends that the aggregate
 numbers hide entirely. Cohort makespan shows 1.15× where the internal runtime shows 6.0×
 (`XSBENCH_RESULTS.md` §3). Any prior evaluation reporting only makespan would have missed it.
+
+**Promoted to a full fourth contribution, 2026-08-03, because it is no longer only a negative
+result.** When this was written the cause was unknown, and "we report it honestly" was the most
+that could be said. `N1_SCHEDULER.md` now closes it end to end:
+
+1. **Four candidate mechanisms tested, three refuted** -- the data path (identical over TCP),
+   the shared legacy stream (per-connection streams make it *worse*, 3.46 -> 6.39), transport
+   lock contention (each connection owns its worker and mutex), and **a shared CUDA context**,
+   refuted by the MPS control: MPS puts eight clients in one context and shares to within
+   **1.02x**.
+2. **The mechanism identified**: the backend does not arbitrate. FCFS service plus self-clocked
+   clients means the tenant that gets marginally ahead re-submits first and keeps its turn. MPS
+   is fair because *its* server arbitrates; the driver is fair between contexts because it
+   multiplexes them; this backend does neither.
+3. **Confirmed by intervention, not by inference**: deficit round-robin at the launch point cuts
+   the inequality **5.02 -> 3.09** (CI95 [2.05, 4.34], excluding the baseline) for **+0.6%
+   makespan**, and pulls the leading tenant off its solo rate (216.4 -> 75.9 GFLOP/s).
+
+A measured negative result, a mechanism, and a fix that costs 0.6% is a contribution in its own
+right -- not a limitations paragraph. The residual is stated too: launch-count arbitration
+equalises *submissions*, not *GPU time*.
 
 # 3. The structural answer to "integration paper"
 

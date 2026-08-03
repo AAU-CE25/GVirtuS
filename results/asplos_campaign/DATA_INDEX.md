@@ -421,6 +421,17 @@ The same rule now holds throughout: `MINIBUDE_RESULTS.md`, `XSBENCH_RESULTS.md`,
 the comparison across workloads (table B) and the synthesis. `GAPS.md` lists what is still
 missing and the minimum experiment for each.
 
+# The contracts document, 2026-08-03
+
+`CONTRACTS.md` is new and is the specification the evaluation was missing: what state the RMA
+slot protocol keeps, what decision the placement selector makes, what transitions are allowed,
+and **nine invariants each with the line of code that discharges it** and the counter that
+proves the discharge point is reached. **A tenth, NIC-to-GPU visibility, is stated as a bounded
+assumption and deliberately kept outside the table** (§6 there, `GAPS.md` §3b).
+
+It is the document to hand a reviewer who asks "what exactly are you claiming is safe, and
+why" -- everything else in this folder measures; that one specifies.
+
 # Packaging, 2026-08-03
 
 Three tarballs, because they answer different questions.

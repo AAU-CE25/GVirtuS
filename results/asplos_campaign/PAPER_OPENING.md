@@ -38,7 +38,8 @@ Everything else in the paper is either evidence for this or a bound on it.
 **Why this one and not the throughput numbers.** It is the only claim that (a) is a
 *mechanism* rather than a measurement, (b) survives every control we ran, and (c) cannot be
 obtained by a system that does not sit at the API boundary. The throughput results are
-consequences; the fairness result is a bound; the memory result has no established mechanism.
+consequences; the fairness result is a mechanism with a measured fix (§3b); the memory result is
+closed down to its line item, the 429 MiB per-process CUDA context.
 
 **The one figure:** the crossover table with the sign reversal, plus the oracle bound showing
 how much the deployable step function leaves. Nothing else on page 1.
@@ -56,7 +57,38 @@ how much the deployable step function leaves. Nothing else on page 1.
 | Multi-tenant 1.37x | competing | **evaluation, with the MPS parity in the same sentence** | see §4 |
 | ~461 MiB/tenant | competing | **evaluation** | see §4 |
 | Capacity under an SLO | new | **evaluation** | capacity itself does **not** separate the systems (identical at 0.50 req/s, 51.2-51.7 t/s over n=3); what separates them is the tail and the goodput above the knee (+9.9% at lambda=1.0, +27.5% at 1.5, both CIs excluding zero) |
-| Per-tenant fairness (negative) | new | **its own subsection, presented as a contribution** | a measured bound on this class of system |
+| Per-tenant fairness | new | **the fourth contribution, page 2, with its own section** | see §3b: it is no longer a negative result, it is a mechanism plus a fix |
+| The contracts | absent | **page 2, beside the lifetime protocol** | `CONTRACTS.md`: nine invariants with discharge points, and the tenth stated as a bounded assumption |
+
+## 3b. Fairness is a contribution, not a limitation -- decided 2026-08-03
+
+The earlier line read *"its own subsection, presented as a contribution: a measured bound on
+this class of system."* That was the right call when the **cause was unknown**. It no longer is,
+and the decision should be upgraded rather than repeated.
+
+What can now be put in a contributions list, in one sentence each:
+
+1. **The effect.** Under equal fixed work, remoting does not share the GPU fairly: at N=8 in
+   miniBUDE one tenant runs at **1.00x** its single-client rate -- as if alone on the machine --
+   while another runs **4.87x** slower. Native shares to within 1.03x. Reproduced in XSBench
+   (5.98x) and identical over TCP.
+2. **Three mechanisms excluded by controls**, one of them by MPS: eight clients in a *single*
+   CUDA context share to within **1.02x**, so a shared context is not sufficient and the obvious
+   explanation is wrong.
+3. **The mechanism**: the backend performs no arbitration. FCFS plus self-clocked clients means
+   an early lead compounds instead of decaying.
+4. **A fix, measured**: deficit round-robin at the launch point, **5.02 -> 3.09** inequality
+   (CI95 excluding the baseline) for **+0.6% makespan**.
+
+**Why this earns a contribution slot:** it is a property of API-remoting backends that *every*
+aggregate metric hides -- cohort makespan reads 1.15x where the per-tenant runtime reads 6.0x --
+so any prior evaluation reporting makespan alone would have missed it. Reporting it as a
+limitation would understate work that has an identified cause and a demonstrated remedy.
+
+**What must travel with it**, in the same sentence, because it is workload-dependent: *"4.87x in
+miniBUDE and 5.98x in XSBench against 1.03x in BabelStream and CloverLeaf, same N, same
+system"*, and *"in serving, Gusto and native are statistically equivalent (paired Jain
+-0.0027, CI95 [-0.0079, +0.0009])."* The finding is about fixed-work cohorts, not about serving.
 
 # 4. Three results that must never appear alone
 
@@ -73,7 +105,12 @@ across paragraphs is how a paper becomes indefensible under review.
   without the mechanism invites the reviewer to supply a wrong one, which is what happened to us.
 - **Fairness.** *"Serving fairness is statistically equivalent to native; under equal fixed
   work it is not -- one tenant runs at its single-client rate while another is 4.87x slower."*
-  Workload-dependent, and the dependence is the point.
+  Workload-dependent, and the dependence is the point. Since 2026-08-03 it also travels with its
+  cause and its remedy (§3b), so it must never be written as an unexplained defect.
+- **GPU-resident RMA.** *"No visibility failure across 2.64 M RMA admissions with end-to-end
+  checksum validation, on UCX 1.20.0 with a single RC lane -- we do not claim the general
+  guarantee."* The bound is not optional garnish: without it the sentence asserts an ordering
+  property the UCX API does not provide (`CONTRACTS.md` §6).
 
 # 5. What comes out of the opening entirely
 
@@ -95,8 +132,9 @@ contribution.
 
 **Page 2** -- why it needs a lifetime protocol (slot reuse across epochs and generations), the
 three ablations in one small table, and the honest register: what the mechanism does *not* buy
-(MPS parity on throughput; no established mechanism for memory; fixed-work fairness worse than
-native). Then the roadmap.
+(MPS parity on throughput; fixed-work fairness worse than native, with its mechanism and its
+0.6%-cost fix; and **NIC-to-GPU visibility bounded rather than guaranteed**, `CONTRACTS.md` §6).
+Then the roadmap.
 
 **Nothing else on the first two pages.** Every number in §3 above has a home in the evaluation.
 
@@ -107,5 +145,8 @@ native). Then the roadmap.
 - [ ] The three qualified results of §4 carry their qualifier in the same sentence.
 - [ ] No x1.42 anywhere. No saturated goodput quoted as a rate without its window.
 - [ ] Every prior-work sentence traceable to a citation (see `NOVELTY.md`, the **[CITE]** marks).
+- [ ] The GPUDirect claim carries its bound; nowhere does it read as a visibility guarantee.
+- [ ] Fairness is in the contributions list with its mechanism and its fix, not in limitations.
+- [ ] The invariant table of `CONTRACTS.md` §4 appears, with **I10 visibly outside it**.
 - [ ] The fairness limitation appears in the contributions list, not only in a limitations
       paragraph -- it is a finding, and burying it invites a reviewer to "discover" it.

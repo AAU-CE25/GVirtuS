@@ -55,7 +55,7 @@ was before.
 
 # 2. The second defence nobody had accounted for: the park
 
-`UcxCommunicator.cpp:2966` refuses to swap the slot layout while any transfer is live; it parks
+`UcxCommunicator.cpp:3036` (`:2966` before the fault gates went in) refuses to swap the slot layout while any transfer is live; it parks
 the new layout and installs it once the last one drains. `GVS_FAULT_NOPARK=1` forces the install
 regardless -- deliberately unsafe, and the only way to separate the two defences.
 
