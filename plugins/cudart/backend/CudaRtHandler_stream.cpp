@@ -27,6 +27,8 @@
  */
 
 #include "CudaRtHandler.h"
+#include "AsyncErrorTrace.h"
+
 #include "gvirtus/communicators/CaptureStaging.h"
 
 CUDA_ROUTINE_HANDLER(StreamCreate) {
@@ -97,7 +99,11 @@ CUDA_ROUTINE_HANDLER(StreamWaitEvent) {
 CUDA_ROUTINE_HANDLER(StreamQuery) {
     try {
         cudaStream_t stream = input_buffer->Get<cudaStream_t>();
-        return std::make_shared<Result>(cudaStreamQuery(stream));
+        cudaError_t rc = cudaStreamQuery(stream);
+        // cudaErrorNotReady NO es un fallo: es la respuesta normal de una consulta.
+        if (rc != cudaSuccess && rc != cudaErrorNotReady)
+            gvs_async::informa("cudaStreamQuery", (const void *)stream, (int)rc);
+        return std::make_shared<Result>(rc);
     } catch (const std::exception& e) {
         cerr << e.what() << endl;
         return std::make_shared<Result>(cudaErrorMemoryAllocation);
@@ -107,7 +113,13 @@ CUDA_ROUTINE_HANDLER(StreamQuery) {
 CUDA_ROUTINE_HANDLER(StreamSynchronize) {
     try {
         cudaStream_t stream = input_buffer->Get<cudaStream_t>();
-        return std::make_shared<Result>(cudaStreamSynchronize(stream));
+        // Un sync DEVUELVE el error del trabajo asincrono anterior en el stream. Si viene uno,
+        // se vuelca lo que este hilo encolo, porque el sync es donde se reporta y no donde se
+        // produce -- que es exactamente lo que hacia indiagnosticable el abort de llama.
+        cudaError_t rc = cudaStreamSynchronize(stream);
+        if (rc != cudaSuccess)
+            gvs_async::informa("cudaStreamSynchronize", (const void *)stream, (int)rc);
+        return std::make_shared<Result>(rc);
     } catch (const std::exception& e) {
         cerr << e.what() << endl;
         return std::make_shared<Result>(cudaErrorMemoryAllocation);

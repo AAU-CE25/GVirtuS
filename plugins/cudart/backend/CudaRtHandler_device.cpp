@@ -27,6 +27,8 @@
  */
 
 #include "CudaRtHandler.h"
+#include "AsyncErrorTrace.h"
+
 
 using namespace log4cplus;
 
@@ -229,6 +231,8 @@ CUDA_ROUTINE_HANDLER(DeviceReset) {
 
 CUDA_ROUTINE_HANDLER(DeviceSynchronize) {
     cudaError_t exit_code = cudaDeviceSynchronize();
+    if (exit_code != cudaSuccess)
+        gvs_async::informa("cudaDeviceSynchronize", nullptr, (int)exit_code);
 
     return std::make_shared<Result>(exit_code);
 }

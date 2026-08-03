@@ -27,6 +27,26 @@
  */
 
 #include "CudaRtHandler.h"
+#include "AsyncErrorTrace.h"
+
+// Envoltorio de cudaMemcpyAsync que ANOTA la operacion. Hay diez sitios distintos en este
+// fichero y el error de uno aparece en un sync que no dice cual: sin el numero de linea, el
+// volcado nombraria la rutina pero no el camino. Se sustituyen todos de forma uniforme en vez
+// de instrumentar a mano el sospechoso de turno, que es como se instrumenta el sitio
+// equivocado.
+// OJO: esta funcion llama a cudaMemcpyAsync DIRECTAMENTE y no debe pasar por la macro. Al
+// instrumentar sustitui `= cudaMemcpyAsync(` en todo el fichero y la sustitucion alcanzo esta
+// linea: el envoltorio se llamaba a si mismo. Recursion infinita, y el compilador no dice nada.
+static inline cudaError_t gvs_memcpy_async(int line, void *dst, const void *src,
+                                           size_t count, cudaMemcpyKind kind,
+                                           cudaStream_t stream) {
+    cudaError_t rc = cudaMemcpyAsync(dst, src, count, kind, stream);
+    gvs_async::registra("cudaMemcpyAsync", line, (const void *)stream, dst, src,
+                        count, (int)kind, (int)rc);
+    return rc;
+}
+#define GVS_MEMCPY_ASYNC(d, s_, c, k, st) gvs_memcpy_async(__LINE__, (d), (s_), (c), (k), (st))
+
 #include "gvirtus/communicators/Communicator.h"
 
 #include <map>
@@ -731,7 +751,7 @@ CUDA_ROUTINE_HANDLER(Memcpy) {
                     cudaStreamWaitEvent(g_shadow_stream, _shadow_prior, 0);
                     h2d_trace("Memcpy", "gpu_shadow", gpu_src, /*device*/ true,
                               count, dst, gpu_src, gpu_src_size);
-                    exit_code = cudaMemcpyAsync(dst, gpu_src, count,
+                    exit_code = GVS_MEMCPY_ASYNC(dst, gpu_src, count,
                                                 cudaMemcpyDeviceToDevice, g_shadow_stream);
                     // Do NOT wait here. Measured, this wait was 163-211 us of a 2.82 ms
                     // 64 MB transfer (6.4%) and the client was blocked behind all of it
@@ -841,7 +861,7 @@ CUDA_ROUTINE_HANDLER(Memcpy) {
                         cudaEventRecord(_d2h_prior, 0);
                         cudaStreamWaitEvent(g_shadow_stream, _d2h_prior, 0);
                         gvs_pathstats::count(gvs_pathstats::kD2hGpu, count);
-                        exit_code = cudaMemcpyAsync(gpu_scratch, src, count,
+                        exit_code = GVS_MEMCPY_ASYNC(gpu_scratch, src, count,
                                                     cudaMemcpyDeviceToDevice,
                                                     g_shadow_stream);
                         if (exit_code == cudaSuccess) {
@@ -1263,7 +1283,7 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
                     // de la ventana no se puede llamar a cudaMalloc. El nodo tiene que grabarse
                     // como H2D. Grabarlo como D2D desde un puntero de host entrega CEROS en el
                     // lanzamiento -- medido, y sin que fallara ninguna llamada.
-                    exit_code = cudaMemcpyAsync(dst, stg, count,
+                    exit_code = GVS_MEMCPY_ASYNC(dst, stg, count,
                                                 cudaMemcpyHostToDevice, stream);
                     result = std::make_shared<Result>(exit_code);
                     break;   // sin sincronizar ni marcar pendientes: el slot ya no se usa
@@ -1271,7 +1291,7 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
                 gvs_pathstats::count(gvs_pathstats::kH2dGpu, count);
                     h2d_trace("MemcpyAsync", "gpu_shadow", gpu_src, /*device*/ true,
                               count, dst, gpu_src, gpu_src_size);
-                    exit_code = cudaMemcpyAsync(dst, gpu_src, count,
+                    exit_code = GVS_MEMCPY_ASYNC(dst, gpu_src, count,
                                                 cudaMemcpyDeviceToDevice, stream);
                     // Phase 3 (true async): do NOT synchronize here — consecutive
                     // fire-and-forget copies overlap. Flag that a GPU copy is in
@@ -1320,11 +1340,11 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
                     void *stg = gvs_capture::stage_host(cid, src, count);
                     if (stg == nullptr)
                         return std::make_shared<Result>(cudaErrorMemoryAllocation);
-                    exit_code = cudaMemcpyAsync(dst, stg, count, kind, stream);
+                    exit_code = GVS_MEMCPY_ASYNC(dst, stg, count, kind, stream);
                     result = std::make_shared<Result>(exit_code);
                     break;
                 }
-                exit_code = cudaMemcpyAsync(dst, src, count, kind, stream);
+                exit_code = GVS_MEMCPY_ASYNC(dst, src, count, kind, stream);
 
                 /*
                  * IMPORTANT:
@@ -1364,7 +1384,7 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
                     void *stg = gvs_capture::stage_salida(cid, count);
                     if (stg == nullptr)
                         return std::make_shared<Result>(cudaErrorMemoryAllocation);
-                    exit_code = cudaMemcpyAsync(stg, src, count,
+                    exit_code = GVS_MEMCPY_ASYNC(stg, src, count,
                                                 cudaMemcpyDeviceToHost, stream);
                     result = std::make_shared<Result>(exit_code);
                     break;   // sin sincronizar y sin adjuntar datos: se graba, no se ejecuta
@@ -1384,7 +1404,7 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
                     void *gpu_scratch = get_d2h_get_scratch(count);
                     if (gpu_scratch != nullptr) {
                         gvs_pathstats::count(gvs_pathstats::kD2hGpu, count);
-                        exit_code = cudaMemcpyAsync(gpu_scratch, src, count,
+                        exit_code = GVS_MEMCPY_ASYNC(gpu_scratch, src, count,
                                                     cudaMemcpyDeviceToDevice, stream);
                         if (exit_code == cudaSuccess)
                             exit_code = cudaStreamSynchronize(stream);
@@ -1411,7 +1431,7 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
                                 "cudaMemcpyAsync DeviceToHost: dst: "
                                     << dst << ", src: " << src << ", count: " << count
                                     << ", kind: " << kind << ", stream: " << stream);
-                exit_code = cudaMemcpyAsync(dst, src, count, kind, stream);
+                exit_code = GVS_MEMCPY_ASYNC(dst, src, count, kind, stream);
                 if (exit_code == cudaSuccess) {
                     cudaError_t sync_err = cudaStreamSynchronize(stream);
                     if (sync_err != cudaSuccess) {
@@ -1449,7 +1469,7 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
                                     << dst << ", src: " << src << ", count: " << count
                                     << ", kind: " << kind << ", stream: " << stream);
 
-                exit_code = cudaMemcpyAsync(dst, src, count, kind, stream);
+                exit_code = GVS_MEMCPY_ASYNC(dst, src, count, kind, stream);
 
                 /*
                  * Debug/stability mode: force completion before returning.

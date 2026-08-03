@@ -28,6 +28,8 @@
 
 #include "CudaRtHandler.h"
 #include "gvirtus/communicators/SchedTrace.h"
+#include "AsyncErrorTrace.h"
+
 
 // --- sustitucion de stream por conexion ---
 // Aqui SI hay cuda_runtime.h, asi que la parte que necesita CUDA vive en este fichero y no en
@@ -135,8 +137,11 @@ CUDA_ROUTINE_HANDLER(LaunchKernel) {
     // << "Stream: " << stream << endl;
 
     gvs::fair_wait();
-    cudaError_t exit_code = cudaLaunchKernel(func, gridDim, blockDim, args, sharedMem, gvs::map_stream(stream));
+    cudaStream_t s_efectivo = gvs::map_stream(stream);
+    cudaError_t exit_code = cudaLaunchKernel(func, gridDim, blockDim, args, sharedMem, s_efectivo);
     gvs::fair_done();
+    gvs_async::registra("cudaLaunchKernel", __LINE__, (const void *)s_efectivo,
+                        (const void *)func, nullptr, 0, -1, (int)exit_code);
     LOG4CPLUS_DEBUG(pThis->GetLogger(), "LaunchKernel exit_code: " << exit_code);
     return std::make_shared<Result>(exit_code);
 }

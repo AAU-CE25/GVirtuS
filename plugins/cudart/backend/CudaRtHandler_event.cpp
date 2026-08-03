@@ -27,6 +27,8 @@
  */
 
 #include "CudaRtHandler.h"
+#include "AsyncErrorTrace.h"
+
 
 CUDA_ROUTINE_HANDLER(EventCreate) {
     try {
@@ -84,7 +86,10 @@ CUDA_ROUTINE_HANDLER(EventElapsedTime) {
 CUDA_ROUTINE_HANDLER(EventQuery) {
     try {
         cudaEvent_t event = input_buffer->Get<cudaEvent_t>();
-        return std::make_shared<Result>(cudaEventQuery(event));
+        cudaError_t rc = cudaEventQuery(event);
+        if (rc != cudaSuccess && rc != cudaErrorNotReady)
+            gvs_async::informa("cudaEventQuery", (const void *)event, (int)rc);
+        return std::make_shared<Result>(rc);
     } catch (const std::exception& e) {
         cerr << e.what() << endl;
         return std::make_shared<Result>(cudaErrorMemoryAllocation);
@@ -105,7 +110,10 @@ CUDA_ROUTINE_HANDLER(EventRecord) {
 CUDA_ROUTINE_HANDLER(EventSynchronize) {
     try {
         cudaEvent_t event = input_buffer->Get<cudaEvent_t>();
-        return std::make_shared<Result>(cudaEventSynchronize(event));
+        cudaError_t rc = cudaEventSynchronize(event);
+        if (rc != cudaSuccess)
+            gvs_async::informa("cudaEventSynchronize", (const void *)event, (int)rc);
+        return std::make_shared<Result>(rc);
     } catch (const std::exception& e) {
         cerr << e.what() << endl;
         return std::make_shared<Result>(cudaErrorMemoryAllocation);
