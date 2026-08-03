@@ -106,12 +106,21 @@ void load_cuda_pinned_funcs() {
 //   assume  se asume A1 sin hacer nada, y se cuenta cuantas veces se confio en ella. NO
 //           descarga la obligacion: es el brazo de ablacion con el que se mide el coste de
 //           las otras tres.
-//   fence   ucp_worker_fence entre el PUT y el RmaPosted. La API garantiza que las
-//           operaciones emitidas en un endpoint ANTES del fence se completan antes que las
-//           emitidas DESPUES, sin esperar a nada en el retorno. Es la primitiva que expresa
-//           exactamente A1... siempre que ambas operaciones compartan lane; si el AM sale por
-//           un transporte distinto del PUT, el fence ordena cada iface por separado y NO
-//           ordena entre ellas. Barato, y condicionado.
+//   fence   ucp_worker_fence entre el PUT y el RmaPosted. **NO DESCARGA I13**, y la version
+//           anterior de este comentario decia que si: se retracta. Dos razones, una de
+//           documentacion y otra medida.
+//             (1) La garantia de UCP se realiza en el fence de IB, y UCX documenta ese fence
+//                 como "weak - fence makes sure remote READS are ordered with respect to
+//                 remote WRITES" (UCX_RC_MLX5_FENCE), con `none` = no-op y `auto` eligiendo
+//                 por hardware. A1 no es lectura-tras-escritura: es un SEND (el RmaPosted)
+//                 que no debe observarse antes de que el WRITE haya aterrizado. La semantica
+//                 documentada no cubre la obligacion.
+//             (2) Medido 2026-08-03: forzando UCX_RC_MLX5_FENCE=none -- el no-op explicito --
+//                 el brazo `fence` da lo MISMO a tres decimales en 4/16/64/256 KiB. O sea que
+//                 su coste (de 2 a 11 %) es el de la llamada, no el de una ordenacion que se
+//                 este estableciendo. No se puede distinguir de no hacer nada.
+//           Se conserva como perilla de diagnostico y para poder decir todo esto con un
+//           numero detras. Quien la active se lleva un aviso por stderr.
 //   flush   ucp_ep_flush_nbx antes del RmaPosted: cuando vuelve, los bytes estan en el par.
 //           Es la unica INCONDICIONAL -- no supone nada sobre lanes -- y es la de por defecto.
 //   strict  si no se puede establecer A1, se declina el camino directo (slot de host)
@@ -4367,13 +4376,17 @@ size_t UcxCommunicator::WriteIovRma(const struct iovec *iov, size_t iov_count,
     // falta" y "no arreglo lo que yo miraba" es justo la que este selector hace visible.
     switch (gvs_a1_politica()) {
         case A1Politica::Fence: {
-            // Ordenacion SIN esperar: el PUT de arriba se completa antes que el RmaPosted de
-            // abajo, ambos sobre endpoint_. No hay bucle de progreso porque no hay peticion
-            // que esperar -- ese es justo el punto frente a `flush`.
-            //
-            // Condicion que NO se puede comprobar desde aqui: el fence ordena por iface, asi
-            // que si el AM y el PUT acaban en transportes distintos ordena cada uno por su
-            // lado. Por eso `fence` se documenta como condicionada y el defecto es `flush`.
+            // NO descarga I13 -- ver el bloque del enum. Se emite igualmente porque el brazo
+            // existe para medir, y el aviso se da una sola vez al arrancar.
+            static std::once_flag aviso;
+            std::call_once(aviso, [] {
+                std::fprintf(stderr,
+                    "[GVS VIS] *** A1 policy `fence` DOES NOT discharge I13. UCX documents the "
+                    "IB fence as ordering remote READS against remote WRITES, which is not the "
+                    "obligation; and with UCX_RC_MLX5_FENCE=none (an explicit no-op) this arm "
+                    "measures identically. Use `flush` for a discharged configuration.\n");
+                std::fflush(stderr);
+            });
             ucs_status_t st = ucp_worker_fence(worker_);
             if (st != UCS_OK) {
                 g_a1_fence_fallos.fetch_add(1, std::memory_order_relaxed);
