@@ -92,19 +92,109 @@ Both compilations build clean.
 criterion demands *"injected-wrong variants fail and only they"*, and without it "everything
 passes" cannot distinguish a correct system from a test that proves nothing.
 
+# 3b. Executed 2026-08-03 -- one defect found and fixed, one confirmed, one dissolved
+
+The knee sweep was cut after its N=4 block to free both GPUs, and the suite ran.
+
+## The defect the new suite found, and the fix
+
+First run, single thread, three arms: **native 7/7 and `gusto_handle` 7/7 passed; `gusto_ptsz`
+failed 4 of 7** -- and precisely the four properties that use **synchronous** memory calls.
+`memset_ordered` passed because it uses the *Async* variants. Every failure carried
+`cudaErrorNotSupported` (**71**) at the H2D call: the silent-stub signature.
+
+The native arm is what made this readable in one run. A failure in only the `ptsz` compilation,
+with native and `handle` clean, cannot be a test bug.
+
+`nm -u` on the test binary named the missing symbols exactly:
+
+    U cudaMemcpy_ptds@libcudart.so.12
+    U cudaMemset_ptds@libcudart.so.12
+
+**The synchronous per-thread surface uses the `_ptds` suffix, not `_ptsz`.** Phase 1 fixed
+`_ptsz` -- the *asynchronous* suffix, 17 forwards -- and left `_ptds` untouched. Those symbols
+were not absent: they were **eight silent stubs** in `CudaRt_stubs_compat.cpp`, each returning
+`CUDART_STUB_NOT_SUPPORTED`. A program compiled `--default-stream per-thread` therefore received
+71 from `cudaMemcpy` and, if it did not check the return code, carried on with uncopied data.
+
+**Fix:** eight real forwards added to `CudaRt_ptsz.cpp` (`cudaMemcpy_ptds`, `cudaMemcpy2D_ptds`,
+`cudaMemcpy3D_ptds`, `cudaMemcpyToSymbol_ptds`, `cudaMemcpyFromSymbol_ptds`, `cudaMemset_ptds`,
+`cudaMemset2D_ptds`, `cudaMemset3D_ptds`) and the eight corresponding stubs retired -- commented
+out with the reason rather than deleted. They take no stream argument, so the forward is direct:
+the frontend's implementation is already host-synchronous, which is the observable contract of a
+blocking copy.
+
+**After the fix: 21/21 at one thread and 28/28 at eight**, across native, `gusto_handle` and
+`gusto_ptsz`. The test failed before and passes after, which is the campaign's standing rule.
+
+## The three old failures, now resolved against a native control
+
+Re-ran `ptds_conformance.cu` through the same three arms -- the control §2 said was missing:
+
+| property | native | `gusto_handle` | `gusto_ptsz` | verdict |
+|---|---|---|---|---|
+| `order_ptds` / `order_null` / `order_legacy` / `order_explicit` | PASS | PASS | PASS | conformant |
+| **`event_crossstream`** | PASS | PASS | **PASS** | **dissolved** -- it was the same code 71, fixed above |
+| **`driver_ptds`** | PASS | PASS | **FAIL, 71** | **defect of the driver-API `_ptds` surface**, still stubbed |
+| **`graph_ptds`** | **PASS** | **FAIL** | **FAIL** | **a real conformance defect of the remoting layer** |
+
+**`graph_ptds` is the one that needed the control and got it.** §2 refused to call it a defect
+because it failed in the `handle` variant too, which touches no per-thread surface -- a test bug
+was at least as likely. **Native now passes it**, so the test is sound and
+**`cudaErrorStreamCaptureInvalidated` is produced by the remoting layer**: stream capture does
+not survive the round trip. This is a genuine, newly-established defect and it is *not* fixed.
+
+## The injected-wrong control: it did not fire, and that is reported rather than glossed
+
+The criterion asks that wrong variants fail **and only they**. A fourth arm ran with
+`GVS_ABLATE=pointer_keyed`. It **activated** -- the banner is in the log and the registration
+cache ran address-keyed, 50 hits against 110 misses -- and **all 28 properties still passed**.
+
+The counters say why: **9 RMA reservations in the whole run.** These properties do not
+free-then-reallocate at the same address with transfers above the RMA floor often enough to
+exercise the ablated mechanism. **So this suite does not satisfy the "only they fail" half of
+the criterion**, and saying otherwise would be the exact error the criterion exists to prevent.
+
+The control does exist, one document over: `SLOT_LIFETIME_RESULTS.md` §B.1 drives
+`pointer_keyed` against realloc-at-the-same-VA from the same binary and gets **6 of 8 expected
+failures in both directions**, against 0 of 8 for the full protocol. **The criterion is met at
+campaign level, not inside this suite.**
+
+## A test-invocation error of mine, recorded
+
+The first `ptds` run through the new runner reported every property failing **including
+native**, with `cudaErrorInvalidConfiguration`. Not a system defect: the two suites have
+different signatures -- `semantic_conformance <threads> <iters> <seed>` against
+`ptds_conformance <threads> <iters> <BYTES> <seed>` -- and the runner passed the seed in the
+bytes position, launching one-byte kernels. **The native arm is what exposed it**: a defect that
+appears in native too is the harness, not the system. The runner now builds its argument list
+per suite, with the reason in a comment.
+
 # 4. What is claimed, and what is not
 
-**May be claimed now.** That stream ordering holds across four stream kinds and both
-compilations, 30 rows, 0 mismatches. That the driver-API `_ptsz` surface returns
-`cudaErrorNotSupported` and is therefore still stubbed, which the phase-1 fix did not cover.
+*(Superseded by §3b, which ran the control. Kept because it records what was and was not
+claimable before the measurement, and the second paragraph is exactly the claim the control
+would have refuted had it gone the other way.)*
 
-**May not be claimed.** Anything about `graph_ptds` or `event_crossstream` until the native arm
-runs. In particular the paper must **not** state that graph capture is broken through remoting:
-it fails in a variant that does not use the `_ptsz` surface, so a test bug is at least as likely
-until a control says otherwise.
+**Claimed after execution:**
 
-**Pending, and it is the whole of the remaining work**: run the three arms, add the fourth
-(injected-wrong), and re-read the three failures against the native column.
+- **Stream ordering is conformant.** Four stream kinds, both compilations, native control clean.
+- **The synchronous `_ptds` surface was eight silent stubs returning 71, and is now
+  implemented.** Found by this suite, localised by `nm -u`, fixed, and the suite goes 21/21 and
+  28/28 afterwards.
+- **`event_crossstream` is conformant**; its earlier intermittent failure was the same defect.
+- **The driver-API `_ptds` surface is still stubbed** -- `driver_ptds` fails only in the `ptsz`
+  arm, with native and `handle` clean.
+- **Stream capture does not survive remoting.** `graph_ptds` passes native and fails **both**
+  Gusto arms with `cudaErrorStreamCaptureInvalidated`. Newly established, not fixed.
+
+**Still may not be claimed:**
+
+- That this suite satisfies *"injected-wrong variants fail and only they"*. It does not: the
+  `pointer_keyed` arm activates and every property still passes, because the run makes only 9
+  RMA reservations. The criterion is met by `SLOT_LIFETIME_RESULTS.md` §B.1, elsewhere.
+- Any cause for the graph-capture defect. It is measured, not diagnosed.
+- Anything about threads beyond 1 and 8, or about the `ptds` suite at 8 threads (run at 1 only).
 
 Data: `results/asplos_campaign/ptds/` (58 rows audited above);
 `results/asplos_campaign/semantic_conformance/` (empty until execution). Suite

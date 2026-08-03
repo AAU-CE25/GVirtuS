@@ -188,26 +188,58 @@ __attribute__((visibility("default"))) cudaError_t_local cudaMemcpy2DFromArrayAs
 __attribute__((visibility("default"))) cudaError_t_local cudaMemcpy2DFromArray_ptds() { STUB_LOG("cudaMemcpy2DFromArray_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMemcpy2DToArrayAsync_ptsz() { STUB_LOG("cudaMemcpy2DToArrayAsync_ptsz"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMemcpy2DToArray_ptds() { STUB_LOG("cudaMemcpy2DToArray_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
-__attribute__((visibility("default"))) cudaError_t_local cudaMemcpy2D_ptds() { STUB_LOG("cudaMemcpy2D_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
+// RETIRADO 2026-08-03: implementado de verdad en CudaRt_ptsz.cpp. Lo
+// encontro tests/semantic/semantic_conformance.cu: el brazo ptsz fallaba las
+// cuatro propiedades de memoria SINCRONA con cudaErrorNotSupported (71)
+// mientras nativo y el brazo handle pasaban 7/7.
+// __attribute__((visibility("default"))) cudaError_t_local cudaMemcpy2D_ptds() { STUB_LOG("cudaMemcpy2D_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMemcpy3DPeer() { STUB_LOG("cudaMemcpy3DPeer"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMemcpy3DPeerAsync() { STUB_LOG("cudaMemcpy3DPeerAsync"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMemcpy3DPeerAsync_ptsz() { STUB_LOG("cudaMemcpy3DPeerAsync_ptsz"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMemcpy3DPeer_ptds() { STUB_LOG("cudaMemcpy3DPeer_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
-__attribute__((visibility("default"))) cudaError_t_local cudaMemcpy3D_ptds() { STUB_LOG("cudaMemcpy3D_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
+// RETIRADO 2026-08-03: implementado de verdad en CudaRt_ptsz.cpp. Lo
+// encontro tests/semantic/semantic_conformance.cu: el brazo ptsz fallaba las
+// cuatro propiedades de memoria SINCRONA con cudaErrorNotSupported (71)
+// mientras nativo y el brazo handle pasaban 7/7.
+// __attribute__((visibility("default"))) cudaError_t_local cudaMemcpy3D_ptds() { STUB_LOG("cudaMemcpy3D_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMemcpyArrayToArray_ptds() { STUB_LOG("cudaMemcpyArrayToArray_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMemcpyFromArrayAsync_ptsz() { STUB_LOG("cudaMemcpyFromArrayAsync_ptsz"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMemcpyFromArray_ptds() { STUB_LOG("cudaMemcpyFromArray_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
-__attribute__((visibility("default"))) cudaError_t_local cudaMemcpyFromSymbol_ptds() { STUB_LOG("cudaMemcpyFromSymbol_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
+// RETIRADO 2026-08-03: implementado de verdad en CudaRt_ptsz.cpp. Lo
+// encontro tests/semantic/semantic_conformance.cu: el brazo ptsz fallaba las
+// cuatro propiedades de memoria SINCRONA con cudaErrorNotSupported (71)
+// mientras nativo y el brazo handle pasaban 7/7.
+// __attribute__((visibility("default"))) cudaError_t_local cudaMemcpyFromSymbol_ptds() { STUB_LOG("cudaMemcpyFromSymbol_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMemcpyPeer() { STUB_LOG("cudaMemcpyPeer"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMemcpyToArrayAsync_ptsz() { STUB_LOG("cudaMemcpyToArrayAsync_ptsz"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMemcpyToArray_ptds() { STUB_LOG("cudaMemcpyToArray_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
-__attribute__((visibility("default"))) cudaError_t_local cudaMemcpyToSymbol_ptds() { STUB_LOG("cudaMemcpyToSymbol_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
-__attribute__((visibility("default"))) cudaError_t_local cudaMemcpy_ptds() { STUB_LOG("cudaMemcpy_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
-__attribute__((visibility("default"))) cudaError_t_local cudaMemset2D_ptds() { STUB_LOG("cudaMemset2D_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
+// RETIRADO 2026-08-03: implementado de verdad en CudaRt_ptsz.cpp. Lo
+// encontro tests/semantic/semantic_conformance.cu: el brazo ptsz fallaba las
+// cuatro propiedades de memoria SINCRONA con cudaErrorNotSupported (71)
+// mientras nativo y el brazo handle pasaban 7/7.
+// __attribute__((visibility("default"))) cudaError_t_local cudaMemcpyToSymbol_ptds() { STUB_LOG("cudaMemcpyToSymbol_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
+// RETIRADO 2026-08-03: implementado de verdad en CudaRt_ptsz.cpp. Lo
+// encontro tests/semantic/semantic_conformance.cu: el brazo ptsz fallaba las
+// cuatro propiedades de memoria SINCRONA con cudaErrorNotSupported (71)
+// mientras nativo y el brazo handle pasaban 7/7.
+// __attribute__((visibility("default"))) cudaError_t_local cudaMemcpy_ptds() { STUB_LOG("cudaMemcpy_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
+// RETIRADO 2026-08-03: implementado de verdad en CudaRt_ptsz.cpp. Lo
+// encontro tests/semantic/semantic_conformance.cu: el brazo ptsz fallaba las
+// cuatro propiedades de memoria SINCRONA con cudaErrorNotSupported (71)
+// mientras nativo y el brazo handle pasaban 7/7.
+// __attribute__((visibility("default"))) cudaError_t_local cudaMemset2D_ptds() { STUB_LOG("cudaMemset2D_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMemset3DAsync() { STUB_LOG("cudaMemset3DAsync"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMemset3DAsync_ptsz() { STUB_LOG("cudaMemset3DAsync_ptsz"); return CUDART_STUB_NOT_SUPPORTED; }
-__attribute__((visibility("default"))) cudaError_t_local cudaMemset3D_ptds() { STUB_LOG("cudaMemset3D_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
-__attribute__((visibility("default"))) cudaError_t_local cudaMemset_ptds() { STUB_LOG("cudaMemset_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
+// RETIRADO 2026-08-03: implementado de verdad en CudaRt_ptsz.cpp. Lo
+// encontro tests/semantic/semantic_conformance.cu: el brazo ptsz fallaba las
+// cuatro propiedades de memoria SINCRONA con cudaErrorNotSupported (71)
+// mientras nativo y el brazo handle pasaban 7/7.
+// __attribute__((visibility("default"))) cudaError_t_local cudaMemset3D_ptds() { STUB_LOG("cudaMemset3D_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
+// RETIRADO 2026-08-03: implementado de verdad en CudaRt_ptsz.cpp. Lo
+// encontro tests/semantic/semantic_conformance.cu: el brazo ptsz fallaba las
+// cuatro propiedades de memoria SINCRONA con cudaErrorNotSupported (71)
+// mientras nativo y el brazo handle pasaban 7/7.
+// __attribute__((visibility("default"))) cudaError_t_local cudaMemset_ptds() { STUB_LOG("cudaMemset_ptds"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMipmappedArrayGetMemoryRequirements() { STUB_LOG("cudaMipmappedArrayGetMemoryRequirements"); return CUDART_STUB_NOT_SUPPORTED; }
 __attribute__((visibility("default"))) cudaError_t_local cudaMipmappedArrayGetSparseProperties() { STUB_LOG("cudaMipmappedArrayGetSparseProperties"); return CUDART_STUB_NOT_SUPPORTED; }
 // cudaOccupancyAvailableDynamicSMemPerBlock: real impl in CudaRt_occupancy.cpp

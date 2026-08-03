@@ -145,4 +145,62 @@ __host__ cudaError_t CUDARTAPI cudaFreeAsync_ptsz(void *devPtr, cudaStream_t hSt
     return cudaFreeAsync(devPtr, ptsz_default(hStream));
 }
 
+// ---------------------------------------------------------------------------------------
+// Superficie _ptds: las variantes SINCRONAS del stream por defecto por hilo.
+//
+// Se anaden 2026-08-03, encontradas por tests/semantic/semantic_conformance.cu. El arreglo
+// de la fase 1 cubrio solo `_ptsz`, que es el sufijo de las llamadas ASINCRONAS; las
+// sincronas llevan `_ptds` y no tenian reenvio ninguno, asi que caian en el stub generico y
+// devolvian cudaErrorNotSupported (71). El sintoma no era un fallo ruidoso: un programa
+// compilado con --default-stream per-thread recibia 71 de cudaMemcpy y, si no comprobaba el
+// codigo, seguia con datos sin copiar.
+//
+// El test lo aisla sin ambiguedad: nativo 7/7 y `handle` 7/7 pasan, y solo el brazo `ptsz`
+// falla, en las cuatro propiedades que usan copia o memset SINCRONOS. `memset_ordered` pasa
+// porque usa las variantes Async, que si estaban reenviadas.
+//
+// Estas no llevan argumento de stream, asi que el reenvio es directo: la implementacion del
+// frontend ya es sincrona respecto al host, que es el contrato observable de una copia
+// bloqueante.
+__host__ cudaError_t CUDARTAPI cudaMemcpy_ptds(void *dst, const void *src, size_t count,
+                                               cudaMemcpyKind kind) {
+    return cudaMemcpy(dst, src, count, kind);
+}
+
+__host__ cudaError_t CUDARTAPI cudaMemcpy2D_ptds(void *dst, size_t dpitch, const void *src,
+                                                 size_t spitch, size_t width, size_t height,
+                                                 cudaMemcpyKind kind) {
+    return cudaMemcpy2D(dst, dpitch, src, spitch, width, height, kind);
+}
+
+__host__ cudaError_t CUDARTAPI cudaMemcpy3D_ptds(const cudaMemcpy3DParms *p) {
+    return cudaMemcpy3D(p);
+}
+
+__host__ cudaError_t CUDARTAPI cudaMemcpyToSymbol_ptds(const void *symbol, const void *src,
+                                                       size_t count, size_t offset,
+                                                       cudaMemcpyKind kind) {
+    return cudaMemcpyToSymbol(symbol, src, count, offset, kind);
+}
+
+__host__ cudaError_t CUDARTAPI cudaMemcpyFromSymbol_ptds(void *dst, const void *symbol,
+                                                         size_t count, size_t offset,
+                                                         cudaMemcpyKind kind) {
+    return cudaMemcpyFromSymbol(dst, symbol, count, offset, kind);
+}
+
+__host__ cudaError_t CUDARTAPI cudaMemset_ptds(void *devPtr, int value, size_t count) {
+    return cudaMemset(devPtr, value, count);
+}
+
+__host__ cudaError_t CUDARTAPI cudaMemset2D_ptds(void *devPtr, size_t pitch, int value,
+                                                 size_t width, size_t height) {
+    return cudaMemset2D(devPtr, pitch, value, width, height);
+}
+
+__host__ cudaError_t CUDARTAPI cudaMemset3D_ptds(cudaPitchedPtr pitchedDevPtr, int value,
+                                                 cudaExtent extent) {
+    return cudaMemset3D(pitchedDevPtr, value, extent);
+}
+
 }  // extern "C"

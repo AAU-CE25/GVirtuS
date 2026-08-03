@@ -28,16 +28,23 @@ mkdir -p "$OUT"
 cd "$HOME/GVirtuS" || exit 1
 IMG=ll33pq/cudf_gvirtus_dyncudf:cuda12.6
 TD=$HOME/GVirtuS/tests/semantic
+# Las dos suites NO tienen la misma firma y confundirlas hace que el test se autolesione:
+#   semantic_conformance  <hilos> <iters> <semilla> [solo]
+#   ptds_conformance      <hilos> <iters> <BYTES> <semilla> [solo]
+# Pasar la semilla en la posicion de bytes lanza kernels de 1 byte y todo devuelve
+# cudaErrorInvalidConfiguration -- en NATIVO tambien, que es como se detecto.
+BYTES="${BYTES:-1048576}"
 case "$SUITE" in
-  semantic) BIN=semantic_conformance ;;
-  ptds)     BIN=ptds_conformance ;;
+  semantic) BIN=semantic_conformance; ARGS="$HILOS $ITERS $SEM" ;;
+  ptds)     BIN=ptds_conformance;     ARGS="$HILOS $ITERS $BYTES $SEM" ;;
   *) echo "suite desconocida: $SUITE"; exit 2 ;;
 esac
+[ -n "$SOLO" ] && ARGS="$ARGS $SOLO"
 
 # --- brazo nativo: la GPU local, sin nada en medio -------------------------------------
 corre_nativo() {
   local et="$1" b="$2"
-  ( cd "$TD" && ./"$b" "$HILOS" "$ITERS" "$SEM" ${SOLO:+$SOLO} ) \
+  ( cd "$TD" && ./"$b" $ARGS ) \
       > "$OUT/${et}.log" 2>&1
   echo "  native exit=$?"
 }
@@ -58,7 +65,7 @@ corre_gusto() {
     -e GVIRTUS_RMA_MIN_BYTES=8192 -e GVIRTUS_RMA_SCALAR_FLOOR=8192 \
     -e GVS_ABLATE="$ablate" \
     -v "$PWD":/opt/GVirtuS:ro "$IMG" \
-    -c "ulimit -c 0; cd /opt/GVirtuS/tests/semantic && LD_PRELOAD=libcuda.so.1:libcudart.so.12 timeout 900 ./$b $HILOS $ITERS $SEM ${SOLO:+$SOLO}" \
+    -c "ulimit -c 0; cd /opt/GVirtuS/tests/semantic && LD_PRELOAD=libcuda.so.1:libcudart.so.12 timeout 900 ./$b $ARGS" \
     > "$OUT/${et}.log" 2>&1
   echo "  $et exit=$?"
 }
