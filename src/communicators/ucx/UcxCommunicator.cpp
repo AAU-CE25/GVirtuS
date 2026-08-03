@@ -3145,7 +3145,7 @@ void UcxCommunicator::handle_rma_setup_am(const void *data, size_t length) {
             idxs += b;
         }
         // hdr.status_code ES el epoch anunciado; `new_epoch` todavia no existe aqui.
-        std::fprintf(stderr, "[GVS IDX] epoch %u anuncia server_idx=[%s]\n",
+        std::fprintf(stderr, "[GVS IDX] epoch %u advertises server_idx=[%s]\n",
                      (unsigned)hdr.status_code, idxs.c_str());
         std::fflush(stderr);
     }
