@@ -22,8 +22,10 @@ already, while this document was being written.
 
 ## 1.1 Wire messages
 
-All four share one 40-byte `EnvelopeHeader` (`UcxAmProtocol.h:99`); the fields are reused per
-message type, which is why they need a table rather than a name.
+The three RMA messages share the same 40-byte `EnvelopeHeader` (`UcxAmProtocol.h:99`) as the
+ordinary `Request` / `Response` / `Error` traffic. Its fields are **reused with different
+meanings per message type**, which is why they need a table rather than a name -- `reserved0`,
+for instance, is the slot index on two of the three and unused on the first.
 
 | field | `RmaSetup` | `RmaPosted` | `SlotConsumed` |
 |---|---|---|---|
@@ -123,11 +125,12 @@ configuration. It exists to bound the quadrant policy.
 
 **`InFlight` means "the server may still be reading it", not "a put is outstanding."** The
 return to `Free` is driven by the server's `SlotConsumed`, **not** by local put completion --
-`ucp_put_nbx` completing means only that the source buffer may be reused. Every acknowledgement
-that fails either test is dropped, and each drop increments its own counter.
+`ucp_put_nbx` completing means only that the source buffer may be reused. The two tests fail **differently**, and the difference matters: the epoch guard `return`s -- the
+acknowledgement never reaches the slot loop -- while the generation guard simply does not apply
+it, leaving the slot `InFlight`. Both increment their own counter; neither ever frees.
 
 Two exits are not transitions: a transfer that finds no slot large enough **declines** to the
-active-message path (`decline_capacity`, 74 observed over 14.78 M operations), and a transfer
+active-message path (`decline_capacity`, **74 over 2 643 921 RMA admissions**), and a transfer
 that throws returns its slot to `Free` via RAII so a leak can never wedge backpressure.
 
 ## 3.2 A layout
@@ -167,7 +170,7 @@ re-enters the worker lock UCX already holds.
 | **I6** | An rkey is never destroyed from inside the AM callback | retire into `retired_rkeys_` (`:3108`), freed by `drain_retired_rkeys()` | the deadlock it avoids is documented at the call site |
 | **I7** | The peer's temporary (eager-AM) slots are never written | `persistent` flag; acquire requires `!any_persistent \|\| persistent` | -- |
 | **I8** | A transfer never exceeds slot capacity | acquire requires `capacity >= total`; else decline to AM | `decline_capacity` = **74** in 2 643 921 admissions |
-| **I9** | Backpressure terminates | acquire **polls**, and stops early when every slot is free and none fits | the 30 s stall this replaced is measured: 30 470 ms -> 41 ms |
+| **I9** | Backpressure terminates | acquire **polls**, and stops early when every slot is free and none fits | **30 470 ms -> 41 ms**, recorded at the call site (round 0 of `concgrow`); this figure is quoted from the code comment, not re-derived here |
 | **I10** | **NIC writes to GPU memory are visible to the CUDA context that reads them** | **not discharged -- see §6** | -- |
 
 **On I3 and I4 the honest reading is layered, not redundant.** Ablating I3 alone changes
