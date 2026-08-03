@@ -1,0 +1,11 @@
+# Per-process CUDA primary-context device footprint. Probe: ctx_probe.cu (cudaFree(0) only).
+# Sampled with nvidia-smi at 1 Hz over the process lifetime; per_process = (peak-baseline)/K.
+# Measured 2026-08-03 by the verification pass. dpu-01 = backend GPU, dpu-02 = native GPU.
+host,gpu_role,mps,K,baseline_mib,peak_mib,per_process_mib
+dpu-01,backend,no,1,515,946,431
+dpu-01,backend,no,2,515,1377,431
+dpu-01,backend,no,4,515,2240,431
+dpu-02,native,daemon_running,1,37,466,429
+dpu-02,native,daemon_running,2,37,896,429
+dpu-02,native,daemon_running,4,37,1754,429
+dpu-02,native,pipe_dir_unreachable,2,37,896,429
