@@ -811,7 +811,7 @@ void drena_liberaciones_aplazadas() {
         }
         if (l.gpu != nullptr && libera_gpu != nullptr) libera_gpu(l.gpu);
     }
-    ucx_debug_log("captura: drenadas %zu liberaciones aplazadas", lote.size());
+    ucx_debug_log("capture: drained %zu deferred releases", lote.size());
 }
 }
 
@@ -2890,8 +2890,8 @@ void UcxCommunicator::send_rma_setup() {
                 static std::once_flag gvs_aviso_vis;
                 std::call_once(gvs_aviso_vis, [] {
                     std::fprintf(stderr,
-                        "[GVS VIS] la sombra de GPU NO se anuncia: visibilidad NIC->GPU %s. "
-                        "Las transferencias grandes van por el slot de host\n",
+                        "[GVS VIS] GPU shadow NOT advertised: NIC->GPU visibility is %s. "
+                        "Large transfers will use the host slot\n",
                         gvirtus::communicators::nombre(gvirtus::communicators::modo()));
                     std::fflush(stderr);
                 });
@@ -3394,7 +3394,7 @@ void UcxCommunicator::destroy_rma_state() {
     gvirtus::communicators::informa("teardown");
     if (g_a1_asumidas.load() || g_a1_flushes.load() || g_a1_declinadas.load()) {
         std::fprintf(stderr,
-            "[GVS VIS] A1 teardown: politica=%s asumidas=%llu flushes=%llu declinadas=%llu\n",
+            "[GVS VIS] A1 teardown: policy=%s assumed=%llu flushes=%llu declined=%llu\n",
             gvs_a1_nombre(gvs_a1_politica()),
             (unsigned long long)g_a1_asumidas.load(),
             (unsigned long long)g_a1_flushes.load(),

@@ -8,9 +8,9 @@
 
 static const char *orden(int v) {
     switch (v) {
-        case 0:   return "NONE       (ninguna garantia: hace falta flush)";
-        case 100: return "OWNER      (ordenado hacia la GPU duena del BAR)";
-        case 200: return "ALL_DEVICES(ordenado hacia todos los dispositivos)";
+        case 0:   return "NONE        (no guarantee: a flush is required)";
+        case 100: return "OWNER       (ordered w.r.t. the GPU owning the BAR)";
+        case 200: return "ALL_DEVICES (ordered w.r.t. all devices)";
         default:  return "??";
     }
 }
@@ -34,10 +34,10 @@ int main() {
     std::printf("  GPU_DIRECT_RDMA_WRITES_ORDERING  = %-4d -> %s   (rc=%d)\n",
                 ordering, orden(ordering), r3);
     std::printf("  GPU_DIRECT_RDMA_FLUSH_WRITES_OPTIONS = 0x%x  (rc=%d)\n", opciones, r2);
-    std::printf("      bit HOST   (cuFlushGPUDirectRDMAWrites desde el host) : %s\n",
-                (opciones & CU_FLUSH_GPU_DIRECT_RDMA_WRITES_OPTION_HOST) ? "SI" : "no");
-    std::printf("      bit MEMOPS (flush como memop en un stream)            : %s\n",
-                (opciones & CU_FLUSH_GPU_DIRECT_RDMA_WRITES_OPTION_MEMOPS) ? "SI" : "no");
+    std::printf("      bit HOST   (cuFlushGPUDirectRDMAWrites from the host) : %s\n",
+                (opciones & CU_FLUSH_GPU_DIRECT_RDMA_WRITES_OPTION_HOST) ? "YES" : "no");
+    std::printf("      bit MEMOPS (flush as a stream memop)                  : %s\n",
+                (opciones & CU_FLUSH_GPU_DIRECT_RDMA_WRITES_OPTION_MEMOPS) ? "YES" : "no");
 
     // �Cuanto cuesta el flush del host? Es el numero que decide si el modo explicito es
     // pagable por transferencia o solo por lote.
@@ -57,10 +57,10 @@ int main() {
             auto t1 = std::chrono::steady_clock::now();
             double us = std::chrono::duration_cast<std::chrono::nanoseconds>(t1-t0).count()
                         / 1000.0 / N;
-            std::printf("  coste medio del flush = %.3f us  (%d repeticiones)\n", us, N);
+            std::printf("  mean flush cost = %.3f us  (%d repetitions)\n", us, N);
         }
     } else {
-        std::printf("\n  el bit HOST no esta: cuFlushGPUDirectRDMAWrites no es aplicable aqui\n");
+        std::printf("\n  the HOST bit is absent: cuFlushGPUDirectRDMAWrites does not apply here\n");
     }
     cuCtxDestroy(ctx);
     return 0;

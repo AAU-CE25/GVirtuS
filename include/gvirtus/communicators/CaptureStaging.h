@@ -138,7 +138,7 @@ inline void *reserva_locked(unsigned long long id, size_t count) {
     l->copias.push_back(Copia{p, count});
     ++n_staged(); n_bytes() += count;
     if (traza_activa())
-        std::fprintf(stderr, "[CAPSTG] reserva cid=%llu k=%zu bytes=%zu buf=%p\n",
+        std::fprintf(stderr, "[CAPSTG] reserve cid=%llu k=%zu bytes=%zu buf=%p\n",
                      id, l->copias.size() - 1, count, p);
     return p;
 }
@@ -151,7 +151,7 @@ inline void *stage_host(unsigned long long id, const void *src, size_t count) {
     if (p == nullptr) return nullptr;
     std::memcpy(p, src, count);
     if (traza_activa())
-        std::fprintf(stderr, "[CAPSTG] stage_host bytes=%zu primer=0x%02X\n",
+        std::fprintf(stderr, "[CAPSTG] stage_host bytes=%zu first=0x%02X\n",
                      count, ((const unsigned char *)src)[0]);
     return p;
 }
@@ -178,7 +178,7 @@ inline void *stage_dev(unsigned long long id, const void *src, size_t count,
     if (p == nullptr) return nullptr;
     const cudaError_t ec = cudaMemcpyAsync(p, src, count, cudaMemcpyDeviceToHost, interno);
     if (traza_activa())
-        std::fprintf(stderr, "[CAPSTG] stage_dev bytes=%zu src=%p ec=%d primer=0x%02X\n",
+        std::fprintf(stderr, "[CAPSTG] stage_dev bytes=%zu src=%p ec=%d first=0x%02X\n",
                      count, src, (int)ec, ((const unsigned char *)p)[0]);
     if (ec != cudaSuccess) {
         // El buffer se queda en el lote: liberarlo aqui desalinearia los indices, y el lote
@@ -199,7 +199,7 @@ inline void *stage_salida(unsigned long long id, size_t count) {
     l->salidas.push_back(Copia{p, count});
     ++n_staged(); n_bytes() += count;
     if (traza_activa())
-        std::fprintf(stderr, "[CAPSTG] salida cid=%llu j=%zu bytes=%zu buf=%p\n",
+        std::fprintf(stderr, "[CAPSTG] output cid=%llu j=%zu bytes=%zu buf=%p\n",
                      id, l->salidas.size() - 1, count, p);
     return p;
 }
@@ -227,14 +227,14 @@ inline bool refresca(cudaGraphExec_t e, size_t k, const void *src, size_t bytes)
     if (k >= cs.size() || cs[k].bytes != bytes || cs[k].buf == nullptr) {
         ++n_refresh_ko();
         if (traza_activa())
-            std::fprintf(stderr, "[CAPSTG] refresca RECHAZADO exec=%p k=%zu bytes=%zu copias=%zu\n",
+            std::fprintf(stderr, "[CAPSTG] refresh REJECTED exec=%p k=%zu bytes=%zu inputs=%zu\n",
                          (void*)e, k, bytes, cs.size());
         return false;
     }
     std::memcpy(cs[k].buf, src, bytes);
     ++n_refresh(); n_refresh_b() += bytes;
     if (traza_activa())
-        std::fprintf(stderr, "[CAPSTG] refresca exec=%p k=%zu bytes=%zu primer=0x%02X\n",
+        std::fprintf(stderr, "[CAPSTG] refresh exec=%p k=%zu bytes=%zu first=0x%02X\n",
                      (void*)e, k, bytes, ((const unsigned char *)src)[0]);
     return true;
 }
@@ -262,7 +262,7 @@ inline bool refresca_desde_device(cudaGraphExec_t e, size_t k, const void *gpu_s
     }
     ++n_refresh(); n_refresh_b() += bytes;
     if (traza_activa())
-        std::fprintf(stderr, "[CAPSTG] refresca(sombra) exec=%p k=%zu bytes=%zu primer=0x%02X\n",
+        std::fprintf(stderr, "[CAPSTG] refresh(shadow) exec=%p k=%zu bytes=%zu first=0x%02X\n",
                      (void*)e, k, bytes, ((const unsigned char *)cs[k].buf)[0]);
     return true;
 }
@@ -296,8 +296,8 @@ inline void exec_destruido(cudaGraphExec_t e) {
 inline void informa(const char *quien) {
     if (n_staged() == 0 && n_refresh() == 0) return;
     std::fprintf(stderr,
-                 "[GVS CAPTURA] %s: %llu copias sacadas del slot (%llu B), "
-                 "%llu refrescos aplicados (%llu B), %llu rechazados\n",
+                 "[GVS CAPTURE] %s: %llu copies staged out of the slot (%llu B), "
+                 "%llu refreshes applied (%llu B), %llu rejected\n",
                  quien, n_staged(), n_bytes(), n_refresh(), n_refresh_b(), n_refresh_ko());
     std::fflush(stderr);
 }

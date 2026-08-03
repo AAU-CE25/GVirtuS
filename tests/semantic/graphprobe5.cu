@@ -22,7 +22,7 @@ int main(int argc, char**argv){
     cudaFree(0);
     for (size_t n : {(size_t)1024,(size_t)1536,(size_t)4096,(size_t)65536}) celda(n, warm);
     // segunda pasada: los tamanos ya se han visto TODOS
-    std::printf("-- segunda pasada --\n");
+    std::printf("-- second pass --\n");
     for (size_t n : {(size_t)1024,(size_t)1536,(size_t)4096,(size_t)65536}) celda(n, 0);
     return 0;
 }

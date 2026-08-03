@@ -8,9 +8,9 @@ static void celda(size_t nb) {
     cudaGetLastError();
     cudaStreamBeginCapture(s, cudaStreamCaptureModeThreadLocal);
     cudaMemcpyAsync(d, h, nb, cudaMemcpyHostToDevice, s);
-    cudaError_t dentro = cudaGetLastError();
+    cudaError_t inside = cudaGetLastError();
     cudaError_t e = cudaStreamEndCapture(s, &g);
-    std::printf("PROBE4,%8zu,end=%s,dentro=%s\n", nb, cudaGetErrorName(e), cudaGetErrorName(dentro));
+    std::printf("PROBE4,%8zu,end=%s,inside=%s\n", nb, cudaGetErrorName(e), cudaGetErrorName(inside));
     std::fflush(stdout);
     if (e == cudaSuccess && g) cudaGraphDestroy(g);
     cudaFree(d); cudaFreeHost(h); cudaStreamDestroy(s); cudaGetLastError();

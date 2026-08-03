@@ -31,11 +31,11 @@ static void celda(const char *nombre, int con_h2d, int con_kernel, int con_d2h, 
 }
 int main(){
     cudaFree(0);
-    celda("solo kernels",        0,1,0,0);
+    celda("kernels only",        0,1,0,0);
     celda("H2D",                 1,0,0,0);
     celda("H2D+kernels",         1,1,0,0);
-    celda("solo D2H",            0,0,1,0);
+    celda("D2H only",            0,0,1,0);
     celda("H2D+kernels+D2H",     1,1,1,0);
-    celda("todo + GraphUpload",  1,1,1,1);
+    celda("all + GraphUpload",  1,1,1,1);
     return 0;
 }

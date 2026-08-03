@@ -24,13 +24,13 @@ int main(){
     cudaError_t el=cudaGraphLaunch(ge,s);
     cudaError_t es=cudaStreamSynchronize(s);
     unsigned char out=0; cudaMemcpy(&out,d,1,cudaMemcpyDeviceToHost);
-    std::printf("SEM,launch1=%s sync=%s device=0x%02X (esperado 0xAA)\n",
+    std::printf("SEM,launch1=%s sync=%s device=0x%02X (expected 0xAA)\n",
                 cudaGetErrorName(el),cudaGetErrorName(es),out);
     // lanzamiento 2: el origen CAMBIA
     std::memset(h,0xBB,N);
     cudaGraphLaunch(ge,s); cudaStreamSynchronize(s);
     out=0; cudaMemcpy(&out,d,1,cudaMemcpyDeviceToHost);
     std::printf("SEM,launch2 device=0x%02X -> %s\n", out,
-                out==0xBB?"CORRECTO (lee en el lanzamiento)":"INCORRECTO (bytes viejos)");
+                out==0xBB?"CORRECT (reads at launch)":"WRONG (stale bytes)");
     return 0;
 }

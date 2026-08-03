@@ -29,9 +29,9 @@ int main(){
         if (ge) cudaGraphExecDestroy(ge);
         if (g)  cudaGraphDestroy(g);
         cudaStreamDestroy(s); cudaGetLastError();
-        if ((it+1)%25==0) { std::printf("LEAK,iter=%d malos=%d\n",it+1,malos); std::fflush(stdout); }
+        if ((it+1)%25==0) { std::printf("LEAK,iter=%d bad=%d\n",it+1,malos); std::fflush(stdout); }
     }
-    std::printf("LEAK,FIN malos=%d\n",malos);
+    std::printf("LEAK,END bad=%d\n",malos);
     cudaFree(d); cudaFreeHost(hi); cudaFreeHost(ho);
     return malos==0?0:1;
 }

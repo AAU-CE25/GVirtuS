@@ -174,19 +174,19 @@ inline void detecta_una_vez() {
             else if (std::strcmp(f, "stream_flush")== 0) s.modo = Visibilidad::FlushStream;
             else if (std::strcmp(f, "unsupported") == 0) s.modo = Visibilidad::NoSoportada;
             if (s.modo != antes)
-                std::fprintf(stderr, "[GVS VIS] *** MODO FORZADO %s -> %s: la deteccion dice "
-                                     "%s. Ninguna afirmacion de correccion vale con esto puesto\n",
+                std::fprintf(stderr, "[GVS VIS] *** MODE FORCED %s -> %s: detection says %s. "
+                                     "No correctness claim holds with this set\n",
                              nombre(antes), nombre(s.modo), nombre(antes));
         }
 
         std::fprintf(stderr,
-            "[GVS VIS] NIC->GPU: supported=%d ordering=%d(%s) flush_opts=0x%x -> modo %s%s\n",
+            "[GVS VIS] NIC->GPU: supported=%d ordering=%d(%s) flush_opts=0x%x -> mode %s%s\n",
             s.supported, s.ordering,
             s.ordering == kOrderingNone ? "NONE" :
             s.ordering == kOrderingOwner ? "OWNER" :
             s.ordering == kOrderingAllDevices ? "ALL_DEVICES" : "?",
             s.flush_opts, nombre(s.modo),
-            ablacion_activa() ? "  [ABLACION: la obligacion se detecta y NO se cumple]" : "");
+            ablacion_activa() ? "  [ABLATED: obligation detected and deliberately NOT discharged]" : "");
         std::fflush(stderr);
         s.listo.store(true);
     });
@@ -241,12 +241,12 @@ inline void informa(const char *quien) {
     if (!s.listo.load()) return;
     if (s.descargas.load() == 0 && s.declinados.load() == 0) return;
     std::fprintf(stderr,
-        "[GVS VIS] %s: modo=%s descargas=%llu fallos_flush=%llu declinados=%llu%s\n",
+        "[GVS VIS] %s: mode=%s discharges=%llu flush_failures=%llu declined=%llu%s\n",
         quien, nombre(s.modo),
         (unsigned long long)s.descargas.load(),
         (unsigned long long)s.fallos_flush.load(),
         (unsigned long long)s.declinados.load(),
-        ablacion_activa() ? "  [ABLADA]" : "");
+        ablacion_activa() ? "  [ABLATED]" : "");
     std::fflush(stderr);
 }
 

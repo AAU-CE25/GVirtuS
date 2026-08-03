@@ -18,7 +18,7 @@ static void *g_pin = nullptr;
         { accion; }                                                           \
         cudaError_t e = cudaStreamEndCapture(s, &g);                          \
         std::printf("%-46s %s\n", nombre,                                     \
-            e == cudaSuccess ? "OK  (no invalida)" : cudaGetErrorName(e));    \
+            e == cudaSuccess ? "OK  (does not invalidate)" : cudaGetErrorName(e));    \
         if (e == cudaSuccess && g) cudaGraphDestroy(g);                       \
         cudaStreamDestroy(s); cudaGetLastError();                             \
     } while (0)
@@ -28,22 +28,22 @@ int main() {
     cudaStreamCreateWithFlags(&g_otro, cudaStreamNonBlocking);
     cudaMalloc(&g_dev, 1 << 20); cudaMalloc(&g_dev2, 1 << 20);
     cudaHostAlloc(&g_pin, 1 << 20, cudaHostAllocDefault);
-    std::printf("=== TABLA DE VERDAD DE CAPTURA (ThreadLocal, hilo que captura) ===\n");
+    std::printf("=== CAPTURE TRUTH TABLE (ThreadLocal, capturing thread) ===\n");
 
-    CASO("nada (control)", (void)0);
+    CASO("nothing (control)", (void)0);
     CASO("cudaMalloc / cudaFree", { void*p=nullptr; cudaMalloc(&p,4096); cudaFree(p); });
-    CASO("cudaMalloc solo", { void*p=nullptr; cudaMalloc(&p,4096); (void)p; });
-    CASO("cudaFree solo", { void*p=nullptr; cudaMalloc(&p,4096); cudaStreamEndCapture; cudaFree(p); });
-    CASO("cudaHostAlloc solo", { void*p=nullptr; cudaHostAlloc(&p,4096,0); (void)p; });
-    CASO("cudaFreeHost solo", { void*p=nullptr; cudaHostAlloc(&p,4096,0); cudaFreeHost(p); });
-    CASO("malloc/free (host puro)", { void*p=std::malloc(4096); std::free(p); });
-    CASO("cudaMemcpyAsync en OTRO stream", cudaMemcpyAsync(g_dev2,g_pin,4096,cudaMemcpyHostToDevice,g_otro));
-    CASO("cudaMemcpyAsync D2D en OTRO stream", cudaMemcpyAsync(g_dev2,g_dev,4096,cudaMemcpyDeviceToDevice,g_otro));
-    CASO("cudaStreamSynchronize(OTRO stream)", cudaStreamSynchronize(g_otro));
+    CASO("cudaMalloc alone", { void*p=nullptr; cudaMalloc(&p,4096); (void)p; });
+    CASO("cudaFree alone", { void*p=nullptr; cudaMalloc(&p,4096); cudaStreamEndCapture; cudaFree(p); });
+    CASO("cudaHostAlloc alone", { void*p=nullptr; cudaHostAlloc(&p,4096,0); (void)p; });
+    CASO("cudaFreeHost alone", { void*p=nullptr; cudaHostAlloc(&p,4096,0); cudaFreeHost(p); });
+    CASO("malloc/free (pure host)", { void*p=std::malloc(4096); std::free(p); });
+    CASO("cudaMemcpyAsync on ANOTHER stream", cudaMemcpyAsync(g_dev2,g_pin,4096,cudaMemcpyHostToDevice,g_otro));
+    CASO("cudaMemcpyAsync D2D on ANOTHER stream", cudaMemcpyAsync(g_dev2,g_dev,4096,cudaMemcpyDeviceToDevice,g_otro));
+    CASO("cudaStreamSynchronize(OTHER stream)", cudaStreamSynchronize(g_otro));
     CASO("cudaDeviceSynchronize", cudaDeviceSynchronize());
     CASO("cudaStreamCreateWithFlags/Destroy", { cudaStream_t x; cudaStreamCreateWithFlags(&x,cudaStreamNonBlocking); cudaStreamDestroy(x); });
     CASO("cudaEventCreateWithFlags/Destroy", { cudaEvent_t x; cudaEventCreateWithFlags(&x,cudaEventDisableTiming); cudaEventDestroy(x); });
-    CASO("cudaEventRecord(OTRO)+Query hasta listo", {
+    CASO("cudaEventRecord(OTHER)+Query until ready", {
         cudaEvent_t x; cudaEventCreateWithFlags(&x,cudaEventDisableTiming);
         cudaMemcpyAsync(g_dev2,g_dev,4096,cudaMemcpyDeviceToDevice,g_otro);
         cudaEventRecord(x,g_otro);
@@ -51,6 +51,6 @@ int main() {
         cudaEventDestroy(x); });
     CASO("cudaPointerGetAttributes", { cudaPointerAttributes a; cudaPointerGetAttributes(&a,g_dev); });
     CASO("cudaGetLastError", cudaGetLastError());
-    CASO("cudaMemcpy SINCRONO (H2D)", cudaMemcpy(g_dev2,g_pin,4096,cudaMemcpyHostToDevice));
+    CASO("cudaMemcpy SYNCHRONOUS (H2D)", cudaMemcpy(g_dev2,g_pin,4096,cudaMemcpyHostToDevice));
     return 0;
 }
