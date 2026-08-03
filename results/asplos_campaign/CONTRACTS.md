@@ -242,7 +242,8 @@ we perform none.
 > **We do not claim that Gusto guarantees NIC-to-GPU visibility.** We claim that on the
 > evaluated configuration -- ConnectX-7, RoCEv2 200 GbE, **UCX 1.20.0**, drivers 580.95.05 and
 > 560.35.05, a single RC lane per connection -- **no visibility failure was observed across
-> 2.64 M RMA admissions with end-to-end checksum validation**, and that the two assumptions A1
+> 2.64 M RMA admissions**, of which the subset carrying end-to-end verification (XSBench,
+> identical checksum 408237 across every arm including native) is bit-exact -- and that A1
 > and A2 above are **configuration-dependent and neither negotiated nor checked at runtime**.
 
 Three consequences we accept and state:

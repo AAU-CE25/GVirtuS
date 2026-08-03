@@ -108,7 +108,8 @@ across paragraphs is how a paper becomes indefensible under review.
   Workload-dependent, and the dependence is the point. Since 2026-08-03 it also travels with its
   cause and its remedy (§3b), so it must never be written as an unexplained defect.
 - **GPU-resident RMA.** *"No visibility failure across 2.64 M RMA admissions with end-to-end
-  checksum validation, on UCX 1.20.0 with a single RC lane -- we do not claim the general
+  admissions, with the verifying subset bit-exact, on UCX 1.20.0 with a single RC lane -- we do
+  not claim the general
   guarantee."* The bound is not optional garnish: without it the sentence asserts an ordering
   property the UCX API does not provide (`CONTRACTS.md` §6).
 

@@ -438,7 +438,8 @@ NIC peer-DMAs into device memory and a CUDA read consumes it with only an active
 between. **We do not claim that visibility is guaranteed.** The ordering it relies on is not a
 UCX guarantee -- `ucp_put_nbx` completion is *local* -- it holds because both operations take one
 RC queue pair, and it is not negotiated or checked at runtime. What is claimed: **no visibility
-failure across 2.64 M RMA admissions with end-to-end checksum validation, on UCX 1.20.0 with a
+failure across 2.64 M RMA admissions, with the verifying subset (XSBench, identical checksum
+408237 across every arm) bit-exact, on UCX 1.20.0 with a
 single RC lane**. See `CONTRACTS.md` §6, where this is invariant I10, stated as a bounded
 assumption and deliberately kept outside the table of nine that *are* discharged.
 

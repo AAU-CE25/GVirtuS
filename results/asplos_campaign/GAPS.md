@@ -163,7 +163,8 @@ checksums (408237) across every arm, and 2 643 921 RMA admissions over 14.78 M o
 no corruption attributable to ordering.
 
 **The claim, reduced to the evidence.** *"No visibility failure was observed across 2.64 M RMA
-admissions with end-to-end checksum validation, on ConnectX-7 / RoCEv2, **UCX 1.20.0**, drivers
+admissions, with the verifying subset (XSBench, identical checksum 408237 across every arm)
+bit-exact, on ConnectX-7 / RoCEv2, **UCX 1.20.0**, drivers
 580.95.05 and 560.35.05, one RC lane per connection -- and A1 and A2 are configuration-dependent,
 neither negotiated nor checked at runtime."* **Not** a guarantee, and not portable across UCX or
 driver versions without re-validation.

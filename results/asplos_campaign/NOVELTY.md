@@ -100,7 +100,8 @@ active message is observed only after the RDMA WRITE has landed (not a UCX guara
 completion is *local*; it holds here because both travel one RC queue pair), and **A2**, the
 GPUDirect read-after-write question, for which we perform no flush. What the paper claims is
 therefore *"no visibility failure was observed across 2.64 M RMA admissions with end-to-end
-checksum validation, on UCX 1.20.0 with a single RC lane"*, together with the statement that
+admissions, with the verifying subset bit-exact, on UCX 1.20.0 with a single RC lane"*,
+together with the statement that
 both assumptions are configuration-dependent and neither negotiated nor checked at runtime.
 **Not** a guarantee. §6.5 names what would discharge it -- capability negotiation plus a
 *conditional* flush -- and prices the flush at the measured **1.9x issue time**.
