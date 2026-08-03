@@ -1,0 +1,14 @@
+{
+  "label": "guard_on_r2",
+  "commit": "8e838655c0aaf3fcdd3e7a5a313a60ca7fbeece5",
+  "dirty_files": 21,
+  "branch": "exp/asplos-correctness-campaign",
+  "image": "ll33pq/cudf_gvirtus_dyncudf:cuda12.6",
+  "command": "/opt/GVirtuS/examples/rmatest/epochharm 40",
+  "env_overrides": {"GVIRTUS_RMA_MIN_BYTES":"8192","GVIRTUS_RMA_SCALAR_FLOOR":"8192","GVIRTUS_ASYNC_DISPATCH":"1"},
+  "start": "2026-08-03T00:52:35+00:00", "end": "2026-08-03T00:52:37+00:00", "wall_ms": 1923.9,
+  "exit_code": 0,
+  "log": "results/asplos_campaign/epoch/guard_on_r2.log",
+  "log_md5": "22e38dbb387ccf84ae61bcffbf554ca2",
+  "counters": {"slots_total":8,"peak_inflight":7,"reservations":320,"waited":0,"wait_us_avg":0.05,"admit_rma":320,"admit_am":379,"rma_pct":45.78,"rma_fellback":0,"decline_capacity":0,"decline_timeout":0,"decline_swap":0,"decline_epfail":0,"ack_sent":0,"ack_gen_mismatch":0,"ack_on_free":0,"ack_epoch_dropped":0,"parked":1}
+}

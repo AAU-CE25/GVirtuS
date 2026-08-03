@@ -1,0 +1,21 @@
+DEBUG: protocol string is [ucx]
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS IDX] epoch 1 anuncia server_idx=[0,1,2,3,4,5,6,7]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+UCX control-plane connected: Connect (25.25.25.2:32222)
+DEBUG: protocol string is [ucx]
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS IDX] epoch 1 anuncia server_idx=[0,1,2,3,4,5,6,7]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GVS ABLATE] *** guarda de epoch DESACTIVADA -- variante DEFECTUOSA a proposito
+[GVS IDX] epoch 2 anuncia server_idx=[9,10,11,12,13,14,15,16]
+[GVS] rma_setup: epoch 2 arrived, 7/8 slots in flight -> PARK
+[GVS] rma_setup: epoch 2 PARKED (transfers in flight), park #1
+[GVS] rma_setup: epoch 2 INSTALLED after park
+[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
+[GVS] rma coste: reservas=320 (esperaron 0) media=0.05us | cache de registro: aciertos=152 fallos=8 (95.0%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=1
+GUSTO_METRIC tag=teardown slots_total=8 peak_inflight=7 avg_inflight=3.280 peak_waiters=0 reservations=320 waited=0 wait_us_avg=0.05 admit_rma=320 admit_am=379 rma_pct=45.78 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=320 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=1
+UCX control-plane connected: Connect (25.25.25.2:32222)
+epochharm: iters=40 fase1=2097152 fase2=6291456 buffers=8
+RESULTADO iters=40 cambios_de_tamano=20 bytes_malos=0 -> sin corrupcion
