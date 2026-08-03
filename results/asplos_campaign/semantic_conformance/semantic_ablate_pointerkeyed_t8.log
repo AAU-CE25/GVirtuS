@@ -1,14 +1,14 @@
 DEBUG: protocol string is [ucx]
 [GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS IDX] epoch 1 anuncia server_idx=[]
+[GVS IDX] epoch 1 advertises server_idx=[]
 [GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
 UCX control-plane connected: Connect (25.25.25.2:32222)
 DEBUG: protocol string is [ucx]
 [GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS IDX] epoch 1 anuncia server_idx=[]
+[GVS IDX] epoch 1 advertises server_idx=[]
 [GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
 [GVS ABLATE] *** cache de registro POR DIRECCION, sin invalidacion en free -- variante DEFECTUOSA a proposito
-# variant=handle threads=8 iters=18 seed=2 clases=9
+# variant=handle threads=8 iters=18 seed=1 clases=9
 UCX control-plane connected: Connect (25.25.25.2:32222)
 DEBUG: protocol string is [ucx]
 DEBUG: protocol string is [ucx]
@@ -16,8 +16,8 @@ DEBUG: protocol string is [ucx]
 DEBUG: protocol string is [ucx]
 DEBUG: protocol string is [ucx]
 DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
+DEBUG: protocol string is [DEBUG: protocol string is [ucx]ucx]
+
 [GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
 [GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
 [GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
@@ -26,7 +26,7 @@ DEBUG: protocol string is [ucx]
 [GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
 [GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
 [GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS IDX] epoch 1 anuncia server_idx=[]
+[GVS IDX] epoch 1 advertises server_idx=[]
 [GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
 [GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
 [GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
@@ -37,12 +37,60 @@ DEBUG: protocol string is [ucx]
 [GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
 [GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
 [GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
+[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
 [GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
 [GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
 [GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS IDX] epoch 1 anuncia server_idx=[]
+[GVS IDX] epoch 1 advertises server_idx=[]
 [GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
+[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
+[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
 [GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
 [GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
 [GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
@@ -56,9 +104,9 @@ DEBUG: protocol string is [ucx]
 [GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
 [GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
 [GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS IDX] epoch 1 anuncia server_idx=[]
+[GVS IDX] epoch 1 advertises server_idx=[]
 [GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
 [GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
 [GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
 [GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
@@ -72,57 +120,9 @@ DEBUG: protocol string is [ucx]
 [GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
 [GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
 [GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
 [GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
-[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
-[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
-[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 1 anuncia server_idx=[]
+[GVS IDX] epoch 1 advertises server_idx=[]
 [GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
 [GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
 [GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
@@ -136,9 +136,9 @@ DEBUG: protocol string is [ucx]
 [GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
 [GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
 [GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS IDX] epoch 1 anuncia server_idx=[]
+[GVS IDX] epoch 1 advertises server_idx=[]
 [GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
 [GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
 [GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
 [GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
@@ -152,7 +152,7 @@ DEBUG: protocol string is [ucx]
 [GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
 [GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
 [GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
 [GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
 UCX control-plane connected: Connect (25.25.25.2:32222)
 UCX control-plane connected: Connect (25.25.25.2:32222)
@@ -162,8 +162,7 @@ UCX control-plane connected: Connect (25.25.25.2:32222)
 UCX control-plane connected: Connect (25.25.25.2:32222)
 UCX control-plane connected: Connect (25.25.25.2:32222)
 UCX control-plane connected: Connect (25.25.25.2:32222)
-CSVROW,roundtrip_pinned,handle,8,2,18,1,0,none,1495.333
-INFO - Parsing endpoint config from: /opt/GVirtuS/etc/properties_ucx.json
+CSVROW,roundtrip_pinned,handle,8,1,18,1,0,none,1488.814
 INFO - Parsing endpoint config from: /opt/GVirtuS/etc/properties_ucx.json
 INFO - Parsing endpoint config from: /opt/GVirtuS/etc/properties_ucx.json
 DEBUG - Full JSON dump:
@@ -196,690 +195,10 @@ DEBUG: protocol string is [ucx]
 DEBUG: protocol string is [ucx]
 DEBUG: protocol string is [ucx]
 DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
-[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
-[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
-[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
-[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
-[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
-[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
-[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
-[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
-UCX control-plane connected: Connect (25.25.25.2:32222)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-CSVROW,roundtrip_pageable,handle,8,2,18,1,0,none,1509.217
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
-[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
-[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
-[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
-[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
-[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
-[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
-[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
-[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
-UCX control-plane connected: Connect (25.25.25.2:32222)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-CSVROW,pinned_equiv,handle,8,2,18,1,0,none,1486.807
-INFO - Parsing endpoint config from: /opt/GVirtuS/etc/properties_ucx.json
-INFO - Parsing endpoint config from: /opt/GVirtuS/etc/properties_ucx.json
-INFO - Parsed endpoint suite: ucx
-INFO - Using properties file: /opt/GVirtuS/etc/properties_ucx.json
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
-[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
-[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
-[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
-[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
-[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
-[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
-[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
-[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
-[GVS IDX] epoch 2 anuncia server_idx=[1,2]
-[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
-UCX control-plane connected: Connect (25.25.25.2:32222)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-CSVROW,d2d_fidelity,handle,8,2,18,1,0,none,1402.113
-INFO - Parsed endpoint suite: ucx
-INFO - Using properties file: /opt/GVirtuS/etc/properties_ucx.json
-INFO - Parsing endpoint config from: /opt/GVirtuS/etc/properties_ucx.json
-INFO - Using properties file: /opt/GVirtuS/etc/properties_ucx.json
-log4cplus:ERROR No appenders could be found for logger (GVirtuS.EndpointFactory).
-log4cplus:ERROR Please initialize the log4cplus system properly.
-DEBUG - Full JSON dump:
-{
-    "communicator": [
-        {
-            "endpoint": {
-                "port": "32222",
-                "protocol": "ucx",
-                "server_address": "25.25.25.2",
-                "suite": "ucx"
-            },
-            "plugins": [
-                "cuda",
-                "cudart",
-                "cublas",
-                "curand",
-                "cudnn",
-                "cufft",
-                "cusolver",
-                "cusparse",
-                "nvrtc",
-                "nvml"
-            ]
-        }
-    ],
-    "secure_application": false
-}
-INFO - Parsing endpoint config from: /opt/GVirtuS/etc/properties_ucx.json
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-[GVS IDX] epoch 1 anuncia server_idx=[]
-[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-UCX control-plane connected: Connect (25.25.25.2:32222)
-CSVROW,memset_ordered,handle,8,2,18,1,0,none,1302.517
-INFO - Parsed endpoint suite: ucx
-INFO - Parsing endpoint config from: /opt/GVirtuS/etc/properties_ucx.json
-DEBUG - Full JSON dump:
-{
-    "communicator": [
-        {
-            "endpoint": {
-                "port": "32222",
-                "protocol": "ucx",
-                "server_address": "25.25.25.2",
-                "suite": "ucx"
-            },
-            "plugins": [
-                "cuda",
-                "cudart",
-                "cublas",
-                "curand",
-                "cudnn",
-                "cufft",
-                "cusolver",
-                "cusparse",
-                "nvrtc",
-                "nvml"
-            ]
-        }
-    ],
-    "secure_application": false
-}
-INFO - Parsing endpoint config from: /opt/GVirtuS/etc/properties_ucx.json
-DEBUG - Full JSON dump:
-{
-    "communicator": [
-        {
-            "endpoint": {
-                "port": "32222",
-                "protocol": "ucx",
-                "server_address": "25.25.25.2",
-                "suite": "ucx"
-            },
-            "plugins": [
-                "cuda",
-                "cudart",
-                "cublas",
-                "curand",
-                "cudnn",
-                "cufft",
-                "cusolver",
-                "cusparse",
-                "nvrtc",
-                "nvml"
-            ]
-        }
-    ],
-    "secure_application": false
-}
-DEBUG - Full JSON dump:
-{
-    "communicator": [
-        {
-            "endpoint": {
-                "port": "32222",
-                "protocol": "ucx",
-                "server_address": "25.25.25.2",
-                "suite": "ucx"
-            },
-            "plugins": [
-                "cuda",
-                "cudart",
-                "cublas",
-                "curand",
-                "cudnn",
-                "cufft",
-                "cusolver",
-                "cusparse",
-                "nvrtc",
-                "nvml"
-            ]
-        }
-    ],
-    "secure_application": false
-}
-DEBUG - Full JSON dump:
-{
-    "communicator": [
-        {
-            "endpoint": {
-                "port": "32222",
-                "protocol": "ucx",
-                "server_address": "25.25.25.2",
-                "suite": "ucx"
-            },
-            "plugins": [
-                "cuda",
-                "cudart",
-                "cublas",
-                "curand",
-                "cudnn",
-                "cufft",
-                "cusolver",
-                "cusparse",
-                "nvrtc",
-                "nvml"
-            ]
-        }
-    ],
-    "secure_application": false
-}
-DEBUG - Full JSON dump:
-{
-    "communicator": [
-        {
-            "endpoint": {
-                "port": "32222",
-                "protocol": "ucx",
-                "server_address": "25.25.25.2",
-                "suite": "ucx"
-            },
-            "plugins": [
-                "cuda",
-                "cudart",
-                "cublas",
-                "curand",
-                "cudnn",
-                "cufft",
-                "cusolver",
-                "cusparse",
-                "nvrtc",
-                "nvml"
-            ]
-        }
-    ],
-    "secure_application": false
-}
-INFO - Using properties file: /opt/GVirtuS/etc/properties_ucx.json
-INFO - Using properties file: /opt/GVirtuS/etc/properties_ucx.json
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [ucx]
-DEBUG: protocol string is [DEBUG: protocol string is [ucx]
+DEBUG: protocol string is [ucx]DEBUG: protocol string is [
 ucx]
 DEBUG: protocol string is [ucx]
+DEBUG: protocol string is [ucx]
 [GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
 [GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
 [GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
@@ -888,22 +207,134 @@ DEBUG: protocol string is [ucx]
 [GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
 [GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
 [GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS IDX] epoch 1 anuncia server_idx=[]
+[GVS IDX] epoch 1 advertises server_idx=[]
 [GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 1 anuncia server_idx=[]
+[GVS IDX] epoch 1 advertises server_idx=[]
 [GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 1 anuncia server_idx=[]
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GVS IDX] epoch 1 advertises server_idx=[]
 [GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 1 anuncia server_idx=[]
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
+[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
+[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
+[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
+[GVS IDX] epoch 1 advertises server_idx=[]
 [GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 1 anuncia server_idx=[]
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS IDX] epoch 1 advertises server_idx=[]
 [GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 1 anuncia server_idx=[]
+[GVS IDX] epoch 1 advertises server_idx=[]
 [GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 1 anuncia server_idx=[]
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS IDX] epoch 1 advertises server_idx=[]
 [GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 1 anuncia server_idx=[]
+[GVS IDX] epoch 1 advertises server_idx=[]
 [GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
+[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
+[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
+[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
+[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
+[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
 UCX control-plane connected: Connect (25.25.25.2:32222)
 UCX control-plane connected: Connect (25.25.25.2:32222)
 UCX control-plane connected: Connect (25.25.25.2:32222)
@@ -912,11 +343,422 @@ UCX control-plane connected: Connect (25.25.25.2:32222)
 UCX control-plane connected: Connect (25.25.25.2:32222)
 UCX control-plane connected: Connect (25.25.25.2:32222)
 UCX control-plane connected: Connect (25.25.25.2:32222)
-CSVROW,event_query,handle,8,2,10,1,0,none,1367.654
-INFO - Using properties file: /opt/GVirtuS/etc/properties_ucx.json
+CSVROW,roundtrip_pageable,handle,8,1,18,1,0,none,1912.110
 INFO - Parsed endpoint suite: ucx
+INFO - Parsed endpoint suite: ucx
+INFO - Using properties file: /opt/GVirtuS/etc/properties_ucx.json
+DEBUG: protocol string is [ucx]
+DEBUG: protocol string is [ucx]
+DEBUG: protocol string is [ucx]
+DEBUG: protocol string is [ucx]
+DEBUG: protocol string is [ucx]
+DEBUG: protocol string is [ucx]
+DEBUG: protocol string is [ucx]
+DEBUG: protocol string is [ucx]
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
+[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
+[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
+[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
+[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
+[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
+[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
+[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
+[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
+UCX control-plane connected: Connect (25.25.25.2:32222)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+CSVROW,pinned_equiv,handle,8,1,18,1,0,none,1647.093
+INFO - Using properties file: /opt/GVirtuS/etc/properties_ucx.json
+INFO - Parsing endpoint config from: /opt/GVirtuS/etc/properties_ucx.json
+INFO - Parsed endpoint suite: ucx
+INFO - Parsed endpoint suite: ucx
+DEBUG: protocol string is [ucx]
+DEBUG: protocol string is [ucx]
+DEBUG: protocol string is [ucx]
+DEBUG: protocol string is [ucx]
+DEBUG: protocol string is [ucx]
+DEBUG: protocol string is [ucx]
+DEBUG: protocol string is [ucx]
+DEBUG: protocol string is [ucx]
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
+[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
+[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
+[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
+[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
+[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
+[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
+[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=0.1 MiB shadow=no total=0.2 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=0.6 MiB shadow=no total=1.1 MiB (sin presupuesto definido)
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (81920 B host, retired at epoch 3, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=2.1 MiB shadow=no total=4.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (98304 B host, retired at epoch 4, peer acked 0)
+[GUSTO CFG] pool efectivo: slots=2 cap=4.1 MiB shadow=no total=8.1 MiB (sin presupuesto definido)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS] rx_pool: releasing superseded slot (589824 B host, retired at epoch 5, peer acked 0)
+[GVS IDX] epoch 2 advertises server_idx=[1,2]
+[GVS] rma_setup: epoch 2 arrived, 0/0 slots in flight -> install now
+UCX control-plane connected: Connect (25.25.25.2:32222)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+CSVROW,d2d_fidelity,handle,8,1,18,1,0,none,1496.614
+INFO - Using properties file: /opt/GVirtuS/etc/properties_ucx.json
+INFO - Parsing endpoint config from: /opt/GVirtuS/etc/properties_ucx.json
+INFO - Parsed endpoint suite: ucx
+INFO - Parsed endpoint suite: ucx
+INFO - Using properties file: /opt/GVirtuS/etc/properties_ucx.json
+DEBUG: protocol string is [ucx]
+DEBUG: protocol string is [ucx]
+DEBUG: protocol string is [ucx]DEBUG: protocol string is [
+ucx]DEBUG: protocol string is [ucx]
+
+DEBUG: protocol string is [ucx]
+DEBUG: protocol string is [ucx]
+DEBUG: protocol string is [ucx]
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GUSTO CFG] pool efectivo: slots=2 cap=1.1 MiB shadow=no total=2.1 MiB (sin presupuesto definido)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+CSVROW,memset_ordered,handle,8,1,18,1,0,none,1369.454
+INFO - Using properties file: /opt/GVirtuS/etc/properties_ucx.json
+INFO - Parsing endpoint config from: /opt/GVirtuS/etc/properties_ucx.json
+DEBUG: protocol string is [ucx]
+DEBUG: protocol string is [ucx]
+DEBUG: protocol string is [ucx]
+DEBUG: protocol string is [ucx]
+DEBUG: protocol string is [ucx]
+DEBUG: protocol string is [ucx]
+DEBUG: protocol string is [ucx]
+DEBUG: protocol string is [ucx]
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+[GVS IDX] epoch 1 advertises server_idx=[]
+[GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
+UCX control-plane connected: Connect (25.25.25.2:32222)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+UCX control-plane connected: Connect (25.25.25.2:32222)
+CSVROW,event_query,handle,8,1,10,1,0,none,1318.556
+INFO - Using properties file: /opt/GVirtuS/etc/properties_ucx.json
+INFO - Using properties file: /opt/GVirtuS/etc/properties_ucx.json
 INFO - Parsing endpoint config from: /opt/GVirtuS/etc/properties_ucx.json
 INFO - Using properties file: /opt/GVirtuS/etc/properties_ucx.json
+INFO - Parsing endpoint config from: /opt/GVirtuS/etc/properties_ucx.json
 DEBUG: protocol string is [ucx]
 DEBUG: protocol string is [ucx]
 DEBUG: protocol string is [ucx]
@@ -933,21 +775,21 @@ DEBUG: protocol string is [ucx]
 [GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
 [GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
 [GVS] GPUDirect=disabled (GVIRTUS_GPUDIRECT=1 but probe FAILED: cudaMalloc(4K) failed (no GPU? OOM?)) - falling back to host slots, behavior unchanged
-[GVS IDX] epoch 1 anuncia server_idx=[]
+[GVS IDX] epoch 1 advertises server_idx=[]
 [GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 1 anuncia server_idx=[]
+[GVS IDX] epoch 1 advertises server_idx=[]
 [GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 1 anuncia server_idx=[]
+[GVS IDX] epoch 1 advertises server_idx=[]
 [GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 1 anuncia server_idx=[]
+[GVS IDX] epoch 1 advertises server_idx=[]
 [GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 1 anuncia server_idx=[]
+[GVS IDX] epoch 1 advertises server_idx=[]
 [GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 1 anuncia server_idx=[]
+[GVS IDX] epoch 1 advertises server_idx=[]
 [GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 1 anuncia server_idx=[]
+[GVS IDX] epoch 1 advertises server_idx=[]
 [GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
-[GVS IDX] epoch 1 anuncia server_idx=[]
+[GVS IDX] epoch 1 advertises server_idx=[]
 [GVS] rma_setup: epoch 1 arrived, 0/0 slots in flight -> install now
 UCX control-plane connected: Connect (25.25.25.2:32222)
 UCX control-plane connected: Connect (25.25.25.2:32222)
@@ -957,151 +799,208 @@ UCX control-plane connected: Connect (25.25.25.2:32222)
 UCX control-plane connected: Connect (25.25.25.2:32222)
 UCX control-plane connected: Connect (25.25.25.2:32222)
 UCX control-plane connected: Connect (25.25.25.2:32222)
-CSVROW,error_sticky,handle,8,2,18,1,0,none,1669.964
+CSVROW,error_sticky,handle,8,1,18,1,0,none,1290.406
 GUSTO_METRIC tag=periodic slots_total=0 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=4 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
 GUSTO_METRIC tag=teardown slots_total=0 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=4 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=9 (esperaron 0) media=0.11us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS] rma coste: reservas=9 (esperaron 0) media=0.20us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.178 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.11 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=9 (esperaron 0) media=0.12us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.214 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.20 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=9 (esperaron 0) media=0.15us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.095 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.12 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=9 (esperaron 0) media=0.07us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.231 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.15 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=9 (esperaron 0) media=0.16us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.207 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.07 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=9 (esperaron 0) media=0.11us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.169 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.16 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=9 (esperaron 0) media=0.15us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.265 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.11 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=9 (esperaron 0) media=0.11us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.259 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.15 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=9 (esperaron 0) media=0.13us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.216 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.11 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=9 (esperaron 0) media=0.10us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.197 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.13 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=9 (esperaron 0) media=0.15us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.136 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.10 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=9 (esperaron 0) media=0.12us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.142 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.15 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=9 (esperaron 0) media=0.13us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.208 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.12 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=9 (esperaron 0) media=0.12us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.090 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.13 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=9 (esperaron 0) media=0.13us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.253 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.12 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=9 (esperaron 0) media=0.13us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.276 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.13 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=9 (esperaron 0) media=0.11us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.123 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.13 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=9 (esperaron 0) media=0.11us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.333 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.11 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=9 (esperaron 0) media=0.13us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.124 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.11 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=9 (esperaron 0) media=0.11us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.119 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.13 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=9 (esperaron 0) media=0.12us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.148 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.11 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=9 (esperaron 0) media=0.12us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.826 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.12 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=9 (esperaron 0) media=0.13us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.122 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.12 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=9 (esperaron 0) media=0.12us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.323 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.13 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=9 (esperaron 0) media=0.16us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.130 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.12 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=9 (esperaron 0) media=0.12us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.828 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.16 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=9 (esperaron 0) media=0.15us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.144 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.12 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=9 (esperaron 0) media=0.12us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.592 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.15 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=9 (esperaron 0) media=0.13us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.117 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.12 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=9 (esperaron 0) media=0.12us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.130 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.13 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=9 (esperaron 0) media=0.14us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.114 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.12 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=19 (esperaron 0) media=0.11us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.030 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.14 admit_rma=9 admit_am=63 rma_pct=12.50 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=19 (esperaron 0) media=0.13us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.201 peak_waiters=0 reservations=19 waited=0 wait_us_avg=0.11 admit_rma=19 admit_am=107 rma_pct=15.08 rma_fellback=13 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=19 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=19 (esperaron 0) media=0.10us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.525 peak_waiters=0 reservations=19 waited=0 wait_us_avg=0.13 admit_rma=19 admit_am=107 rma_pct=15.08 rma_fellback=13 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=19 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=19 (esperaron 0) media=0.10us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.095 peak_waiters=0 reservations=19 waited=0 wait_us_avg=0.10 admit_rma=19 admit_am=107 rma_pct=15.08 rma_fellback=13 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=19 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=19 (esperaron 0) media=0.11us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.125 peak_waiters=0 reservations=19 waited=0 wait_us_avg=0.10 admit_rma=19 admit_am=107 rma_pct=15.08 rma_fellback=13 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=19 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=19 (esperaron 0) media=0.09us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.127 peak_waiters=0 reservations=19 waited=0 wait_us_avg=0.11 admit_rma=19 admit_am=107 rma_pct=15.08 rma_fellback=13 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=19 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=19 (esperaron 0) media=0.11us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.107 peak_waiters=0 reservations=19 waited=0 wait_us_avg=0.09 admit_rma=19 admit_am=107 rma_pct=15.08 rma_fellback=13 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=19 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=19 (esperaron 0) media=0.11us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.206 peak_waiters=0 reservations=19 waited=0 wait_us_avg=0.11 admit_rma=19 admit_am=107 rma_pct=15.08 rma_fellback=13 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=19 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=19 (esperaron 0) media=0.12us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.585 peak_waiters=0 reservations=19 waited=0 wait_us_avg=0.11 admit_rma=19 admit_am=107 rma_pct=15.08 rma_fellback=13 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=19 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=19 (esperaron 0) media=0.10us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.177 peak_waiters=0 reservations=19 waited=0 wait_us_avg=0.12 admit_rma=19 admit_am=107 rma_pct=15.08 rma_fellback=13 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=19 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=19 (esperaron 0) media=0.08us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.176 peak_waiters=0 reservations=19 waited=0 wait_us_avg=0.10 admit_rma=19 admit_am=107 rma_pct=15.08 rma_fellback=13 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=19 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=19 (esperaron 0) media=0.11us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.168 peak_waiters=0 reservations=19 waited=0 wait_us_avg=0.08 admit_rma=19 admit_am=107 rma_pct=15.08 rma_fellback=13 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=19 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=19 (esperaron 0) media=0.10us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.537 peak_waiters=0 reservations=19 waited=0 wait_us_avg=0.11 admit_rma=19 admit_am=107 rma_pct=15.08 rma_fellback=13 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=19 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=19 (esperaron 0) media=0.11us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.178 peak_waiters=0 reservations=19 waited=0 wait_us_avg=0.10 admit_rma=19 admit_am=107 rma_pct=15.08 rma_fellback=13 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=19 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=19 (esperaron 0) media=0.14us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.152 peak_waiters=0 reservations=19 waited=0 wait_us_avg=0.11 admit_rma=19 admit_am=107 rma_pct=15.08 rma_fellback=13 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=19 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=19 (esperaron 0) media=0.10us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.100 peak_waiters=0 reservations=19 waited=0 wait_us_avg=0.14 admit_rma=19 admit_am=107 rma_pct=15.08 rma_fellback=13 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=19 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=9 (esperaron 0) media=0.17us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.108 peak_waiters=0 reservations=19 waited=0 wait_us_avg=0.10 admit_rma=19 admit_am=107 rma_pct=15.08 rma_fellback=13 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=19 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=9 (esperaron 0) media=0.10us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.207 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.17 admit_rma=9 admit_am=117 rma_pct=7.14 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=9 (esperaron 0) media=0.12us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.109 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.10 admit_rma=9 admit_am=117 rma_pct=7.14 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=9 (esperaron 0) media=0.12us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.390 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.12 admit_rma=9 admit_am=117 rma_pct=7.14 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=9 (esperaron 0) media=0.10us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.212 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.12 admit_rma=9 admit_am=117 rma_pct=7.14 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=9 (esperaron 0) media=0.16us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.120 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.10 admit_rma=9 admit_am=117 rma_pct=7.14 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=9 (esperaron 0) media=0.20us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.172 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.16 admit_rma=9 admit_am=117 rma_pct=7.14 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=9 (esperaron 0) media=0.15us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.385 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.20 admit_rma=9 admit_am=117 rma_pct=7.14 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=9 (esperaron 0) media=0.15us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.105 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.15 admit_rma=9 admit_am=117 rma_pct=7.14 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=9 (esperaron 0) media=0.13us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.211 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.15 admit_rma=9 admit_am=117 rma_pct=7.14 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=9 (esperaron 0) media=0.19us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.719 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.13 admit_rma=9 admit_am=117 rma_pct=7.14 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=9 (esperaron 0) media=0.17us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.302 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.19 admit_rma=9 admit_am=117 rma_pct=7.14 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=9 (esperaron 0) media=0.13us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.121 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.17 admit_rma=9 admit_am=117 rma_pct=7.14 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=9 (esperaron 0) media=0.14us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.188 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.13 admit_rma=9 admit_am=117 rma_pct=7.14 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
-[GVS] rma coste: reservas=9 (esperaron 0) media=0.11us | cache de registro: aciertos=50 fallos=110 (31.2%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.216 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.14 admit_rma=9 admit_am=117 rma_pct=7.14 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS] rma coste: reservas=9 (esperaron 0) media=0.12us | cache de registro: aciertos=47 fallos=113 (29.4%) | acks enviados=0 media=0.00us | acks con generacion desajustada=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
-GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.159 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.11 admit_rma=9 admit_am=117 rma_pct=7.14 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
+GUSTO_METRIC tag=teardown slots_total=2 peak_inflight=1 avg_inflight=0.108 peak_waiters=0 reservations=9 waited=0 wait_us_avg=0.12 admit_rma=9 admit_am=117 rma_pct=7.14 rma_fellback=7 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=9 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
 GUSTO_METRIC tag=teardown slots_total=0 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=144 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
 GUSTO_METRIC tag=teardown slots_total=0 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=144 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
 GUSTO_METRIC tag=teardown slots_total=0 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=144 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
 GUSTO_METRIC tag=teardown slots_total=0 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=144 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
 GUSTO_METRIC tag=teardown slots_total=0 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=144 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
 GUSTO_METRIC tag=teardown slots_total=0 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=144 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
 GUSTO_METRIC tag=teardown slots_total=0 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=144 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
 GUSTO_METRIC tag=teardown slots_total=0 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=144 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
 GUSTO_METRIC tag=teardown slots_total=0 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=540 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
 GUSTO_METRIC tag=teardown slots_total=0 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=540 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
 GUSTO_METRIC tag=teardown slots_total=0 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=540 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
 GUSTO_METRIC tag=teardown slots_total=0 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=540 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
 GUSTO_METRIC tag=teardown slots_total=0 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=540 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
 GUSTO_METRIC tag=teardown slots_total=0 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=540 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
 GUSTO_METRIC tag=teardown slots_total=0 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=540 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
 GUSTO_METRIC tag=teardown slots_total=0 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=540 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
 GUSTO_METRIC tag=teardown slots_total=0 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=18 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
 GUSTO_METRIC tag=teardown slots_total=0 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=18 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
 GUSTO_METRIC tag=teardown slots_total=0 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=18 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
 GUSTO_METRIC tag=teardown slots_total=0 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=18 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
 GUSTO_METRIC tag=teardown slots_total=0 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=18 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
 GUSTO_METRIC tag=teardown slots_total=0 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=18 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
 GUSTO_METRIC tag=teardown slots_total=0 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=18 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
 [GVS] rma teardown: acks descartados por epoch=0, advertisements aparcadas=0
+[GVS VIS] A1 teardown: policy=flush assumed=0 fences=0 flushes=368 declined=0 fence_failures=0
 GUSTO_METRIC tag=teardown slots_total=0 peak_inflight=0 avg_inflight=0.000 peak_waiters=0 reservations=0 waited=0 wait_us_avg=0.00 admit_rma=0 admit_am=18 rma_pct=0.00 rma_fellback=0 decline_capacity=0 decline_timeout=0 decline_swap=0 decline_epfail=0 ack_sent=0 ack_gen_mismatch=0 ack_on_free=0 ack_applied=0 ack_held=0 ack_released=0 ack_epoch_dropped=0 parked=0
