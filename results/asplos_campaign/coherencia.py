@@ -59,9 +59,17 @@ CHECKS = [
                           r"discharges == admit_rma"]),
  # El cruce de H2D fijada se re-midio a 16 KiB con 3 corridas independientes. El 8 KiB
  # anterior salia de una sola corrida con una diferencia de x1,01.
+ # El cruce de H2D fijada. Los patrones "superados" de la primera version eran DEMASIADO
+ # ESPECIFICOS -- exigian el formato exacto de una tabla concreta -- y dejaron pasar el 8 KiB
+ # en SEIS documentos, incluida una contradiccion dentro de CONTRACTS.md (§2 decia 8, §6.4c
+ # decia 16). Ahora se marca cualquier "8 KiB" que aparezca cerca de una palabra de umbral,
+ # que es la forma en que la cifra se afirma de verdad.
  ("cruce H2D fijada",    r"16 KiB",
-                         [r"crossover\s*\|\s*\*\*8 KiB\*\*", r"pinned H2D ~8-16 KiB",
-                          r"sustained crossover at 8 KiB"]),
+                         [r"(?i)(crossover|threshold|pinned)[^\n]{0,80}\b8 KiB\b",
+                          r"(?i)\b8 KiB\b[^\n]{0,80}(crossover|threshold)",
+                          r"H2D  \(1\)    \|   1 MiB  \|   8 KiB",
+                          r"\| pinned host \| \*\*8 KiB\*\*",
+                          r"\| \*\*pinned\*\* \| 8 KiB"]),
  # El coste del flush de device: un valor con dispersion, no tres decimales de una corrida.
  ("coste flush device",  r"0\.729-0\.738|~0\.73 us|0\.73 us",              []),
 ]
@@ -81,6 +89,12 @@ for etiqueta, bueno, malos in CHECKS:
                 # cita ("...cut the saving to ~170 MiB ... That correction is withdrawn").
                 ctx = t[max(0, mo.start()-380):mo.start()+380].lower()
                 if any(k in ctx for k in ("corrected", "retract", "withdraw", "previously read",
+                                          # Anadidas 2026-08-03: son las formas en que este
+                                          # paquete marca una cifra como SUPERADA al citarla.
+                                          # Sin ellas el script marca las propias correcciones,
+                                          # que es la otra forma de ser inutil.
+                                          "first published", "re-measured", "was 8 kib",
+                                          "single run", "when this suite was written",
                                           "earlier version", "no longer", "superseded",
                                           "may not be claimed", "until recomputed", "wrong",
                                           "is the only one where", "artefact", "detour")):
