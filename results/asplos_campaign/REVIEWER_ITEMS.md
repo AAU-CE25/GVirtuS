@@ -13,7 +13,7 @@ open**. Nothing here is a plan; everything is either done or named as not done.
 |---|---|---|
 | C1 | NIC-to-GPU visibility: negotiate + flush, **or** reduce the claim | **claim reduced**, `CONTRACTS.md` §6 |
 | C2 | make the contracts concrete | **done**, `CONTRACTS.md` |
-| D1 | 7B sweep: knee, p99, N summary, longer windows | **p99 and N summary done**; knee + longer windows **measured 2026-08-03**, see §D1 |
+| D1 | 7B sweep: knee, p99, N summary, longer windows | **all four addressed**; the knee sweep found no capacity separation, which is itself the answer -- see §D1 |
 | D2 | decide what fairness is | **decided: fourth contribution**, `PAPER_OPENING.md` §3b |
 
 # C1. NIC-to-GPU visibility -- the claim is reduced, deliberately

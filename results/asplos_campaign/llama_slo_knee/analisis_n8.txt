@@ -1,0 +1,24 @@
+==============================================================================
+N = 8
+system       lam      n offered TTFT p95 [range]  TTFT p99 [range]   SLO1s%  backlog
+native       0.55     3     124   1956 [ 1639- 2499]   3400 [ 2356- 5081]    90.0      2.7
+native       0.6      3     123   2366 [ 1819- 2935]   4162 [ 2817- 5662]    88.7      3.0
+native       0.65     3     123   3312 [ 1872- 4179]   5704 [ 3434- 7366]    84.7      4.3
+native       0.7      3     123   4249 [ 2225- 5311]   7035 [ 4431- 8960]    80.3      5.3
+native+MPS   0.55     3     124   1321 [  909- 1749]   1759 [ 1258- 2506]    94.7      2.3
+native+MPS   0.6      3     123   1412 [  912- 1910]   2399 [ 1686- 3504]    93.7      2.7
+native+MPS   0.65     3     123   1580 [ 1030- 2256]   2707 [ 2038- 3861]    92.3      2.0
+native+MPS   0.7      3     123   1815 [ 1424- 2493]   3008 [ 2234- 4446]    90.3      2.7
+Gusto        0.55     3     124   1415 [  813- 2057]   2004 [ 1442- 3025]    93.7      2.3
+Gusto        0.6      3     123   1469 [ 1122- 1809]   2271 [ 1584- 3102]    92.0      2.7
+Gusto        0.65     3     123   1710 [ 1118- 2500]   2826 [ 1992- 4127]    90.7      2.3
+Gusto        0.7      3     123   1697 [ 1413- 2153]   3215 [ 2360- 4807]    88.3      2.3
+
+  capacity, all-repetitions criterion (every rep: TTFT p95 <= 1000 ms and 0 timeouts)
+    native       -> NO load in this grid meets it in every repetition
+    native+MPS   -> NO load in this grid meets it in every repetition
+    Gusto        -> NO load in this grid meets it in every repetition
+
+  paired TTFT p95, Gusto - native      =   -1398 ms  CI95 [-2096, -788]  EXCLUDES 0 (n=12)
+  paired TTFT p95, Gusto - native+MPS  =     +41 ms  CI95 [-59, +132]  includes 0 (n=12)
+

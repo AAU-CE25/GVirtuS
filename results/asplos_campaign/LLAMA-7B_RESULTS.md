@@ -626,22 +626,104 @@ is +9.9%) and "+33%" at lambda=1.5 (it is +27.5%) -- all three came from repetit
 figure from a single repetition of this sweep may be quoted**, because TTFT p95 varies more than
 10x between repetitions of the same cell.
 
+## §3e -- The knee, at four times the resolution and three times the window (2026-08-03)
+
+§3d listed two gaps that needed a re-run rather than a re-analysis: no points around the knee,
+and windows too short for p99. Both are now measured.
+
+**Design.** lambda in {0.55, 0.60, 0.65, 0.70} -- the untested gap between the load that always
+met the SLO (0.50) and the one that met it only sometimes (0.75) -- with the window scaled as
+`max(90, 120/lambda)` instead of `max(30, 40/lambda)`, so **every point sees ~124 offered
+requests instead of ~40**. Three systems, three repetitions, N=8. 36 points.
+
+### The capacity metric still does not discriminate -- and now that is a real result
+
+| system | 0.55 | 0.60 | 0.65 | 0.70 |
+|---|---:|---:|---:|---:|
+| native | **0 of 3** | 0 of 3 | 0 of 3 | 0 of 3 |
+| native+MPS | **1 of 3** | 1 of 3 | 0 of 3 | 0 of 3 |
+| Gusto | **1 of 3** | 0 of 3 | 0 of 3 | 0 of 3 |
+
+*(repetitions meeting TTFT p95 <= 1000 ms; timeouts were **zero everywhere**, in all 36 points)*
+
+**Under the all-repetitions criterion, no system meets the SLO anywhere in this band.** §3c
+could only say "capacity does not discriminate *at this grid resolution*". That hedge is now
+gone: we went **four times finer and three times longer** and it still does not discriminate.
+The negative result is stronger than the one it replaces.
+
+**Why, and it is a property of the metric rather than of the systems.** p95 within a single cell
+still spans a factor of 2.5 -- Gusto at lambda=0.55 gives **813, 1375 and 2057 ms** across three
+repetitions. **124 requests per point is not enough to stabilise a 95th percentile**, so a
+*binary* criterion evaluated per repetition is decided by which draw you got. The all-reps rule
+then propagates the worst draw to the whole cell.
+
+> **A retraction of something I said mid-run.** After repetition 1 alone the table read: native
+> failing at every load, MPS passing to 0.60, Gusto to 0.55 -- a clean capacity ordering. **It
+> does not survive n=3** and must not be quoted. Repetition 1 was the favourable draw for all
+> three arms, exactly as it was in §3b. This is the third time in this campaign that a
+> single-repetition reading looked like a system property.
+
+### What does discriminate, and it is well powered: 12 paired points
+
+| quantity, Gusto minus baseline | vs native | vs native+MPS |
+|---|---|---|
+| **TTFT p95** | **-1398 ms**, CI95 [-2096, -788] | +41 ms, CI95 [-59, +132] -- **includes zero** |
+| **SLO 1 s attainment** | **+5.25 pp**, CI95 [+3.25, +7.67] | **-1.58 pp**, CI95 [-2.17, -1.00] |
+| **goodput** | **-1.62 t/s**, CI95 [-2.86, -0.44] | -1.50 t/s, CI95 [-2.69, -0.38] |
+
+For reference, MPS minus native on attainment is **+6.83 pp**, CI95 [+4.75, +9.25].
+
+**The trade is now stated exactly**: against default native, remoting gives up **1.6 t/s of
+goodput** and buys **1.4 s of TTFT p95** and **5.25 points of SLO attainment**. Against
+MPS-configured native it is indistinguishable on the tail and 1.6 points behind on attainment --
+the network round trip, once more.
+
+### The mechanism the short windows could not see: the queue
+
+| system | backlog at window close, lambda = 0.55 -> 0.70 |
+|---|---|
+| native | 2.7 -> 3.0 -> 4.3 -> **5.3** |
+| native+MPS | 2.3 -> 2.7 -> 2.0 -> 2.7 |
+| **Gusto** | **2.3 -> 2.7 -> 2.3 -> 2.3** |
+
+**Native's queue grows with load; the other two hold flat.** This is visible only because the
+window is long enough for a backlog to form -- at 40 offered requests the run ends before the
+queue builds. It is the first direct evidence that native is the arm approaching saturation in
+this band, and it agrees with the p95 and attainment differences rather than resting on them.
+
+### The methodological point, because it generalises
+
+**The binary capacity criterion discards the information the continuous one keeps.** "Does p95
+clear 1 s in every repetition" answers *no* for all three systems and stops. "What fraction of
+requests clear 1 s" orders them **consistently at every one of the four loads**, with all three
+pairwise differences excluding zero. A capacity number is attractive because it is a single
+figure; on this bench it is a single figure that happens to be uninformative.
+
+**Recommendation for the paper**: report SLO *attainment* against load, not capacity. Keep the
+capacity result as the negative it is -- swept twice, at two resolutions, and it never separated
+the systems.
+
+Data: `results/asplos_campaign/llama_slo_knee/` (36 points, per-request JSONL beside each),
+harnesses `~/sweep_knee.sh` and `~/cola_knee.sh`, analysis `~/analiza_knee.py`. N=4 and N=2 were
+queued behind N=8 and are still running at the time of writing; nothing above depends on them.
+
 ### What this sweep still does not give
 
 Four gaps, all of them a re-run rather than a re-analysis, and none of them blocking a claim
 already made:
 
-1. **No points around the knee.** The grid is lambda in {0.50, 0.75, 1.00, 1.50} and the
-   capacity criterion collapses every system to 0.50 because 0.75 and 1.00 pass in some
-   repetitions and not others. **A grid of 0.55 / 0.60 / 0.65 / 0.70 is what would separate the
-   systems on capacity, if anything does.** Until it is run, "capacity does not discriminate"
-   means "does not discriminate at this resolution".
-2. **Windows are too short for p99.** `max(30, 40/lambda)` gives 80 / 53 / 40 / 30 s and
-   100--190 pooled requests per cell. p99 needs an order of magnitude more.
-3. **No sustained-load points.** Every window is under 90 s, so nothing here speaks to
-   thermal, memory-fragmentation or leak behaviour over hours.
+1. ~~**No points around the knee.**~~ **Closed by §3e**: the 0.55--0.70 grid was run at
+   3x the window. It did **not** separate the systems on capacity, which turns the hedge
+   "does not discriminate at this resolution" into a measured negative.
+2. ~~**Windows are too short for p99.**~~ **Improved by §3e**, not closed: 124 offered requests
+   per point instead of ~40. Still not enough -- p95 alone varies 2.5x within a cell, so p99
+   remains an extreme order statistic.
+3. **No sustained-load points.** The longest window here is 218 s, so nothing speaks to thermal,
+   memory-fragmentation or leak behaviour over hours.
 4. **Transport provenance is still not recorded in the sidecar** (`GAPS.md` §1): the arm is
    fixed by the label and the harness, not by a field the data carries.
+5. **N=4 and N=2 of the knee grid** were queued behind N=8 and had not finished at the time of
+   writing. §3e is N=8 only.
 
 Data: `LLAMA_SLO_capacidad_v2.csv` (**108 data rows** -- 3 systems x 3 tenant counts x 4
 loads x 3 repetitions; an earlier version of this line said 112), raw in

@@ -49,9 +49,15 @@ goodput from the list of arguments for remoting.
 
 Two things remain open and are small:
 
-1. **A finer grid between 0.50 and 1.00.** Every system meets the SLO in some repetitions and
-   not others at 0.75 and 1.00, so the all-repetitions criterion collapses them all to 0.50. A
-   finer sweep there would separate them if anything separates them.
+1. ~~**A finer grid between 0.50 and 1.00.**~~ **Run 2026-08-03 and it did not separate them**
+   (`LLAMA-7B_RESULTS.md` §3e). lambda in {0.55, 0.60, 0.65, 0.70} at **3x the window** -- 124
+   offered requests per point instead of 40 -- and under the all-repetitions criterion **no
+   system meets the SLO anywhere in the band**: native 0 of 3 at every load, MPS and Gusto 1 of
+   3 at the bottom only. So "capacity does not discriminate" is no longer hedged by resolution.
+   What *does* discriminate, over 12 paired points: TTFT p95 **-1398 ms** against native (CI95
+   [-2096, -788]), SLO attainment **+5.25 pp** (CI95 [+3.25, +7.67]), and a backlog that grows
+   with load on native (2.7 -> 5.3) while Gusto holds flat (2.3). Against MPS, remoting is
+   indistinguishable on the tail and 1.58 pp behind on attainment.
 2. **Transport provenance is still not recorded** in the sidecar: bench.py reads GVIRTUS_CONFIG
    from the invoking process and that variable lives inside the container. The arm is fixed by
    the label and the harness. To correct before the next packaging.

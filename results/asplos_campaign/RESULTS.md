@@ -259,6 +259,15 @@ What matters at this level:
   difference +0.00 t/s at three of the four loads) and keeps the better tail below saturation.
   Every figure here is a mean over n=3: TTFT p95 varies more than 10x between repetitions of the
   same cell, so no single repetition may be quoted. See LLAMA-7B_RESULTS.md §3b-§3c.
+- **The knee, swept a third time -- and capacity still does not separate the systems.** A grid of
+  lambda in {0.55, 0.60, 0.65, 0.70} at **three times the window** (124 offered requests per
+  point) finds **no system meeting a 1 s p95 SLO in every repetition anywhere in the band**. That
+  removes the "at this resolution" hedge: the capacity metric is uninformative on this bench, and
+  the reason is that p95 varies 2.5x within a single cell, so a binary per-repetition criterion
+  is decided by the draw. **Report SLO attainment against load instead** -- it orders the systems
+  consistently at every load, with all three pairwise differences excluding zero: Gusto is
+  **+5.25 pp** over native and **-1.58 pp** under MPS, while native's queue is the only one that
+  grows with load. See LLAMA-7B_RESULTS.md §3e.
 - **Fairness in serving -- equivalent to native.** Normalised by demand, serving fairness is
   **statistically equivalent** (paired Jain difference -0.0027, CI95 [-0.0079, +0.0009] inside a
   declared +-0.05 margin) while Gusto completes significantly more of the offered work (+0.0764,
