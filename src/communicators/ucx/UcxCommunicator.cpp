@@ -91,7 +91,11 @@ void load_cuda_pinned_funcs() {
 // was allocated via cudaHostAlloc (so cudaFreeHost is needed for release).
 unsigned char *alloc_pinned_host(size_t n, bool &is_cuda) {
     std::call_once(g_cuda_once, load_cuda_pinned_funcs);
-    auto fn = g_cuda_host_alloc.load();
+    // Con una captura de grafo abierta NO se puede llamar a cudaHostAlloc: la asignacion
+    // invalida la captura. Se cae a posix_memalign, que es lo que este mismo helper ya hace
+    // cuando CUDA no esta disponible -- memoria paginable, mismo contrato para el camino AM.
+    auto fn = gvirtus::communicators::g_capture_open.load(std::memory_order_acquire)
+                  ? nullptr : g_cuda_host_alloc.load();
     if (fn != nullptr) {
         void *p = nullptr;
         if (fn(&p, n, /*cudaHostAllocDefault*/ 0u) == 0 && p != nullptr) {

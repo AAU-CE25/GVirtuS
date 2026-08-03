@@ -47,6 +47,7 @@ void gvirtus_untrack_device_alloc(void *p);
 #include <mutex>
 #include <string>
 #include <thread>
+#include "gvirtus/communicators/CaptureStaging.h"
 
 using namespace log4cplus;
 using namespace std;
@@ -1221,6 +1222,18 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
                 void *gpu_src = input_buffer->GetGpuPayload();
                 size_t gpu_src_size = input_buffer->GetGpuPayloadSize();
                 if (gpu_src != nullptr && gpu_src_size >= count) {
+                // I11: bajo captura el nodo del grafo NO puede referenciar la sombra del slot
+                // -- se libera al responder y el nodo la leeria en el lanzamiento. Se saca a un
+                // buffer del backend y se graba contra ese.
+                if (unsigned long long cid = gvs_capture::id_de_captura(stream)) {
+                    void *stg = gvs_capture::stage_dev(cid, gpu_src, count, g_shadow_stream);
+                    if (stg == nullptr)
+                        return std::make_shared<Result>(cudaErrorMemoryAllocation);
+                    exit_code = cudaMemcpyAsync(dst, stg, count,
+                                                cudaMemcpyDeviceToDevice, stream);
+                    result = std::make_shared<Result>(exit_code);
+                    break;   // sin sincronizar ni marcar pendientes: el slot ya no se usa
+                }
                 gvs_pathstats::count(gvs_pathstats::kH2dGpu, count);
                     h2d_trace("MemcpyAsync", "gpu_shadow", gpu_src, /*device*/ true,
                               count, dst, gpu_src, gpu_src_size);
@@ -1267,6 +1280,16 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
                 // through the host slot for want of a GPU shadow.
                 gvirtus::communicators::tls_device_destined_bytes = count;
                 gvs_pathstats::count(gvs_pathstats::kH2dHost, count);
+                // I11, camino de host: se copia con la CPU a un buffer del backend. Ninguna
+                // llamada CUDA de sincronizacion, que es lo que invalidaria la captura.
+                if (unsigned long long cid = gvs_capture::id_de_captura(stream)) {
+                    void *stg = gvs_capture::stage_host(cid, src, count);
+                    if (stg == nullptr)
+                        return std::make_shared<Result>(cudaErrorMemoryAllocation);
+                    exit_code = cudaMemcpyAsync(dst, stg, count, kind, stream);
+                    result = std::make_shared<Result>(exit_code);
+                    break;
+                }
                 exit_code = cudaMemcpyAsync(dst, src, count, kind, stream);
 
                 /*

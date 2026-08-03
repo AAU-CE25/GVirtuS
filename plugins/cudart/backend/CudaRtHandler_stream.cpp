@@ -27,6 +27,7 @@
  */
 
 #include "CudaRtHandler.h"
+#include "gvirtus/communicators/CaptureStaging.h"
 
 CUDA_ROUTINE_HANDLER(StreamCreate) {
     try {
@@ -147,7 +148,13 @@ CUDA_ROUTINE_HANDLER(StreamBeginCapture) {
         cudaStream_t stream = input_buffer->Get<cudaStream_t>();
         cudaStreamCaptureMode mode = input_buffer->Get<cudaStreamCaptureMode>();
         // std::cout << "Begin capturing\n";
-        return std::make_shared<Result>(cudaStreamBeginCapture(stream, mode));
+        cudaError_t _rc = cudaStreamBeginCapture(stream, mode);
+        if (_rc == cudaSuccess) {
+            gvs_capture::g_stream_vigilado() = stream;
+            gvs_capture::g_ventana_abierta() = true;
+            gvirtus::communicators::g_capture_open.store(true, std::memory_order_release);
+        }
+        return std::make_shared<Result>(_rc);
     } catch (const std::exception& e) {
         cerr << e.what() << endl;
         return std::make_shared<Result>(cudaErrorMemoryAllocation);
@@ -158,7 +165,13 @@ CUDA_ROUTINE_HANDLER(StreamEndCapture) {
     try {
         cudaStream_t stream = input_buffer->Get<cudaStream_t>();
         cudaGraph_t pGraph;
+        // El id se lee ANTES de cerrar la captura; despues ya no existe.
+        const unsigned long long cid = gvs_capture::id_de_captura(stream);
         cudaError_t exit_code = cudaStreamEndCapture(stream, &pGraph);
+        gvs_capture::g_ventana_abierta() = false;
+        gvs_capture::g_stream_vigilado() = nullptr;
+        gvirtus::communicators::g_capture_open.store(false, std::memory_order_release);
+        if (cid) gvs_capture::captura_termina(cid, exit_code == cudaSuccess ? pGraph : nullptr);
         std::shared_ptr<Buffer> out = std::make_shared<Buffer>();
         out->Add<cudaGraph_t>(pGraph);
         // std::cout <<" Graph: "<< pGraph << std::endl;

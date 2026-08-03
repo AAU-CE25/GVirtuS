@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -244,6 +245,16 @@ extern thread_local bool tls_async_gpu_pending;
 // exhausts GPU memory and takes down other tenants. Now the first such payload pays one
 // host-staged transfer and the pool regrows with shadows, exactly like the size regrow.
 extern thread_local size_t tls_device_destined_bytes;
+
+// Hay una captura de grafo abierta en este backend. La pone y la quita el plugin de cudart
+// (que si tiene cabeceras CUDA); la lee el transporte, que no las tiene.
+//
+// POR QUE. Reservar memoria con cudaHostAlloc DENTRO de una ventana de captura la invalida:
+// una asignacion CUDA es una accion insegura durante la captura. El camino de recepcion AM
+// reserva un slot del tamano del mensaje por cada mensaje que llega, asi que la primera
+// transferencia por ese camino rompia toda captura. Medido: con la bandera, cudaMemcpyAsync
+// capturado pasa de invalidar siempre a no invalidar nunca.
+extern std::atomic<bool> g_capture_open;
 
 // Per-thread flag set by Process.cpp before each handler Execute() to
 // client_comm->rma_put_capable(). The cudart D2H handler reads it to gate the
