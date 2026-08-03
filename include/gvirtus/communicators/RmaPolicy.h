@@ -47,14 +47,25 @@ namespace communicators {
 
 enum class RmaPolicy { Scalar = 0, Quadrant, Oracle };
 
+inline std::size_t quadrant_threshold(bool h2d, bool pinned);
+
 inline RmaPolicy rma_policy() {
     static const RmaPolicy p = []() {
         const char *v = std::getenv("GVIRTUS_RMA_POLICY");
         if (v == nullptr || v[0] == '\0' || std::strcmp(v, "scalar") == 0)
             return RmaPolicy::Scalar;
         if (std::strcmp(v, "quadrant") == 0) {
-            std::fprintf(stderr, "[GVS POLICY] four-quadrant placement "
-                                 "(H2D pinned 8K / H2D pageable 1M / D2H pinned 1M / D2H pageable 2M)\n");
+            // El banner IMPRIME la tabla, no una copia escrita a mano: al re-medir el cruce
+            // a 16 KiB cambie la constante y este literal se quedo diciendo 8K, o sea que el
+            // log contradecia al binario que lo emitia. Un valor citado a mano se queda atras;
+            // uno leido de la fuente, no.
+            std::fprintf(stderr,
+                         "[GVS POLICY] four-quadrant placement (H2D pinned %zuK / "
+                         "H2D pageable %zuK / D2H pinned %zuK / D2H pageable %zuK)\n",
+                         quadrant_threshold(true,  true)  >> 10,
+                         quadrant_threshold(true,  false) >> 10,
+                         quadrant_threshold(false, true)  >> 10,
+                         quadrant_threshold(false, false) >> 10);
             return RmaPolicy::Quadrant;
         }
         if (std::strcmp(v, "oracle") == 0) {
