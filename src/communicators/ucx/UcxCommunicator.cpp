@@ -4,9 +4,15 @@
 #include "UcxCommunicator.h"
 #include "gvirtus/communicators/Visibility.h"
 
+#include <algorithm>
 #include <arpa/inet.h>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <deque>
+#include <execinfo.h>
+#include <functional>
+#include <signal.h>
 #include <unordered_map>
 #include <cstdarg>
 #include <cstdio>
@@ -899,6 +905,327 @@ static double gvs_cli_ms() {
 }
 static std::atomic<double> g_ultimo_aterrizaje{0.0};
 
+// --- ¿DONDE se queda el hilo atascado? Pila del propio hilo, sin depurador -------------------
+// El muestreo de /proc dice que el hilo que se traga los 50 s esta en futex_wait con
+// op=0x189 (pthread_cond_timedwait) sobre un objeto que vive en la PILA de algun hilo, y que
+// eso ocurre DENTRO de ucp_worker_progress. Saber en que llamada hace falta una pila, y en el
+// contenedor no hay gdb ni eu-stack (y no se van a instalar en un backend compartido).
+//
+// Asi que el hilo se la saca a si mismo: un vigilante mira los relojes de entrada a progress y,
+// al que lleve mas de GVS_STUCK_BT_MS dentro, le manda SIGPROF; el manejador imprime su propia
+// pila con backtrace_symbols_fd. Una sola vez por episodio, para no inundar ni cambiar el
+// tiempo que se esta midiendo.
+//
+// Apagado por defecto (GVS_STUCK_BT_MS ausente o 0). El coste cuando esta apagado es un
+// puñado de comparaciones por vuelta del bucle de espera.
+namespace {
+
+struct RanuraProgreso {
+    std::atomic<int>    tid{0};        // 0 = libre
+    std::atomic<double> t_entrada{0};  // 0 = no esta dentro de progress
+    std::atomic<bool>   ya_avisado{false};
+};
+constexpr int kMaxRanurasProgreso = 128;
+RanuraProgreso g_ranuras_progreso[kMaxRanurasProgreso];
+
+long gvs_stuck_bt_ms() {
+    static const long v = [] {
+        const char *e = std::getenv("GVS_STUCK_BT_MS");
+        return e != nullptr ? std::strtol(e, nullptr, 10) : 0L;
+    }();
+    return v;
+}
+
+void gvs_manejador_bt(int) {
+    void *marcos[64];
+    const int n = ::backtrace(marcos, 64);
+    char cab[128];
+    const int cn = std::snprintf(cab, sizeof(cab),
+                                 "[GVS BT] tid=%d atascado en el camino de recepcion, profundidad=%d\n",
+                                 (int)syscall(SYS_gettid), n);
+    if (cn > 0) { ssize_t r = ::write(2, cab, (size_t)cn); (void)r; }
+    ::backtrace_symbols_fd(marcos, n, 2);
+}
+
+// Un solo vigilante por proceso. Arranca perezosamente en el primer registro.
+void gvs_arranca_vigilante_una_vez() {
+    static std::once_flag una;
+    std::call_once(una, [] {
+        // Precalentar backtrace(): la primera llamada carga libgcc y hace malloc, cosas que no
+        // se quieren dentro de un manejador de señal.
+        void *m[4]; (void)::backtrace(m, 4);
+        struct sigaction sa {};
+        sa.sa_handler = gvs_manejador_bt;
+        sigemptyset(&sa.sa_mask);
+        sa.sa_flags = SA_RESTART;   // que la espera interrumpida se reanude sola
+        ::sigaction(SIGPROF, &sa, nullptr);
+
+        std::thread([] {
+            const double umbral = (double)gvs_stuck_bt_ms();
+            for (;;) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                const double ahora = gvs_cli_ms();
+                for (int i = 0; i < kMaxRanurasProgreso; ++i) {
+                    auto &r = g_ranuras_progreso[i];
+                    const int tid = r.tid.load(std::memory_order_acquire);
+                    if (tid == 0) continue;
+                    const double t0 = r.t_entrada.load(std::memory_order_acquire);
+                    if (t0 == 0.0) { r.ya_avisado.store(false, std::memory_order_release); continue; }
+                    if (ahora - t0 < umbral) continue;
+                    if (r.ya_avisado.exchange(true, std::memory_order_acq_rel)) continue;
+                    std::fprintf(stderr,
+                                 "[GVS BT] vigilante: tid=%d lleva %.0f ms dentro de una seccion "
+                                 "vigilada del camino de recepcion; pidiendo su pila\n",
+                                 tid, ahora - t0);
+                    std::fflush(stderr);
+                    ::syscall(SYS_tgkill, ::getpid(), tid, SIGPROF);
+                }
+            }
+        }).detach();
+    });
+}
+
+// RAII: marca la ventana en la que este hilo esta dentro de ucp_worker_progress.
+struct GuardiaProgreso {
+    RanuraProgreso *r = nullptr;
+    GuardiaProgreso() {
+        if (gvs_stuck_bt_ms() <= 0) return;
+        static thread_local RanuraProgreso *mia = nullptr;
+        if (mia == nullptr) {
+            gvs_arranca_vigilante_una_vez();
+            const int mi_tid = (int)syscall(SYS_gettid);
+            for (int i = 0; i < kMaxRanurasProgreso; ++i) {
+                int libre = 0;
+                if (g_ranuras_progreso[i].tid.compare_exchange_strong(libre, mi_tid)) {
+                    mia = &g_ranuras_progreso[i];
+                    break;
+                }
+            }
+            if (mia == nullptr) return;   // mas hilos que ranuras: no instrumentamos este
+        }
+        r = mia;
+        r->ya_avisado.store(false, std::memory_order_release);
+        r->t_entrada.store(gvs_cli_ms(), std::memory_order_release);
+    }
+    ~GuardiaProgreso() {
+        if (r != nullptr) r->t_entrada.store(0.0, std::memory_order_release);
+    }
+};
+
+}  // namespace
+
+// --- EL LIBERADOR: ninguna llamada CUDA que sincronice el dispositivo en el camino de una RPC
+// --------------------------------------------------------------------------------------------
+// DEFECTO MEDIDO (2026-08-04). Pila del hilo atascado, sacada por el propio hilo (GVS_STUCK_BT_MS):
+//
+//   TryAcquireFrame -> ucp_worker_progress -> ucp_am_handler -> am_recv_handler
+//     -> acquire_rx_slot -> cudaFreeHost -> cuMemFreeHost          [9 819,9 ms]
+//
+// acquire_rx_slot corre DENTRO del callback de recepcion de UCX, es decir dentro de
+// ucp_worker_progress, es decir en el hilo que atiende esa conexion. Su camino de crecimiento
+// llamaba a cudaFreeHost, cudaFree, cudaHostAlloc y cudaMalloc, y las cuatro sincronizan el
+// DISPOSITIVO ENTERO: no vuelven hasta que la GPU drena todo el trabajo del contexto primario
+// del proceso, incluidos los kernels de OTROS clientes. Un kernel de 10 s de un cliente
+// congelaba 9,8 s la primera RPC de otro. Eso es "los hilos de un proceso no solapan": no era
+// PTDS, ni el worker, ni el despacho -- era el asignador del pool de slots.
+//
+// EL ARREGLO. El camino de la RPC deja de llamar a CUDA:
+//   - el buffer nuevo se reserva PAGINABLE (posix_memalign, microsegundos) y se mapea a UCX.
+//     ibv_reg_mr fija las paginas igual, asi que el camino rendezvous conserva su registro;
+//   - lo viejo NO se libera ahi: se encola;
+//   - este hilo de fondo hace todo lo lento -- desmapear, liberar, y MEJORAR el slot a memoria
+//     fijada de CUDA (+ sombra de GPU) cuando el dispositivo lo deje. Que el liberador se pase
+//     50 s dentro de cudaHostAlloc da igual: no hay ninguna RPC esperandolo.
+//
+// El pool converge al MISMO estado que antes; lo unico que cambia es CUANDO se hacen las
+// llamadas CUDA. Es el patron que este fichero ya usaba para las ventanas de captura de grafos,
+// aplicado al sitio donde faltaba.
+namespace {
+
+// FUGA DELIBERADA. El liberador es un hilo `detach()`, asi que sigue vivo cuando el proceso
+// empieza a salir. Si estos objetos fueran estaticos normales, sus destructores correrian
+// mientras el hilo espera en el condition_variable: comportamiento indefinido en el camino de
+// salida. Medido en el frontend (que SI termina ordenadamente, al contrario que el backend, al
+// que mata `docker rm -f`): 3 de 3 corridas de d2hpool acababan en "dumped core", 0 de 3 con la
+// lib anterior. Se reservan en el monton y no se destruyen nunca; el sistema operativo se los
+// lleva al terminar el proceso.
+std::mutex                         &g_tareas_mu = *new std::mutex;
+std::condition_variable            &g_tareas_cv = *new std::condition_variable;
+// true = terminada; false = reintentar
+std::deque<std::function<bool()>>  &g_tareas    = *new std::deque<std::function<bool()>>;
+std::atomic<unsigned long long>     g_liberador_hechas{0};
+std::atomic<unsigned long long>     g_slot_diferidos{0};      // liberaciones sacadas del callback
+std::atomic<unsigned long long>     g_slot_mejoras_ok{0};     // slots elevados a memoria fijada
+std::atomic<unsigned long long>     g_slot_mejoras_fallo{0};  // no se pudo fijar: se queda paginable
+std::atomic<unsigned long long>     g_slot_mejoras_saltadas{0};  // el slot cambio antes de la mejora
+// Vigilancia permanente del defecto arreglado: cuantas veces acquire_rx_slot ha tardado mas de
+// 100 ms, y la peor. Con el arreglo puesto tiene que quedarse en 0 -- si sube, alguna llamada
+// que sincroniza el dispositivo ha vuelto al camino de la RPC.
+std::atomic<unsigned long long>     g_slot_atascos{0};
+std::atomic<double>                 g_slot_peor_ms{0.0};
+
+// Ablacion en las DOS direcciones con el mismo binario: con esto a 1 vuelve el comportamiento
+// viejo (CUDA dentro del callback) y la serializacion tiene que REAPARECER. Una medida que solo
+// ensena la mejora no distingue el arreglo de un cambio de condiciones.
+bool gvs_slot_inline_cuda() {
+    static const bool v = [] {
+        const char *e = std::getenv("GVS_SLOT_INLINE_CUDA");
+        const bool on = e != nullptr && e[0] == '1';
+        if (on)
+            std::fprintf(stderr,
+                "[GVS SLOT] *** reserva/liberacion de slots CUDA EN LINEA dentro del callback de "
+                "UCX -- variante con la serializacion entre clientes DE VUELTA, solo para medirla\n");
+        return on;
+    }();
+    return v;
+}
+
+// Una tarea devuelve true cuando ha terminado. Devolver false significa "todavia no se puede,
+// vuelve a intentarlo": lo necesita la mejora de un slot, que solo puede cambiarle el buffer
+// cuando el slot esta libre, y justo despues de crecerlo esta EN USO por el mensaje que provoco
+// el crecimiento. Sin reintento la mejora no ocurria nunca (medido: slot_pinned=0,
+// slot_pin_skipped=18) y los slots se quedaban paginables para siempre -- un arreglo que
+// arreglaba la latencia y degradaba en silencio el camino H2D.
+std::deque<std::function<bool()>> &g_tareas_espera =   // reintentos, se reinyectan cada tick
+    *new std::deque<std::function<bool()>>;            // (misma fuga deliberada de arriba)
+
+void gvs_arranca_liberador_una_vez() {
+    static std::once_flag una;
+    std::call_once(una, [] {
+        std::thread([] {
+            for (;;) {
+                std::function<bool()> t;
+                {
+                    std::unique_lock<std::mutex> lk(g_tareas_mu);
+                    if (g_tareas.empty() && !g_tareas_espera.empty()) {
+                        // Tick de reintento: se espera SIEMPRE los 50 ms aunque la lista de
+                        // espera no este vacia, o el hilo giraria a tope reintentando.
+                        g_tareas_cv.wait_for(lk, std::chrono::milliseconds(50));
+                        for (auto &p : g_tareas_espera) g_tareas.push_back(std::move(p));
+                        g_tareas_espera.clear();
+                    } else {
+                        g_tareas_cv.wait_for(lk, std::chrono::milliseconds(50),
+                                             [] { return !g_tareas.empty(); });
+                    }
+                    if (g_tareas.empty()) continue;
+                    // Dentro de una ventana de captura de grafo, cualquiera de estas llamadas la
+                    // invalidaria. Se espera a que cierre; la cola no se pierde.
+                    //
+                    // El `continue` a secas giraba a tope: con la cola llena el wait_for de
+                    // arriba vuelve al instante porque su predicado ya se cumple, asi que este
+                    // hilo se comia un nucleo entero durante toda la ventana de captura --
+                    // justo cuando la carga esta grabando un grafo y necesita la CPU.
+                    if (captura_abierta()) {
+                        lk.unlock();
+                        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                        continue;
+                    }
+                    t = std::move(g_tareas.front());
+                    g_tareas.pop_front();
+                }
+                const bool hecha = t();
+                if (!hecha) {
+                    std::lock_guard<std::mutex> lk(g_tareas_mu);
+                    g_tareas_espera.push_back(std::move(t));
+                    continue;
+                }
+                ++g_liberador_hechas;
+            }
+        }).detach();
+    });
+}
+
+// Ejecuta AQUI Y AHORA todo lo que quede pendiente, en el hilo que llama. Se usa al cerrar una
+// conexion: lo que el liberador no haya hecho todavia se hace antes de que desaparezcan el pool,
+// el contexto y -- en el frontend -- la propia conexion por la que `cudaFreeHost` viaja como RPC.
+// Los reintentos se descartan: si un slot sigue en uso mientras se cierra la conexion, cambiarle
+// el buffer ya no le sirve a nadie.
+void gvs_drena_tareas_ahora() {
+    for (;;) {
+        std::function<bool()> t;
+        {
+            std::lock_guard<std::mutex> lk(g_tareas_mu);
+            if (!g_tareas_espera.empty()) g_tareas_espera.clear();
+            if (g_tareas.empty()) return;
+            t = std::move(g_tareas.front());
+            g_tareas.pop_front();
+        }
+        t();
+    }
+}
+
+void encola_tarea(std::function<bool()> t) {
+    {
+        std::lock_guard<std::mutex> lk(g_tareas_mu);
+        g_tareas.push_back(std::move(t));
+    }
+    gvs_arranca_liberador_una_vez();
+    g_tareas_cv.notify_one();
+}
+
+// Reserva paginable pura: NUNCA llama a CUDA, asi que es segura dentro del callback.
+// alloc_pinned_host ya cae aqui cuando no hay libcudart o hay una captura abierta, de modo que
+// un slot con is_cuda_host=false es un estado que el resto del fichero ya maneja.
+unsigned char *alloc_host_paginable(size_t n) {
+    void *p = nullptr;
+    if (posix_memalign(&p, 4096, n) == 0 && p != nullptr)
+        return static_cast<unsigned char *>(p);
+    return nullptr;
+}
+
+// Contextos UCX vivos. Diferir trabajo a otro hilo introduce una ventana que antes no existia:
+// la tarea guarda un ucp_context_h y el proceso puede haber hecho ucp_cleanup entre medias, y
+// entonces el ucp_mem_unmap escribe sobre memoria liberada. Solo el listener posee el contexto
+// y solo lo destruye al apagarse, asi que la ventana es de cierre -- pero un cierre que casca
+// se lee como un defecto igual. Se registra y se consulta; liberar memoria sin desmapear
+// cuando el contexto ya no esta es inofensivo (el contexto se llevo sus registros con el).
+std::mutex                 &g_ctx_vivos_mu = *new std::mutex;    // misma fuga deliberada
+std::vector<ucp_context_h> &g_ctx_vivos    = *new std::vector<ucp_context_h>;
+
+void registra_contexto(ucp_context_h c) {
+    if (c == nullptr) return;
+    std::lock_guard<std::mutex> lk(g_ctx_vivos_mu);
+    g_ctx_vivos.push_back(c);
+}
+void retira_contexto(ucp_context_h c) {
+    std::lock_guard<std::mutex> lk(g_ctx_vivos_mu);
+    g_ctx_vivos.erase(std::remove(g_ctx_vivos.begin(), g_ctx_vivos.end(), c),
+                      g_ctx_vivos.end());
+}
+bool contexto_vivo(ucp_context_h c) {
+    if (c == nullptr) return false;
+    std::lock_guard<std::mutex> lk(g_ctx_vivos_mu);
+    return std::find(g_ctx_vivos.begin(), g_ctx_vivos.end(), c) != g_ctx_vivos.end();
+}
+
+// Suelta en el hilo de fondo lo que un slot dejaba de usar. El orden importa y se conserva:
+// primero desmapear de UCX (mientras la memoria sigue viva), luego sincronizar el dispositivo
+// (una copia D2D desde la sombra pudo quedar en vuelo) y solo entonces liberar.
+void encola_suelta_de_slot(ucp_context_h ctx, ucp_mem_h memh, ucp_mem_h gpu_memh,
+                           unsigned char *host, bool host_es_cuda, unsigned char *gpu) {
+    if (memh == nullptr && gpu_memh == nullptr && host == nullptr && gpu == nullptr) return;
+    ++g_slot_diferidos;
+    encola_tarea([ctx, memh, gpu_memh, host, host_es_cuda, gpu]() -> bool {
+        const bool ctx_ok = contexto_vivo(ctx);
+        if (ctx_ok && memh != nullptr)     ucp_mem_unmap(ctx, memh);
+        if (ctx_ok && gpu_memh != nullptr) ucp_mem_unmap(ctx, gpu_memh);
+        if (gpu != nullptr) {
+            if (auto sync = g_cuda_device_sync.load()) sync();
+        }
+        if (host != nullptr) {
+            auto libera = g_cuda_free_host.load();
+            if (host_es_cuda && libera != nullptr) libera(host);
+            else                                   std::free(host);
+        }
+        if (gpu != nullptr) {
+            if (auto libera_gpu = g_cuda_free.load()) libera_gpu(gpu);
+        }
+        return true;
+    });
+}
+
+}  // namespace
+
 void UcxCommunicator::listener_conn_handler(ucp_conn_request_h conn_request, void *arg) {
     auto *self = static_cast<UcxCommunicator *>(arg);
     if (self == nullptr || conn_request == nullptr) return;
@@ -1320,6 +1647,11 @@ void UcxCommunicator::init_ucx() {
                                  std::string(ucs_status_string(status)));
     }
 
+    // Arrancar el liberador AQUI y no en el primer crecimiento del pool: crear un hilo dentro
+    // del callback de recepcion de UCX son ~50 us que no hacen ninguna falta en ese camino.
+    gvs_arranca_liberador_una_vez();
+    registra_contexto(context_);
+
     ucp_am_handler_param_t am_param{};
     am_param.field_mask = UCP_AM_HANDLER_PARAM_FIELD_ID |
                           UCP_AM_HANDLER_PARAM_FIELD_FLAGS |
@@ -1381,6 +1713,19 @@ void UcxCommunicator::destroy_ucx() {
         listener_ = nullptr;
     }
 
+    // Cerrar el trabajo diferido ANTES de deshacer nada. Dos pasos y en este orden:
+    //   1. subir la generacion invalida las mejoras de slot que sigan en la cola, para que no
+    //      reserven memoria fijada de un pool que esta a punto de desaparecer;
+    //   2. drenar en ESTE hilo lo que quede, mientras el pool, el contexto y la conexion siguen
+    //      vivos. Sin esto el liberador ejecutaba liberaciones DESPUES del cierre, y en el
+    //      frontend `cudaFreeHost` es el shim de GVirtuS -- una RPC sobre una conexion muerta.
+    //      Medido: d2hpool volcaba core 3 de 3 al salir, 0 de 3 con la lib anterior.
+    {
+        std::lock_guard<std::mutex> lk(rx_pool_->mu);
+        ++rx_pool_->generacion;
+    }
+    gvs_drena_tareas_ahora();
+
     // Destroy RMA state BEFORE the worker/context teardown — ucp_rkey_destroy
     // needs an alive context, and destroy_rx_pool calls ucp_mem_unmap.
     destroy_rma_state();
@@ -1393,6 +1738,8 @@ void UcxCommunicator::destroy_ucx() {
     }
 
     if (owns_context_ && context_ != nullptr) {
+        // ANTES del cleanup: a partir de aqui ninguna tarea diferida intentara desmapear con el.
+        retira_contexto(context_);
         ucp_cleanup(context_);
         context_ = nullptr;
     }
@@ -1797,14 +2144,21 @@ size_t UcxCommunicator::Read(char *buffer, size_t size) {
     // Mismo punto seguro para las liberaciones que se aplazaron por una captura abierta.
     // Va PRIMERO: reconstruir el pool con la memoria vieja aun retenida es gastar el doble
     // sin motivo, y aqui la ventana ya esta cerrada.
-    drena_liberaciones_aplazadas();
-    if (rma_pool_requested_.load(std::memory_order_acquire)) {
-        GVS_RTRACE("disparo diferido: entrando a materialise_rma_pool");
-        materialise_rma_pool();
-    }
-    // Safe point for releasing superseded slots (see reclaim_retired_slots).
-    if (rma_reclaim_requested_.load(std::memory_order_acquire)) {
-        reclaim_retired_slots();
+    // Este "punto seguro" corre en el hilo de la conexion, o sea EN EL CAMINO de su proxima RPC.
+    // No esta dentro del callback de UCX, asi que no congela a las demas conexiones -- pero
+    // materialise_rma_pool sigue haciendo cudaHostAlloc/cudaMalloc, que esperan a la GPU entera.
+    // El guardia lo cubre para que, si eso aparece, salga con su pila y no con otra campana.
+    {
+        GuardiaProgreso _g;
+        drena_liberaciones_aplazadas();
+        if (rma_pool_requested_.load(std::memory_order_acquire)) {
+            GVS_RTRACE("disparo diferido: entrando a materialise_rma_pool");
+            materialise_rma_pool();
+        }
+        // Safe point for releasing superseded slots (see reclaim_retired_slots).
+        if (rma_reclaim_requested_.load(std::memory_order_acquire)) {
+            reclaim_retired_slots();
+        }
     }
     // Mismo punto seguro: muestreo periodico de metricas. No toma cerrojos del worker.
     gusto_metric_maybe_emit();
@@ -1888,14 +2242,21 @@ bool UcxCommunicator::TryAcquireFrame(const unsigned char *&data, size_t &size) 
     // Mismo punto seguro para las liberaciones que se aplazaron por una captura abierta.
     // Va PRIMERO: reconstruir el pool con la memoria vieja aun retenida es gastar el doble
     // sin motivo, y aqui la ventana ya esta cerrada.
-    drena_liberaciones_aplazadas();
-    if (rma_pool_requested_.load(std::memory_order_acquire)) {
-        GVS_RTRACE("disparo diferido: entrando a materialise_rma_pool");
-        materialise_rma_pool();
-    }
-    // Safe point for releasing superseded slots (see reclaim_retired_slots).
-    if (rma_reclaim_requested_.load(std::memory_order_acquire)) {
-        reclaim_retired_slots();
+    // Este "punto seguro" corre en el hilo de la conexion, o sea EN EL CAMINO de su proxima RPC.
+    // No esta dentro del callback de UCX, asi que no congela a las demas conexiones -- pero
+    // materialise_rma_pool sigue haciendo cudaHostAlloc/cudaMalloc, que esperan a la GPU entera.
+    // El guardia lo cubre para que, si eso aparece, salga con su pila y no con otra campana.
+    {
+        GuardiaProgreso _g;
+        drena_liberaciones_aplazadas();
+        if (rma_pool_requested_.load(std::memory_order_acquire)) {
+            GVS_RTRACE("disparo diferido: entrando a materialise_rma_pool");
+            materialise_rma_pool();
+        }
+        // Safe point for releasing superseded slots (see reclaim_retired_slots).
+        if (rma_reclaim_requested_.load(std::memory_order_acquire)) {
+            reclaim_retired_slots();
+        }
     }
     // Mismo punto seguro: muestreo periodico de metricas. No toma cerrojos del worker.
     gusto_metric_maybe_emit();
@@ -1940,7 +2301,7 @@ bool UcxCommunicator::TryAcquireFrame(const unsigned char *&data, size_t &size) 
             const double _t0 = gvs_cli_ms();
             std::unique_lock<std::mutex> wl(*worker_mutex_);
             const double _t1 = gvs_cli_ms();
-            ucp_worker_progress(worker_);
+            { GuardiaProgreso _g; ucp_worker_progress(worker_); }
             const double _t2 = gvs_cli_ms();
             wl.unlock();
             const double _t3 = gvs_cli_ms();
@@ -1955,6 +2316,7 @@ bool UcxCommunicator::TryAcquireFrame(const unsigned char *&data, size_t &size) 
         } else {
             if (worker_ != nullptr) {
                 std::lock_guard<std::mutex> worker_lock(*worker_mutex_);
+                GuardiaProgreso _g;
                 ucp_worker_progress(worker_);
             }
             progress_am_rndv();
@@ -2553,12 +2915,36 @@ void UcxCommunicator::destroy_rx_pool() {
         slot.gpu_capacity = 0;
     }
     rx_pool_->slots.clear();
+    // Invalida cualquier mejora diferida que estuviera a medio camino con un indice de este
+    // pool. Sin esto la tarea vuelve, indexa un deque vacio y corrompe el heap.
+    ++rx_pool_->generacion;
 }
 
 // Find a free slot of at least `needed` bytes. Grows an existing in-use-free
 // slot's capacity if the largest is too small, or appends a new slot if all
 // are busy. Returns slot index.
 size_t UcxCommunicator::acquire_rx_slot(size_t needed) {
+    // Este cronometro se queda puesto. Es el sitio exacto donde una llamada CUDA que sincroniza
+    // el dispositivo congelaba a un cliente detras del kernel de otro; que vuelva a pasar tiene
+    // que salir por un contador y no por una campana de dos dias. Cuesta dos relojes por
+    // mensaje, en un camino que ya hace un memcpy de kilobytes.
+    const auto t_ini = std::chrono::steady_clock::now();
+    struct Cronometro {
+        std::chrono::steady_clock::time_point t0;
+        ~Cronometro() {
+            const double ms = std::chrono::duration<double, std::milli>(
+                                  std::chrono::steady_clock::now() - t0).count();
+            if (ms < 100.0) return;
+            ++g_slot_atascos;
+            double peor = g_slot_peor_ms.load(std::memory_order_relaxed);
+            while (ms > peor && !g_slot_peor_ms.compare_exchange_weak(peor, ms)) {}
+            std::fprintf(stderr,
+                "[GVS SLOT] AVISO: acquire_rx_slot tardo %.1f ms dentro del callback de UCX. "
+                "Eso congela el bucle de recepcion de ESTA conexion en pleno trafico normal; "
+                "busca una llamada CUDA en este camino (ver el bloque EL LIBERADOR).\n", ms);
+            std::fflush(stderr);
+        }
+    } cronometro{t_ini};
     std::lock_guard<std::mutex> lk(rx_pool_->mu);
 
     // Try to find a free slot big enough. Persistent RMA slots are excluded: a peer
@@ -2584,53 +2970,222 @@ size_t UcxCommunicator::acquire_rx_slot(size_t needed) {
     // reciclar: solo reserva (paginable dentro de la ventana) y mapea host. Los slots de mas
     // se reutilizan por capacidad en cuanto la ventana se cierra; no se pierde ninguno.
     const bool no_reciclar = captura_abierta();
+    // Aqui empieza el camino que corria dentro del callback de UCX con cuatro llamadas CUDA que
+    // sincronizan el dispositivo. Ver el bloque "EL LIBERADOR" arriba: la reserva pasa a ser
+    // paginable y todo lo lento se va a un hilo de fondo. `en_linea` restaura lo viejo para
+    // poder medir la ablacion en las dos direcciones con el mismo binario.
+    const bool en_linea = gvs_slot_inline_cuda();
     for (size_t i = 0; !no_reciclar && i < rx_pool_->slots.size(); ++i) {
         if (rx_pool_->slots[i].rma_persistent) continue;  // never repurpose an RMA slot
         if (!rx_pool_->slots[i].in_use) {
-            unmap_slot_from_ucp(context_, rx_pool_->slots[i]);
-            free_pinned_host(rx_pool_->slots[i].addr, rx_pool_->slots[i].is_cuda_host);
-            free_gpu_slot(rx_pool_->slots[i].gpu_addr);
-            bool is_cuda = false;
-            unsigned char *p = alloc_pinned_host(needed, is_cuda);
+            if (en_linea) {
+                unmap_slot_from_ucp(context_, rx_pool_->slots[i]);
+                free_pinned_host(rx_pool_->slots[i].addr, rx_pool_->slots[i].is_cuda_host);
+                free_gpu_slot(rx_pool_->slots[i].gpu_addr);
+                bool is_cuda = false;
+                unsigned char *p = alloc_pinned_host(needed, is_cuda);
+                if (p == nullptr) {
+                    throw std::runtime_error("UcxCommunicator: rx_pool grow failed");
+                }
+                rx_pool_->slots[i] = PinnedSlot{p, needed, /*in_use*/true, is_cuda, nullptr};
+                if (gpudirect_active) {
+                    unsigned char *gp = alloc_gpu_slot(needed);
+                    if (gp != nullptr) {
+                        rx_pool_->slots[i].gpu_addr = gp;
+                        rx_pool_->slots[i].gpu_capacity = needed;
+                    }
+                }
+                map_slot_to_ucp(context_, rx_pool_->slots[i]);
+                ucx_debug_log("rx_pool: grew slot %zu to %zu bytes (gpu=%s)",
+                              i, needed, rx_pool_->slots[i].gpu_addr ? "yes" : "no");
+                return i;
+            }
+            // Lo viejo sale del slot SIN tocarse: lo desmapea y lo libera el liberador.
+            PinnedSlot viejo = rx_pool_->slots[i];
+            unsigned char *p = alloc_host_paginable(needed);
             if (p == nullptr) {
                 throw std::runtime_error("UcxCommunicator: rx_pool grow failed");
             }
-            rx_pool_->slots[i] = PinnedSlot{p, needed, /*in_use*/true, is_cuda, nullptr};
-            if (gpudirect_active) {
-                unsigned char *gp = alloc_gpu_slot(needed);
-                if (gp != nullptr) {
-                    rx_pool_->slots[i].gpu_addr = gp;
-                    rx_pool_->slots[i].gpu_capacity = needed;
-                }
-            }
-            map_slot_to_ucp(context_, rx_pool_->slots[i]);
-            ucx_debug_log("rx_pool: grew slot %zu to %zu bytes (gpu=%s)",
-                          i, needed,
-                          rx_pool_->slots[i].gpu_addr ? "yes" : "no");
+            rx_pool_->slots[i] = PinnedSlot{p, needed, /*in_use*/true, /*is_cuda*/false, nullptr};
+            map_slot_to_ucp(context_, rx_pool_->slots[i]);   // host: ibv_reg_mr, no toca CUDA
+            encola_suelta_de_slot(context_, viejo.memh, viejo.gpu_memh,
+                                  viejo.addr, viejo.is_cuda_host, viejo.gpu_addr);
+            pide_mejora_slot(i, needed, gpudirect_active);
+            ucx_debug_log("rx_pool: grew slot %zu to %zu bytes (paginable; mejora encolada)",
+                          i, needed);
             return i;
         }
     }
     // All slots in use — append a new one.
-    bool is_cuda = false;
-    unsigned char *p = alloc_pinned_host(needed, is_cuda);
+    if (en_linea) {
+        bool is_cuda = false;
+        unsigned char *p = alloc_pinned_host(needed, is_cuda);
+        if (p == nullptr) {
+            throw std::runtime_error("UcxCommunicator: rx_pool append failed");
+        }
+        rx_pool_->slots.push_back(PinnedSlot{p, needed, /*in_use*/true, is_cuda, nullptr});
+        size_t idx = rx_pool_->slots.size() - 1;
+        if (gpudirect_active) {
+            unsigned char *gp = alloc_gpu_slot(needed);
+            if (gp != nullptr) {
+                rx_pool_->slots[idx].gpu_addr = gp;
+                rx_pool_->slots[idx].gpu_capacity = needed;
+            }
+        }
+        map_slot_to_ucp(context_, rx_pool_->slots[idx]);
+        ucx_debug_log("rx_pool: appended slot %zu (%zu bytes, gpu=%s), total=%zu",
+                      idx, needed, rx_pool_->slots[idx].gpu_addr ? "yes" : "no",
+                      rx_pool_->slots.size());
+        return idx;
+    }
+    unsigned char *p = alloc_host_paginable(needed);
     if (p == nullptr) {
         throw std::runtime_error("UcxCommunicator: rx_pool append failed");
     }
-    rx_pool_->slots.push_back(PinnedSlot{p, needed, /*in_use*/true, is_cuda, nullptr});
-    size_t idx = rx_pool_->slots.size() - 1;
-    if (gpudirect_active) {
-        unsigned char *gp = alloc_gpu_slot(needed);
-        if (gp != nullptr) {
-            rx_pool_->slots[idx].gpu_addr = gp;
-            rx_pool_->slots[idx].gpu_capacity = needed;
-        }
-    }
+    rx_pool_->slots.push_back(PinnedSlot{p, needed, /*in_use*/true, /*is_cuda*/false, nullptr});
+    const size_t idx = rx_pool_->slots.size() - 1;
     map_slot_to_ucp(context_, rx_pool_->slots[idx]);
-    ucx_debug_log("rx_pool: appended slot %zu (%zu bytes, gpu=%s), total=%zu",
-                  idx, needed,
-                  rx_pool_->slots[idx].gpu_addr ? "yes" : "no",
-                  rx_pool_->slots.size());
+    pide_mejora_slot(idx, needed, gpudirect_active);
+    ucx_debug_log("rx_pool: appended slot %zu (%zu bytes, paginable; mejora encolada), total=%zu",
+                  idx, needed, rx_pool_->slots.size());
     return idx;
+}
+
+// Mejora diferida de un slot recien crecido: paginable -> fijada de CUDA (+ sombra de GPU si
+// GPUDirect esta activo). Corre en el liberador, nunca en el hilo de una conexion, que es todo
+// el asunto: cudaHostAlloc y cudaMalloc pueden tardar lo que dure el kernel mas largo de
+// CUALQUIER cliente, y aqui eso no bloquea ninguna RPC.
+//
+// Lifetime: el pool es shared_ptr y se captura un weak_ptr, asi que una conexion que se cierre
+// mientras la tarea espera deja la tarea sin nada que hacer en vez de escribir en memoria
+// liberada. Los indices siguen siendo validos porque RxPool::slots es un deque: crecerlo no
+// invalida elementos existentes.
+void UcxCommunicator::pide_mejora_slot(size_t idx, size_t needed, bool con_gpu) {
+    // Valvula: con GVS_SLOT_UPGRADE=0 los slots crecidos se quedan PAGINABLES para siempre.
+    // Es correcto -- solo cuesta que un cudaMemcpy H2D desde ese slot lo escenifique CUDA en vez
+    // de ir directo -- y no necesita recompilar. Esta aqui porque esta mejora ya tumbo el
+    // backend una vez (indice a un pool destruido), y un mecanismo de rendimiento que puede
+    // matar al servidor tiene que poder apagarse en la linea de lanzamiento.
+    static const bool mejora_activa = [] {
+        const char *e = std::getenv("GVS_SLOT_UPGRADE");
+        const bool off = e != nullptr && e[0] == '0';
+        if (off)
+            std::fprintf(stderr, "[GVS SLOT] mejora a memoria fijada DESACTIVADA: los slots que "
+                                 "crezcan se quedan paginables\n");
+        return !off;
+    }();
+    if (!mejora_activa) return;
+
+    std::weak_ptr<RxPool> debil = rx_pool_;
+    ucp_context_h ctx = context_;
+    const std::uint64_t gen = rx_pool_->generacion;   // se llama con rx_pool_->mu tomado
+    // ~10 s de reintentos a 50 ms. Un slot ocupado sin parar durante 10 s enteros es trafico
+    // continuo sobre esa conexion, y ahi cambiarle el buffer debajo no es lo que hay que hacer:
+    // se abandona y el contador lo dice.
+    auto intentos = std::make_shared<int>(200);
+    // Direccion del buffer paginable que se reserva. Se instala el fijado SOLO encima de ese
+    // buffer exacto: si en la ventana sin cerrojo el slot cambio de manos, la tarea se vuelve
+    // un no-op en vez de escribir sobre un pool que ya no es el suyo.
+    auto esperado = std::make_shared<unsigned char *>(nullptr);
+    encola_tarea([debil, ctx, idx, needed, con_gpu, intentos, esperado, gen]() -> bool {
+        auto pool = debil.lock();
+        if (!pool) return true;                  // la conexion se fue: nada que mejorar
+        // Reservar el slot: in_use lo saca de la circulacion sin que nadie mas lo toque.
+        {
+            std::lock_guard<std::mutex> lk(pool->mu);
+            if (pool->generacion != gen || idx >= pool->slots.size()) {
+                ++g_slot_mejoras_saltadas;
+                return true;
+            }
+            PinnedSlot &s = pool->slots[idx];
+            // Que el slot siga siendo EL MISMO que se encolo. Si entre medias volvio a crecer
+            // (capacity distinta) o ya se mejoro (is_cuda_host), instalar este buffer seria
+            // encogerlo o duplicar trabajo. Se descarta la tarea, no el slot.
+            if (s.rma_persistent || s.is_cuda_host || s.capacity != needed) {
+                ++g_slot_mejoras_saltadas;
+                return true;
+            }
+            // EN USO no es un descarte, es un "ahora no": acaba de entregarse al mensaje que
+            // provoco el crecimiento y se liberara en cuanto el handler termine.
+            if (s.in_use) {
+                if (--(*intentos) <= 0) { ++g_slot_mejoras_saltadas; return true; }
+                return false;                    // reintento en el proximo tick
+            }
+            s.in_use = true;
+            *esperado = s.addr;
+        }
+        // A partir de aqui el cerrojo esta SUELTO y el slot idx queda reservado. Todo camino de
+        // salida tiene que devolverlo, y ninguno puede indexar el pool sin revalidar: la
+        // conexion puede cerrarse en esta ventana, y destroy_rx_pool vacia el deque.
+        // Devuelve true si el slot seguia siendo el nuestro y se pudo desreservar.
+        auto desreserva = [&pool, idx, gen, esperado]() -> bool {
+            std::lock_guard<std::mutex> lk(pool->mu);
+            if (pool->generacion != gen || idx >= pool->slots.size()) return false;
+            PinnedSlot &s = pool->slots[idx];
+            if (s.addr != *esperado) return false;
+            s.in_use = false;
+            return true;
+        };
+
+        bool es_cuda = false;
+        unsigned char *p = alloc_pinned_host(needed, es_cuda);   // lento a proposito, aqui no duele
+        unsigned char *gp = (p != nullptr && es_cuda && con_gpu) ? alloc_gpu_slot(needed) : nullptr;
+        auto suelta_lo_reservado = [&p, &gp, es_cuda] {
+            if (p != nullptr) {
+                auto libera = g_cuda_free_host.load();
+                if (es_cuda && libera != nullptr) libera(p); else std::free(p);
+            }
+            if (gp != nullptr) free_gpu_slot(gp);
+        };
+        if (p == nullptr || !es_cuda) {
+            // Sin memoria fijada disponible (o CUDA no cargado): el slot se queda paginable, que
+            // es correcto y solo un poco mas lento. Se devuelve a la circulacion.
+            suelta_lo_reservado();
+            desreserva();
+            ++g_slot_mejoras_fallo;
+            return true;
+        }
+        // El contexto UCX pudo morir mientras se reservaba: sin el no se puede mapear.
+        if (!contexto_vivo(ctx)) {
+            suelta_lo_reservado();
+            desreserva();
+            ++g_slot_mejoras_saltadas;
+            return true;
+        }
+        // Mapear fuera del cerrojo del pool: ucp_mem_map no necesita el pool y puede tardar.
+        PinnedSlot nuevo{p, needed, /*in_use*/true, /*is_cuda*/true, nullptr};
+        nuevo.gpu_addr     = gp;
+        nuevo.gpu_capacity = (gp != nullptr) ? needed : 0;
+        map_slot_to_ucp(ctx, nuevo);
+
+        PinnedSlot viejo;
+        {
+            std::lock_guard<std::mutex> lk(pool->mu);
+            if (pool->generacion != gen || idx >= pool->slots.size() ||
+                pool->slots[idx].addr != *esperado) {
+                // El pool se destruyo (o el slot cambio) mientras reservabamos. Lo recien
+                // reservado se suelta por el hilo de fondo y no se toca el pool.
+                encola_suelta_de_slot(ctx, nuevo.memh, nuevo.gpu_memh,
+                                      nuevo.addr, /*es_cuda*/true, nuevo.gpu_addr);
+                ++g_slot_mejoras_saltadas;
+                return true;
+            }
+            PinnedSlot &s = pool->slots[idx];
+            viejo = s;                       // lo paginable que estaba puesto
+            s.addr         = nuevo.addr;
+            s.capacity     = needed;
+            s.is_cuda_host = true;
+            s.memh         = nuevo.memh;
+            s.gpu_addr     = nuevo.gpu_addr;
+            s.gpu_capacity = nuevo.gpu_capacity;
+            s.gpu_memh     = nuevo.gpu_memh;
+            s.in_use       = false;          // de vuelta a la circulacion, ya fijado
+        }
+        encola_suelta_de_slot(ctx, viejo.memh, viejo.gpu_memh,
+                              viejo.addr, viejo.is_cuda_host, viejo.gpu_addr);
+        ++g_slot_mejoras_ok;
+        return true;
+    });
 }
 
 void UcxCommunicator::release_rx_slot(size_t slot_idx) {
@@ -3447,7 +4002,13 @@ void UcxCommunicator::gusto_emit_metric(const char *tag) {
         "decline_capacity=%llu decline_timeout=%llu decline_swap=%llu decline_epfail=%llu "
         "ack_sent=%llu ack_gen_mismatch=%llu ack_on_free=%llu ack_applied=%llu "
         "ack_held=%llu ack_released=%llu "
-        "ack_epoch_dropped=%llu parked=%llu\n",
+        "ack_epoch_dropped=%llu parked=%llu "
+        // Salud del arreglo de la serializacion: si `slot_stalls` deja de ser 0, alguna
+        // llamada CUDA volvio al camino de la RPC y hay que ir a buscarla. Se emite
+        // periodicamente y no solo en el teardown, que es donde la campana ya se quedo una
+        // vez sin poder leer un contador porque el arnes mataba el proceso.
+        "slot_deferred=%llu slot_pinned=%llu slot_pin_failed=%llu slot_pin_skipped=%llu "
+        "slot_stalls=%llu slot_worst_ms=%.1f\n",
         tag, slots_total, rma_peak_inflight_, occ_avg,
         rma_peak_waiters_,
         (unsigned long long)rma_acquire_count_,
@@ -3467,7 +4028,13 @@ void UcxCommunicator::gusto_emit_metric(const char *tag) {
         (unsigned long long)rma_ack_held_count_,
         (unsigned long long)rma_ack_released_count_,
         (unsigned long long)rma_ack_dropped_epoch_count_,
-        (unsigned long long)rma_swap_parked_count_);
+        (unsigned long long)rma_swap_parked_count_,
+        (unsigned long long)g_slot_diferidos.load(),
+        (unsigned long long)g_slot_mejoras_ok.load(),
+        (unsigned long long)g_slot_mejoras_fallo.load(),
+        (unsigned long long)g_slot_mejoras_saltadas.load(),
+        (unsigned long long)g_slot_atascos.load(),
+        g_slot_peor_ms.load());
     std::fflush(stderr);
 }
 

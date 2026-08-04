@@ -240,6 +240,13 @@ class UcxCommunicator : public Communicator {
         // to existing elements on push_back/resize, and indexing is unchanged.
         std::deque<PinnedSlot> slots;
         std::mutex mu;
+        // Generacion del pool. La sube destroy_rx_pool, que es el UNICO sitio que vacia el
+        // deque. Existe porque la mejora diferida de un slot (pide_mejora_slot) suelta el
+        // cerrojo mientras reserva memoria fijada, y en esa ventana la conexion puede cerrarse:
+        // al volver, el indice que tenia apuntaba a un deque ya vaciado. Eso tumbo el backend
+        // con "double free or corruption" en la primera corrida larga. Comparar la generacion
+        // (y la direccion) convierte esa carrera en un no-op.
+        std::uint64_t generacion{0};
     };
     std::shared_ptr<RxPool> rx_pool_{std::make_shared<RxPool>()};
     PooledMsg current_frame_;  // held between TryAcquireFrame/ReleaseFrame
@@ -259,6 +266,13 @@ class UcxCommunicator : public Communicator {
     void destroy_rx_pool();
     size_t acquire_rx_slot(size_t needed);   // returns slot_idx, grows pool if all busy
     void release_rx_slot(size_t slot_idx);   // marks slot free
+
+    // acquire_rx_slot corre dentro del callback de recepcion de UCX. Ahi no puede llamar a
+    // cudaHostAlloc/cudaMalloc/cudaFreeHost/cudaFree: las cuatro sincronizan el dispositivo y
+    // se quedan esperando a los kernels de OTROS clientes (medido: 9,8 s). Asi que el slot
+    // nace paginable y esto encola su elevacion a memoria fijada en el hilo de fondo.
+    // Ver el bloque "EL LIBERADOR" en UcxCommunicator.cpp.
+    void pide_mejora_slot(size_t idx, size_t needed, bool con_gpu);
 
     // ucp_mem_map / unmap helpers that need access to PinnedSlot (private nested
     // type), hence static members rather than file-scope free functions.
