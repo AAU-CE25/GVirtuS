@@ -663,6 +663,34 @@ ShadowDrainRegistrar g_shadow_drain_registrar;
 
 }  // namespace
 
+
+// Umbral del camino GPUDirect para D2H. Estaba COMPILADO a 4 MiB, y esa es la razon por la que
+// el barrido de politica no podia derivarlo: los cuatro brazos tomaban el mismo camino por
+// debajo de 4 MiB y salian indistinguibles (dispersion medida 0,2-2,4 % a todos los tamanos).
+//
+// El 4 MiB tiene base empirica -- ver el comentario largo mas abajo: a 256 KB y 1 MB el camino
+// GPUDirect REGRESABA (0,7/1,1 ms -> 1,5/1,9 ms). Pero esa medida es ANTERIOR a la reescritura
+// del camino D2H (client-GET, 8,9 -> 24 GB/s; host-GET, 5,4 -> 12,8). Un umbral derivado de un
+// camino que ya no existe puede estar rancio, y sin esta variable no hay forma de comprobarlo.
+//
+// Vive en el BACKEND, asi que la variable la lee el BACKEND. Es la misma leccion de dos lados
+// que el suelo RMA: ponerla en el cliente no hace nada.
+static size_t gvs_gpudirect_d2h_min_bytes() {
+    static const size_t v = [] {
+        const char *e = std::getenv("GVIRTUS_GPUDIRECT_D2H_MIN_BYTES");
+        if (e != nullptr) {
+            char *fin = nullptr;
+            unsigned long long x = std::strtoull(e, &fin, 10);
+            if (fin != e && x > 0) {
+                fprintf(stderr, "[GVS D2H] GPUDirect D2H threshold = %llu bytes (default 4194304)\n", x);
+                return static_cast<size_t>(x);
+            }
+        }
+        return static_cast<size_t>(4u * 1024u * 1024u);
+    }();
+    return v;
+}
+
 CUDA_ROUTINE_HANDLER(Memcpy) {
     /* cudaError_t cudaError_t cudaMemcpy(void *dst, const void *src,
         size_t count, cudaMemcpyKind kind) */
@@ -807,7 +835,7 @@ CUDA_ROUTINE_HANDLER(Memcpy) {
                 // bounce. Empirically observed: at N=256 (256 KB) and N=512 (1 MB)
                 // host_ms regressed from ~0.7/1.1 ms (pre-GPUDirect) to ~1.5/1.9 ms
                 // with GPUDirect on. 4 MB matches Variant B and protects small RPCs.
-                constexpr size_t kGpuDirectD2HThreshold = 4u * 1024u * 1024u;
+                const size_t kGpuDirectD2HThreshold = gvs_gpudirect_d2h_min_bytes();
                 // Auto-detected: take the GPU-scratch path only when the client
                 // is RMA-put-capable (its rkey unpacked), else fall through to
                 // the host path below (no device fragment on the wire, so no
@@ -1399,7 +1427,7 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
                 // so the scratch holds the data, then hand it to the client via
                 // SetGpuPayload: the deferred reply carries the GET descriptor and
                 // the frontend's DrainPendingD2H issues the RDMA GET into dst.
-                constexpr size_t kGpuDirectD2HThreshold = 4u * 1024u * 1024u;
+                const size_t kGpuDirectD2HThreshold = gvs_gpudirect_d2h_min_bytes();
                 if (gvirtus_gpudirect_d2h_enabled() && count >= kGpuDirectD2HThreshold) {
                     void *gpu_scratch = get_d2h_get_scratch(count);
                     if (gpu_scratch != nullptr) {
