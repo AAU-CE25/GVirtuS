@@ -1,3 +1,5 @@
+#include <unistd.h>
+#include <sys/syscall.h>
 #include <pthread.h>
 #include "UcxCommunicator.h"
 #include "gvirtus/communicators/Visibility.h"
@@ -868,6 +870,35 @@ UcxCommunicator::UcxCommunicator(const std::string &hostname, std::uint16_t port
 
 UcxCommunicator::~UcxCommunicator() { Close(); }
 
+
+// --- localizador de la serializacion, lado CLIENTE ------------------------------------------
+// La traza del backend dice que la RPC de un hilo ENTRA 0,8 ms despues de que salga la del otro.
+// Eso admite dos lecturas incompatibles y hay que separarlas: (a) el backend no ENTREGA hasta
+// entonces, o (b) el backend entrega antes y el CLIENTE no procesa su recepcion mientras otro de
+// sus hilos espera. Esto sella el instante en que el mensaje ATERRIZA en la cola del cliente y el
+// instante en que el hilo que espera lo RECOGE. Si aterriza pronto y se recoge tarde, es (b).
+// Apagado por defecto: GVS_CLIENT_TRACE=1.
+static bool gvs_spin_trace() {
+    static const bool v = [] {
+        const char *e = std::getenv("GVS_SPIN_TRACE");
+        return e != nullptr && e[0] == '1';
+    }();
+    return v;
+}
+static bool gvs_client_trace() {
+    static const bool v = [] {
+        const char *e = std::getenv("GVS_CLIENT_TRACE");
+        return e != nullptr && e[0] == '1';
+    }();
+    return v;
+}
+static double gvs_cli_ms() {
+    using namespace std::chrono;
+    static const auto t0 = steady_clock::now();
+    return duration<double, std::milli>(steady_clock::now() - t0).count();
+}
+static std::atomic<double> g_ultimo_aterrizaje{0.0};
+
 void UcxCommunicator::listener_conn_handler(ucp_conn_request_h conn_request, void *arg) {
     auto *self = static_cast<UcxCommunicator *>(arg);
     if (self == nullptr || conn_request == nullptr) return;
@@ -1478,6 +1509,13 @@ void UcxCommunicator::enqueue_am_message(PooledMsg message) {
     // Store a completed AM payload for stream-style Read() / TryAcquireFrame().
     {
         std::lock_guard<std::mutex> lock(am_state_->mutex);
+        if (gvs_client_trace()) {
+            const double t = gvs_cli_ms();
+            g_ultimo_aterrizaje.store(t);
+            std::fprintf(stderr, "[GVS CLI RX] mensaje ATERRIZA en la cola t=%.1fms (cola=%zu)\n",
+                         t, am_state_->queue.size() + 1);
+            std::fflush(stderr);
+        }
         am_state_->queue.push_back(message);
     }
     am_state_->cv.notify_one();
@@ -1800,6 +1838,15 @@ size_t UcxCommunicator::Read(char *buffer, size_t size) {
         {
             std::unique_lock<std::mutex> lock(am_state_->mutex);
             if (!am_state_->queue.empty()) {
+                if (gvs_client_trace()) {
+                    const double t = gvs_cli_ms();
+                    const double at = g_ultimo_aterrizaje.load();
+                    std::fprintf(stderr,
+                        "[GVS CLI RX] hilo %d RECOGE t=%.1fms (ultimo aterrizaje %.1fms, "
+                        "espera en cola %.1fms)\n",
+                        (int)syscall(SYS_gettid), t, at, t - at);
+                    std::fflush(stderr);
+                }
                 pending_msg_ = am_state_->queue.front();
                 am_state_->queue.pop_front();
                 pending_read_offset_ = 0;
@@ -1887,11 +1934,50 @@ bool UcxCommunicator::TryAcquireFrame(const unsigned char *&data, size_t &size) 
             }
         }
 
-        if (worker_ != nullptr) {
-            std::lock_guard<std::mutex> worker_lock(*worker_mutex_);
+        if (gvs_spin_trace() && worker_ != nullptr) {
+            // Un hilo se queda 50,6 s DENTRO de una iteracion de este bucle. Esto dice en cual
+            // de las dos llamadas: esperando el mutex del worker, o dentro del progreso mismo.
+            const double _t0 = gvs_cli_ms();
+            std::unique_lock<std::mutex> wl(*worker_mutex_);
+            const double _t1 = gvs_cli_ms();
             ucp_worker_progress(worker_);
+            const double _t2 = gvs_cli_ms();
+            wl.unlock();
+            const double _t3 = gvs_cli_ms();
+            progress_am_rndv();
+            const double _t4 = gvs_cli_ms();
+            if (_t1 - _t0 > 1000.0 || _t2 - _t1 > 1000.0 || _t4 - _t3 > 1000.0) {
+                std::fprintf(stderr,
+                    "[GVS SPIN] tid=%d TRAMO LENTO: mutex=%.1fms progress=%.1fms rndv=%.1fms\n",
+                    (int)syscall(SYS_gettid), _t1 - _t0, _t2 - _t1, _t4 - _t3);
+                std::fflush(stderr);
+            }
+        } else {
+            if (worker_ != nullptr) {
+                std::lock_guard<std::mutex> worker_lock(*worker_mutex_);
+                ucp_worker_progress(worker_);
+            }
+            progress_am_rndv();
         }
-        progress_am_rndv();
+
+        // ¿Este hilo GIRA o esta parado? Es la pregunta que separa "el mensaje no llega" de
+        // "el hilo no lo busca". Un hilo que espera 50 s deberia acumular millones de vueltas;
+        // si acumula pocas, no esta girando y el bloqueo esta ANTES de aqui.
+        // Apagado por defecto (GVS_SPIN_TRACE=1) y sin coste: dos comparaciones por vuelta.
+        if (gvs_spin_trace()) {
+            static thread_local double t_ult = 0.0;
+            static thread_local unsigned long g_ult = 0;
+            const double t_ahora = gvs_cli_ms();
+            if (t_ult == 0.0) { t_ult = t_ahora; g_ult = gvs_spins_taf; }
+            else if (t_ahora - t_ult >= 5000.0) {
+                std::fprintf(stderr,
+                    "[GVS SPIN] tid=%d GIRANDO %lu vueltas en %.1fs (worker=%p, esperando frame)\n",
+                    (int)syscall(SYS_gettid), gvs_spins_taf - g_ult,
+                    (t_ahora - t_ult) / 1000.0, (void *)worker_);
+                std::fflush(stderr);
+                t_ult = t_ahora; g_ult = gvs_spins_taf;
+            }
+        }
 
         if (gvs_deadline_exceeded(gvs_t0_taf, gvs_spins_taf)) {
             std::fprintf(stderr, "[GVS] TryAcquireFrame: GVIRTUS_UCX_PROGRESS_TIMEOUT_MS agotado\n");
