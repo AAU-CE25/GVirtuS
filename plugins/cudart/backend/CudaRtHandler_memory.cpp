@@ -668,25 +668,40 @@ ShadowDrainRegistrar g_shadow_drain_registrar;
 // el barrido de politica no podia derivarlo: los cuatro brazos tomaban el mismo camino por
 // debajo de 4 MiB y salian indistinguibles (dispersion medida 0,2-2,4 % a todos los tamanos).
 //
-// El 4 MiB tiene base empirica -- ver el comentario largo mas abajo: a 256 KB y 1 MB el camino
-// GPUDirect REGRESABA (0,7/1,1 ms -> 1,5/1,9 ms). Pero esa medida es ANTERIOR a la reescritura
-// del camino D2H (client-GET, 8,9 -> 24 GB/s; host-GET, 5,4 -> 12,8). Un umbral derivado de un
-// camino que ya no existe puede estar rancio, y sin esta variable no hay forma de comprobarlo.
+// DEFECTO = 128 KiB desde 2026-08-04, y es un cruce MEDIDO, no heredado. A/B de GPUDirect D2H
+// SIEMPRE contra NUNCA, 3 corridas por punto, cliente con GVIRTUS_RMA_MIN_BYTES=4096 para que la
+// puerta del cliente no lo enmascare (admit_rma=321 en los dos brazos):
+//
+//     <= 32 KiB  staged gana 0,86-0,94x |  128 KiB  GPUDirect 1,17x  <-- cruce
+//        64 KiB  empate 1,03x           |    1 MiB  4,37x |  16 MiB  5,92x
+//
+// El 4 MiB anterior estaba 32x por encima del cruce y costaba hasta 5,5x a cualquier D2H en la
+// banda. Su base empirica (a 256 KB y 1 MB el camino GPUDirect REGRESABA, 0,7/1,1 -> 1,5/1,9 ms)
+// era ANTERIOR a la reescritura del camino D2H (client-GET, 8,9 -> 24 GB/s) y ya no se sostiene.
+//
+// Correccion verificada a 128 KiB: rma_verdict 0 fallos de 16 con device_ok(D2H at fault)=0,
+// growtest/dst_realloc/src_realloc PASS, graphvis 5/5, graphvis2, d2hpool, d2hreclass PASS.
+// Cargas sin cambio (medido): llama tg16 7B 135,76 vs 135,9; cuDF N=1 15,01 y N=8 25,80 frente a
+// 14,24+-0,70 y 26,26+-0,63 -- su D2H queda fuera de la banda por los dos lados.
 //
 // Vive en el BACKEND, asi que la variable la lee el BACKEND. Es la misma leccion de dos lados
 // que el suelo RMA: ponerla en el cliente no hace nada.
 static size_t gvs_gpudirect_d2h_min_bytes() {
     static const size_t v = [] {
+        size_t v = 128u * 1024u;   // cruce MEDIDO, ver arriba
         const char *e = std::getenv("GVIRTUS_GPUDIRECT_D2H_MIN_BYTES");
+        bool override_env = false;
         if (e != nullptr) {
             char *fin = nullptr;
             unsigned long long x = std::strtoull(e, &fin, 10);
-            if (fin != e && x > 0) {
-                fprintf(stderr, "[GVS D2H] GPUDirect D2H threshold = %llu bytes (default 4194304)\n", x);
-                return static_cast<size_t>(x);
-            }
+            if (fin != e && x > 0) { v = static_cast<size_t>(x); override_env = true; }
         }
-        return static_cast<size_t>(4u * 1024u * 1024u);
+        // Se imprime SIEMPRE, tambien cuando vale el defecto. Antes solo salia si la variable
+        // estaba puesta, con lo cual la configuracion DESPLEGADA era la unica que no se podia
+        // leer de un log -- que es justo la que hay que poder citar.
+        fprintf(stderr, "[GVS D2H] GPUDirect D2H threshold = %zu bytes (%s)\n",
+                v, override_env ? "from GVIRTUS_GPUDIRECT_D2H_MIN_BYTES" : "compiled default");
+        return v;
     }();
     return v;
 }
@@ -828,6 +843,9 @@ CUDA_ROUTINE_HANDLER(Memcpy) {
                 // Saves the backend D2H copy through host pinned mem (~4.78 ms
                 // warm at 64 MB on L40S/Gen4) and the redundant host buffer.
                 //
+                // SUPERSEDED 2026-08-04: the threshold is now 128 KiB (measured crossover,
+                // see gvs_gpudirect_d2h_min_bytes above). The paragraph below records the
+                // reasoning that produced the original 4 MB and why it no longer holds.
                 // 4 MB threshold (mirrors Variant B's threshold in WriteIovRma).
                 // Below this size the per-call setup cost (TLS scratch alloc/check,
                 // cudaMemcpy D2D launch overhead, dual-iov response orchestration
