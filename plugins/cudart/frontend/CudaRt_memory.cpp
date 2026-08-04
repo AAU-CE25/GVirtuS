@@ -603,6 +603,14 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpy(void *dst, const void *src,
                 static_cast<const char *>(src), count);
             CudaRtFrontend::AddVariableForArguments(count);
             CudaRtFrontend::AddVariableForArguments(kind);
+            // BIT DE TIPO DE MEMORIA DEL HOST, ultimo argumento y por eso el PRIMERO que lee
+            // el backend con BackGet. Se envia en las TRES direcciones a proposito: el manejador
+            // Memcpy del backend es compartido, asi que mandarlo solo en D2H desalinearia el
+            // parseo de las otras dos. El backend lo necesita porque el cruce de GPUDirect D2H
+            // es distinto por regimen (128 KiB fijada, entre 256 y 512 KiB paginable) y el tipo
+            // del buffer de HOST solo lo conoce el cliente.
+            CudaRtFrontend::AddVariableForArguments<int>(
+                gvirtus::communicators::HostMemoryIsPinned(src, count) ? 1 : 0);
             CudaRtFrontend::Execute("cudaMemcpy");
             break;
         case cudaMemcpyDeviceToHost:
@@ -610,6 +618,8 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpy(void *dst, const void *src,
             CudaRtFrontend::AddDevicePointerForArguments(src);
             CudaRtFrontend::AddVariableForArguments(count);
             CudaRtFrontend::AddVariableForArguments(kind);
+            CudaRtFrontend::AddVariableForArguments<int>(
+                gvirtus::communicators::HostMemoryIsPinned(dst, count) ? 1 : 0);
             // Fase 4
             CudaRtFrontend::SetOutputDestination(dst, count);
             CudaRtFrontend::Execute("cudaMemcpy");
@@ -623,6 +633,8 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpy(void *dst, const void *src,
             CudaRtFrontend::AddDevicePointerForArguments(src);
             CudaRtFrontend::AddVariableForArguments(count);
             CudaRtFrontend::AddVariableForArguments(kind);
+            // Sin lado host: se manda 0 solo para que el parseo del backend no se desalinee.
+            CudaRtFrontend::AddVariableForArguments<int>(0);
             CudaRtFrontend::Execute("cudaMemcpy");
             break;
     }

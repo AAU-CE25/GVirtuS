@@ -701,24 +701,44 @@ ShadowDrainRegistrar g_shadow_drain_registrar;
 //
 // Vive en el BACKEND, asi que la variable la lee el BACKEND. Es la misma leccion de dos lados
 // que el suelo RMA: ponerla en el cliente no hace nada.
-static size_t gvs_gpudirect_d2h_min_bytes() {
-    static const size_t v = [] {
-        size_t v = 512u * 1024u;   // cruce MEDIDO Y SEGURO EN AMBOS REGIMENES, ver arriba
-        const char *e = std::getenv("GVIRTUS_GPUDIRECT_D2H_MIN_BYTES");
-        bool override_env = false;
-        if (e != nullptr) {
-            char *fin = nullptr;
-            unsigned long long x = std::strtoull(e, &fin, 10);
-            if (fin != e && x > 0) { v = static_cast<size_t>(x); override_env = true; }
-        }
-        // Se imprime SIEMPRE, tambien cuando vale el defecto. Antes solo salia si la variable
-        // estaba puesta, con lo cual la configuracion DESPLEGADA era la unica que no se podia
-        // leer de un log -- que es justo la que hay que poder citar.
-        fprintf(stderr, "[GVS D2H] GPUDirect D2H threshold = %zu bytes (%s)\n",
-                v, override_env ? "from GVIRTUS_GPUDIRECT_D2H_MIN_BYTES" : "compiled default");
-        return v;
+static size_t gvs_env_bytes(const char *k, size_t dflt, const char **origen) {
+    const char *e = std::getenv(k);
+    if (e != nullptr) {
+        char *fin = nullptr;
+        unsigned long long x = std::strtoull(e, &fin, 10);
+        if (fin != e && x > 0) { *origen = "env"; return static_cast<size_t>(x); }
+    }
+    *origen = "compiled default";
+    return dflt;
+}
+
+// UN UMBRAL POR REGIMEN DE MEMORIA. Un valor unico no sirve, y esto esta medido: el cruce de
+// GPUDirect D2H cae en 128 KiB para memoria FIJADA y entre 256 y 512 KiB para PAGINABLE, asi que
+// cualquier escalar perjudica a uno de los dos. Es el mismo patron que la politica de colocacion
+// -- tercer sitio del sistema donde aparece.
+//
+//     bytes    D2H FIJADA   D2H PAGINABLE
+//     128 KiB    1,19x         0,55x
+//     256 KiB    1,38x         0,68x
+//     512 KiB    2,65x         1,04x
+//       1 MiB    4,36x         1,69x
+//       2 MiB    5,21x         2,01x
+//
+// El bit lo manda el CLIENTE con cada cudaMemcpy: el tipo del buffer de host solo lo conoce el.
+static size_t gvs_gpudirect_d2h_min_bytes(bool host_pinned) {
+    static const char *o_pin = "";
+    static const char *o_pag = "";
+    static const size_t v_pin = gvs_env_bytes("GVIRTUS_GPUDIRECT_D2H_MIN_PINNED",   128u * 1024u, &o_pin);
+    static const size_t v_pag = gvs_env_bytes("GVIRTUS_GPUDIRECT_D2H_MIN_PAGEABLE", 512u * 1024u, &o_pag);
+    static const bool _banner = [] {
+        // Se imprime SIEMPRE, tambien con los defectos: antes solo salia si la variable estaba
+        // puesta, con lo cual la configuracion DESPLEGADA era la unica ilegible de un log.
+        fprintf(stderr, "[GVS D2H] GPUDirect D2H thresholds: pinned=%zu (%s) pageable=%zu (%s)\n",
+                v_pin, o_pin, v_pag, o_pag);
+        return true;
     }();
-    return v;
+    (void)_banner;
+    return host_pinned ? v_pin : v_pag;
 }
 
 CUDA_ROUTINE_HANDLER(Memcpy) {
@@ -728,6 +748,9 @@ CUDA_ROUTINE_HANDLER(Memcpy) {
     void *src = NULL;
 
     try {
+        // Bit de tipo de memoria del host: ultimo que anade el frontend, primero que se lee.
+        // Va en las tres direcciones porque este manejador es compartido. Solo se USA en D2H.
+        const bool host_pinned = input_buffer->BackGet<int>() != 0;
         cudaMemcpyKind kind = input_buffer->BackGet<cudaMemcpyKind>();
         size_t count = input_buffer->BackGet<size_t>();
 
@@ -868,7 +891,7 @@ CUDA_ROUTINE_HANDLER(Memcpy) {
                 // bounce. Empirically observed: at N=256 (256 KB) and N=512 (1 MB)
                 // host_ms regressed from ~0.7/1.1 ms (pre-GPUDirect) to ~1.5/1.9 ms
                 // with GPUDirect on. 4 MB matches Variant B and protects small RPCs.
-                const size_t kGpuDirectD2HThreshold = gvs_gpudirect_d2h_min_bytes();
+                const size_t kGpuDirectD2HThreshold = gvs_gpudirect_d2h_min_bytes(host_pinned);
                 // Auto-detected: take the GPU-scratch path only when the client
                 // is RMA-put-capable (its rkey unpacked), else fall through to
                 // the host path below (no device fragment on the wire, so no
@@ -1460,7 +1483,11 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
                 // so the scratch holds the data, then hand it to the client via
                 // SetGpuPayload: the deferred reply carries the GET descriptor and
                 // the frontend's DrainPendingD2H issues the RDMA GET into dst.
-                const size_t kGpuDirectD2HThreshold = gvs_gpudirect_d2h_min_bytes();
+                // MemcpyAsync NO lleva el bit de tipo de memoria (su frontend no lo manda),
+                // asi que aqui no se puede elegir por regimen: se usa el valor PAGINABLE,
+                // que es el conservador -- el menor que no regresa en ninguno de los dos.
+                // Extenderlo exige anadir el bit tambien a esa ruta del protocolo.
+                const size_t kGpuDirectD2HThreshold = gvs_gpudirect_d2h_min_bytes(false);
                 if (gvirtus_gpudirect_d2h_enabled() && count >= kGpuDirectD2HThreshold) {
                     void *gpu_scratch = get_d2h_get_scratch(count);
                     if (gpu_scratch != nullptr) {
