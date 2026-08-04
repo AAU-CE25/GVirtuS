@@ -108,7 +108,10 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaStreamCreateWithPriority(cudaStrea
     return CudaRtFrontend::GetExitCode();
 }
 
+namespace gvs_cli { void vuelca(const char *quien, int rc); }
+
 extern "C" __host__ cudaError_t CUDARTAPI cudaStreamSynchronize(cudaStream_t stream) {
+    const void *crudo = (const void *)stream;
     stream = gvs_ptds::traduce(stream);
     CudaRtFrontend::Prepare();
     CudaRtFrontend::AddDevicePointerForArguments(stream);
@@ -116,7 +119,13 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaStreamSynchronize(cudaStream_t str
     // El stream ya se sincronizo: si algun grafo lanzado en el dejo salidas D2H capturadas en
     // el backend, este es el momento en que el cliente espera verlas en su buffer.
     gvs_recoge_salidas(stream, false);
-    return CudaRtFrontend::GetExitCode();
+    const cudaError_t rc = CudaRtFrontend::GetExitCode();
+    if (rc != cudaSuccess) {
+        std::fprintf(stderr, "[GVS CLI] cudaStreamSynchronize raw=%p translated=%p -> rc=%d\n",
+                     crudo, (const void *)stream, (int)rc);
+        gvs_cli::vuelca("cudaStreamSynchronize", (int)rc);
+    }
+    return rc;
 }
 
 extern "C" __host__ cudaError_t CUDARTAPI
