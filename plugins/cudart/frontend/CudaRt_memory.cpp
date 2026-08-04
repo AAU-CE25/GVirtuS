@@ -543,7 +543,15 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpy(void *dst, const void *src,
         !CudaRtFrontend::isDevicePointer(dst) && !CudaRtFrontend::isDevicePointer(src)) {
         uintptr_t _dst_hi = reinterpret_cast<uintptr_t>(dst) >> 32;
         uintptr_t _src_hi = reinterpret_cast<uintptr_t>(src) >> 32;
-        if (_dst_hi == _src_hi && _dst_hi >= 0x7f00ULL) {
+        // GVS_RECLASS_FORCE=1 trata la prueba de ventana como si SIEMPRE coincidiera. En
+        // produccion esa coincidencia es azar del reparto de direcciones y aparece en ~1 de cada
+        // 9 corridas, lo que obliga a cazar un evento raro para probar causalidad. Forzandola, el
+        // par {legado, arreglado} se vuelve determinista sobre la carga real.
+        static const bool fuerza = [] {
+            const char *e = std::getenv("GVS_RECLASS_FORCE");
+            return e != nullptr && e[0] == '1';
+        }();
+        if (fuerza || (_dst_hi == _src_hi && _dst_hi >= 0x7f00ULL)) {
             // Perilla de ABLACION: restaura el criterio anterior al arreglo. Existe para poder
             // exhibir el defecto a voluntad -- una vez arreglado, un reproductor que ya no
             // reproduce no sirve de prueba de nada. Por defecto APAGADA.
@@ -857,7 +865,15 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpyAsync(void *dst, const void 
         !CudaRtFrontend::isDevicePointer(dst) && !CudaRtFrontend::isDevicePointer(src)) {
         uintptr_t _dst_hi = reinterpret_cast<uintptr_t>(dst) >> 32;
         uintptr_t _src_hi = reinterpret_cast<uintptr_t>(src) >> 32;
-        if (_dst_hi == _src_hi && _dst_hi >= 0x7f00ULL) {
+        // GVS_RECLASS_FORCE=1 trata la prueba de ventana como si SIEMPRE coincidiera. En
+        // produccion esa coincidencia es azar del reparto de direcciones y aparece en ~1 de cada
+        // 9 corridas, lo que obliga a cazar un evento raro para probar causalidad. Forzandola, el
+        // par {legado, arreglado} se vuelve determinista sobre la carga real.
+        static const bool fuerza = [] {
+            const char *e = std::getenv("GVS_RECLASS_FORCE");
+            return e != nullptr && e[0] == '1';
+        }();
+        if (fuerza || (_dst_hi == _src_hi && _dst_hi >= 0x7f00ULL)) {
             // Perilla de ABLACION: restaura el criterio anterior al arreglo. Existe para poder
             // exhibir el defecto a voluntad -- una vez arreglado, un reproductor que ya no
             // reproduce no sirve de prueba de nada. Por defecto APAGADA.
