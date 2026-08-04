@@ -29,6 +29,7 @@
 #include <CudaRt_internal.h>
 
 #include "CudaRt.h"
+#include "PtdsExplicit.h"
 #include <chrono>
 #include <cstdio>
 #include "CudaRt_lazyfatbin.h"
@@ -208,6 +209,7 @@ struct TramoLanz {
 extern "C" __host__ cudaError_t cudaLaunchKernel(const void *func, dim3 gridDim, dim3 blockDim,
                                                  void **args, size_t sharedMem,
                                                  cudaStream_t stream) {
+    stream = gvs_ptds::traduce(stream);
     { TramoLanz t("ensure_for_hostfun");
       if (gvirtus_lazyfat::enabled()) gvirtus_lazyfat::ensure_for_hostfun(func); }
     { TramoLanz t("Prepare");

@@ -27,6 +27,7 @@
  */
 
 #include "CudaRt.h"
+#include "PtdsExplicit.h"
 #include "CaptureMirror.h"
 
 // Definida en CudaRt_graph.cpp.
@@ -82,6 +83,7 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaStreamWaitEvent(cudaStream_t strea
 }
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaStreamQuery(cudaStream_t stream) {
+    stream = gvs_ptds::traduce(stream);
     CudaRtFrontend::Prepare();
     CudaRtFrontend::AddDevicePointerForArguments(stream);
     CudaRtFrontend::Execute("cudaStreamQuery");
@@ -107,6 +109,7 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaStreamCreateWithPriority(cudaStrea
 }
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaStreamSynchronize(cudaStream_t stream) {
+    stream = gvs_ptds::traduce(stream);
     CudaRtFrontend::Prepare();
     CudaRtFrontend::AddDevicePointerForArguments(stream);
     CudaRtFrontend::Execute("cudaStreamSynchronize");

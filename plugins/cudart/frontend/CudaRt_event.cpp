@@ -24,6 +24,7 @@
  */
 
 #include "CudaRt.h"
+#include "PtdsExplicit.h"
 
 // Definidas en CudaRt_graph.cpp.
 void gvs_recoge_salidas(cudaStream_t solo_este, bool todos);
@@ -91,6 +92,7 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaEventQuery(cudaEvent_t event) {
 }
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaEventRecord(cudaEvent_t event, cudaStream_t stream) {
+    stream = gvs_ptds::traduce(stream);
     CudaRtFrontend::Prepare();
     CudaRtFrontend::AddDevicePointerForArguments(event);
     CudaRtFrontend::AddDevicePointerForArguments(stream);

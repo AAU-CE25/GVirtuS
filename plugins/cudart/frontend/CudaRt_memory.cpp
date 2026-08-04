@@ -27,6 +27,7 @@
  */
 
 #include "CudaRt.h"
+#include "PtdsExplicit.h"
 #include "CaptureMirror.h"
 
 // Definida en CudaRt_graph.cpp. I12, punto de observacion IMPLICITO: una operacion sincrona en
@@ -778,6 +779,7 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpy3DAsync(const cudaMemcpy3DPa
 extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpyAsync(void *dst, const void *src, size_t count,
                                                           cudaMemcpyKind kind,
                                                           cudaStream_t stream) {
+    stream = gvs_ptds::traduce(stream);
     if (count == 0) return cudaSuccess;
     if (dst == nullptr || src == nullptr) {
         cerr << "[GVirtuS WARN] cudaMemcpyAsync: NULL pointer (dst=" << dst
@@ -1160,6 +1162,7 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemset2DAsync(void *devPtr, size_t
 
 extern "C" __host__ cudaError_t CUDARTAPI cudaMemsetAsync(void *devPtr, int c, size_t count,
                                                           cudaStream_t stream) {
+    stream = gvs_ptds::traduce(stream);
     CudaRtFrontend::Prepare();
     CudaRtFrontend::AddDevicePointerForArguments(devPtr);
     CudaRtFrontend::AddVariableForArguments(c);
