@@ -1,0 +1,43 @@
+[01:52:29] === 1/3 micros de umbrales (scalar / quadrant / oracle / AM) ===
+mf_am_pinned_r1            admit_rma=0       csv=23
+mf_scalar_pinned_r1        admit_rma=249     csv=23
+mf_quadrant_pinned_r1      admit_rma=225     csv=23
+mf_oracle_pinned_r1        admit_rma=225     csv=23
+mf_am_pageable_r1          admit_rma=0       csv=23
+mf_scalar_pageable_r1      admit_rma=249     csv=23
+mf_quadrant_pageable_r1    admit_rma=75      csv=23
+mf_oracle_pageable_r1      admit_rma=75      csv=23
+mf_am_pinned_r2            admit_rma=0       csv=23
+mf_scalar_pinned_r2        admit_rma=249     csv=23
+mf_quadrant_pinned_r2      admit_rma=225     csv=23
+mf_oracle_pinned_r2        admit_rma=225     csv=23
+mf_am_pageable_r2          admit_rma=0       csv=23
+mf_scalar_pageable_r2      admit_rma=249     csv=23
+mf_quadrant_pageable_r2    admit_rma=75      csv=23
+mf_oracle_pageable_r2      admit_rma=75      csv=23
+mf_am_pinned_r3            admit_rma=0       csv=23
+mf_scalar_pinned_r3        admit_rma=249     csv=23
+mf_quadrant_pinned_r3      admit_rma=225     csv=23
+mf_oracle_pinned_r3        admit_rma=225     csv=23
+mf_am_pageable_r3          admit_rma=0       csv=23
+mf_scalar_pageable_r3      admit_rma=249     csv=23
+mf_quadrant_pageable_r3    admit_rma=75      csv=23
+mf_oracle_pageable_r3      admit_rma=75      csv=23
+=== micros hechos ===
+[01:53:17] micros hechos
+[01:53:17] === 2/3 no-regresion: llama tg16 (1B, config final) ===
+| model                          |       size |     params | backend    | ngl | mmap |            test |                  t/s |
+| llama 7B Q4_K - Medium         |   4.07 GiB |     7.24 B | CUDA       |  -1 |    0 |            tg16 |        137.31 ± 5.59 |
+[01:53:21] === 3/3 no-regresion: rmatest + grafos ===
+[01:53:23]   rma_verdict  admit_rma=15  SUMMARY failed_transfers=0 of 16 | samples: device_ok(D2H at fault)=0 device_stale(H2D at fault)=0 other=0
+[01:53:25]   growtest  admit_rma=13  C_small,2,8388608,1.054,7.957,0,pass
+[01:53:27]   dst_realloc  admit_rma=5  SUMMARY dst_realloc mode=pageable bad=0 PASS
+[01:53:29]   src_realloc  admit_rma=7  SUMMARY src_realloc mode=pinned bad=0 PASS
+[01:53:30]   graphprobe4  sin linea de resumen
+[01:53:31]   graphprobe6  PROBE6,all + GraphUpload          end=cudaSuccess                        upload=cudaSuccess
+[01:53:32]   graphsem  SEM,launch2 device=0xBB -> CORRECT (reads at launch)
+[01:53:34]   graphvis  SUMMARY points=5 failures=0 PASS
+[01:53:35]   graphvis2  SUMMARY points=1 failures=0 PASS
+[01:53:36]   d2hpool  SUMMARY deferred=4 sync=1 failures=0 PASS
+[01:56:12]   ptds_mt  SUMMARY threads=8 wrong=0 cross_thread=0 errors=0 serialized=yes FAIL
+[01:56:12] === RESTO DE LA NOCHE COMPLETO ===
