@@ -36,10 +36,11 @@ struct Op {
     int           kind;         // cudaMemcpyKind, o -1 si no aplica
     int           rc;           // lo que devolvio la llamada en su momento
     int           line;         // sitio exacto: hay diez cudaMemcpyAsync distintos
+    int           conn;         // hilo de conexion del backend que la ejecuto
     std::uint64_t seq;
 };
 
-inline constexpr int kAnillo = 32;
+inline constexpr int kAnillo = 512;   // ~64 B por entrada = 32 KiB por hilo de conexion
 
 struct Estado {
     Op   anillo[kAnillo];
@@ -50,12 +51,16 @@ struct Estado {
 inline Estado &estado() { static thread_local Estado e; return e; }
 
 // Se llama DESPUES de emitir la operacion asincrona, con lo que devolvio.
+// Definido en SchedTrace.h; aqui se declara para no arrastrar la cabecera.
+int gvs_conn_actual();
+
 inline void registra(const char *routine, int line, const void *stream, const void *dst,
                      const void *src, std::size_t count, int kind, int rc) {
     Estado &e = estado();
     Op &o = e.anillo[e.siguiente];
     o.routine = routine; o.stream = stream; o.dst = dst; o.src = src;
     o.count = count; o.kind = kind; o.rc = rc; o.line = line; o.seq = ++e.seq;
+    o.conn = gvs_conn_actual();
     e.siguiente = (e.siguiente + 1) % kAnillo;
     if (e.siguiente == 0) e.lleno = true;
 }
@@ -86,8 +91,9 @@ inline void informa(const char *sync_routine, const void *stream, int rc) {
         if (o.routine == nullptr) continue;
         const bool mismo = (o.stream == stream);
         std::fprintf(stderr,
-            "[GVS ASYNC]   %c seq=%llu %s:%d stream=%p dst=%p src=%p count=%zu kind=%s rc=%d\n",
-            mismo ? '>' : ' ', (unsigned long long)o.seq, o.routine, o.line, o.stream,
+            "[GVS ASYNC]   %c seq=%llu conn=%d %s:%d stream=%p dst=%p src=%p count=%zu "
+            "kind=%s rc=%d\n",
+            mismo ? '>' : ' ', (unsigned long long)o.seq, o.conn, o.routine, o.line, o.stream,
             o.dst, o.src, o.count, nombre_kind(o.kind), o.rc);
         if (++mostradas >= kAnillo) break;
     }
@@ -97,6 +103,15 @@ inline void informa(const char *sync_routine, const void *stream, int rc) {
     std::fprintf(stderr, "[GVS ASYNC]   '>' marks the stream the sync was called on. An op with "
                          "rc!=0 failed AT ISSUE; an op with rc=0 may still have failed later.\n");
     std::fflush(stderr);
+}
+
+// Volcado ante CUALQUIER retorno no exitoso, no solo en un punto de sincronizacion. La
+// version anterior solo miraba los syncs, que es donde el error de llama SE REPORTA; si el
+// fallo apareciera en el retorno inmediato de otra llamada, no se veria nada.
+// `cudaErrorNotReady` (600) se excluye: es la respuesta normal de una consulta.
+inline void comprueba(const char *routine, int rc, const void *stream) {
+    if (rc == 0 || rc == 600) return;
+    informa(routine, stream, rc);
 }
 
 }  // namespace gvs_async

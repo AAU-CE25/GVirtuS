@@ -30,6 +30,17 @@
 #include "gvirtus/communicators/SchedTrace.h"
 #include "AsyncErrorTrace.h"
 
+// Puente para que AsyncErrorTrace.h sepa que hilo de conexion ejecuta cada operacion sin
+// incluir SchedTrace.h (que a su vez no debe arrastrar cabeceras de CUDA).
+//
+// DENTRO del namespace: la cabecera lo declara en `gvs_async`, y definirlo en ambito global
+// deja el simbolo sin resolver. El backend NO falla al compilar -- falla al CARGAR el plugin,
+// con "undefined symbol", y el sintoma aguas abajo es que llama no conecta. Costo una campana
+// entera que salio como "arranque fallido" con contadores rancios del log anterior.
+namespace gvs_async {
+int gvs_conn_actual() { return gvs::conn_id(); }
+}  // namespace gvs_async
+
 
 // --- sustitucion de stream por conexion ---
 // Aqui SI hay cuda_runtime.h, asi que la parte que necesita CUDA vive en este fichero y no en

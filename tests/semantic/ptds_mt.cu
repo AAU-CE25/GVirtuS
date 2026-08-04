@@ -103,7 +103,7 @@ int main(int argc, char **argv) {
     unsigned long long *sink = nullptr;
     if (cudaMalloc((void **)&sink, sizeof(*sink)) != cudaSuccess) return 2;
     std::atomic<bool> lanzado{false};
-    double ms_corto = -1.0, ms_largo = -1.0;
+    double ms_corto = -1.0, ms_largo = -1.0, ms_lanz = -1.0;
 
     std::thread largo([&] {
         auto t0 = steady_clock::now();
@@ -119,8 +119,11 @@ int main(int argc, char **argv) {
         if (cudaMalloc((void **)&d2, 4096) != cudaSuccess) return;
         auto t0 = steady_clock::now();
         fill<<<1, 256, 0, cudaStreamPerThread>>>(d2, 4096, 0x11);
+        auto t1 = steady_clock::now();
         cudaStreamSynchronize(cudaStreamPerThread);
-        ms_corto = duration<double, std::milli>(steady_clock::now() - t0).count();
+        auto t2 = steady_clock::now();
+        ms_lanz  = duration<double, std::milli>(t1 - t0).count();
+        ms_corto = duration<double, std::milli>(t2 - t0).count();
         cudaFree(d2);
     });
     corto.join(); largo.join(); cudaFree(sink);
@@ -132,7 +135,11 @@ int main(int argc, char **argv) {
     // discrimina tiene que decirlo, no salir en verde.
     const bool vacuo = (ms_largo < 200.0);
     const bool serializado = (!vacuo && ms_corto > 500.0);
-    std::printf("B,long_kernel_ms=%.1f,short_sync_ms=%.1f,verdict=%s\n", ms_largo, ms_corto,
+    // Separar lanzamiento de sync es lo que dice DONDE bloquea: si el launch ya tarda, el
+    // cliente no llega ni a emitir la RPC; si el launch vuelve rapido y el sync tarda, la
+    // espera esta en el sync.
+    std::printf("B,long_kernel_ms=%.1f,short_launch_ms=%.1f,short_sync_total_ms=%.1f,verdict=%s\n",
+                ms_largo, ms_lanz, ms_corto,
                 vacuo ? "**VACUOUS: the long kernel finished too fast to overlap**"
                       : (serializado ? "**SERIALIZED: one thread waited for another's kernel**"
                                      : "independent"));
@@ -145,7 +152,7 @@ int main(int argc, char **argv) {
     unsigned long long *sink2 = nullptr;
     if (cudaMalloc((void **)&sink2, sizeof(*sink2)) != cudaSuccess) return 2;
     std::atomic<bool> lanzado2{false};
-    double ms_corto2 = -1.0, ms_largo2 = -1.0;
+    double ms_corto2 = -1.0, ms_largo2 = -1.0, ms_lanz2 = -1.0;
     std::thread largo2([&] {
         cudaStream_t sa; cudaStreamCreateWithFlags(&sa, cudaStreamNonBlocking);
         auto t0 = steady_clock::now();
@@ -163,21 +170,61 @@ int main(int argc, char **argv) {
         if (cudaMalloc((void **)&d3, 4096) != cudaSuccess) return;
         auto t0 = steady_clock::now();
         fill<<<1, 256, 0, sb>>>(d3, 4096, 0x22);
+        auto t1 = steady_clock::now();
         cudaStreamSynchronize(sb);
-        ms_corto2 = duration<double, std::milli>(steady_clock::now() - t0).count();
+        auto t2 = steady_clock::now();
+        ms_lanz2  = duration<double, std::milli>(t1 - t0).count();
+        ms_corto2 = duration<double, std::milli>(t2 - t0).count();
         cudaFree(d3); cudaStreamDestroy(sb);
     });
     corto2.join(); largo2.join(); cudaFree(sink2);
     const bool vacuo2 = (ms_largo2 < 200.0);
     const bool serializado2 = (!vacuo2 && ms_corto2 > 500.0);
-    std::printf("C,long_kernel_ms=%.1f,short_sync_ms=%.1f,verdict=%s\n", ms_largo2, ms_corto2,
+    std::printf("C,long_kernel_ms=%.1f,short_launch_ms=%.1f,short_sync_total_ms=%.1f,verdict=%s\n",
+                ms_largo2, ms_lanz2, ms_corto2,
                 vacuo2 ? "**VACUOUS**"
                        : (serializado2 ? "**ALSO serialized: the cause is NOT PTDS resolution**"
                                        : "independent -> the serialization is SPECIFIC to cudaStreamPerThread"));
 
-    const int fallos = malos.load() + errores.load() + (serializado ? 1 : 0) + (vacuo ? 1 : 0);
+    // ---- fase D: IDENTIDAD de cudaStreamPerThread a traves del remoting -----------------
+    // Las fases B y C miden TIEMPO, y el tiempo esta confundido: si el cliente serializa las
+    // RPC, el hilo corto espera pase lo que pase, sea el stream el mismo o no. Asi que B no
+    // puede contestar si la identidad del PTDS sobrevive al remoting -- yo lo lei como si
+    // pudiera, y no.
+    //
+    // Esta fase usa cudaStreamQuery, que es una CONSULTA: lo que responde depende del ESTADO
+    // del stream, no de cuando llegue la RPC. Si el hilo B pregunta por SU PTDS mientras el
+    // hilo A tiene un kernel largo en el SUYO:
+    //     cudaSuccess       -> el stream de B esta vacio  => PTDS distintos, identidad OK
+    //     cudaErrorNotReady -> el stream de B tiene el kernel de A => MISMO stream, identidad PERDIDA
+    // El brazo nativo fija cual de las dos es la respuesta correcta.
+    std::printf("\n== fase D: identidad de cudaStreamPerThread (consulta, no espera) ==\n");
+    unsigned long long *sink3 = nullptr;
+    if (cudaMalloc((void **)&sink3, sizeof(*sink3)) != cudaSuccess) return 2;
+    std::atomic<bool> lanzado3{false};
+    int rc_query = -1;
+    std::thread largo3([&] {
+        quema<<<1, 32, 0, cudaStreamPerThread>>>(sink3, 6000000000ull);
+        lanzado3 = true;
+        cudaStreamSynchronize(cudaStreamPerThread);
+    });
+    std::thread pregunta([&] {
+        while (!lanzado3.load()) std::this_thread::yield();
+        std::this_thread::sleep_for(milliseconds(200));
+        rc_query = (int)cudaStreamQuery(cudaStreamPerThread);   // MI PTDS, no el suyo
+    });
+    pregunta.join(); largo3.join(); cudaFree(sink3);
+    const bool identidad_ok = (rc_query == (int)cudaSuccess);
+    std::printf("D,query_rc=%d(%s),verdict=%s\n", rc_query,
+                cudaGetErrorName((cudaError_t)rc_query),
+                identidad_ok ? "PTDS identity PRESERVED: this thread's stream is its own"
+                             : "**PTDS IDENTITY LOST: this thread sees another thread's work**");
+
+    const int fallos = malos.load() + errores.load() + (serializado ? 1 : 0) + (vacuo ? 1 : 0)
+                     + (identidad_ok ? 0 : 1);
     std::printf("\nSUMMARY threads=%d wrong=%d cross_thread=%d errors=%d serialized=%s %s\n",
                 NH, malos.load(), cruces.load(), errores.load(), serializado ? "yes" : "no",
                 fallos ? "FAIL" : "PASS");
+    std::printf("        ptds_identity=%s\n", identidad_ok ? "preserved" : "LOST");
     return fallos ? 1 : 0;
 }

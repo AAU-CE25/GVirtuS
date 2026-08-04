@@ -49,6 +49,7 @@
 #include <fstream>
 #include <iostream>
 #include <mutex>
+#include <map>
 #include <algorithm>
 #include <atomic>
 #include <vector>
@@ -156,6 +157,48 @@ using gvirtus::frontend::Frontend;
 
 static Frontend msFrontend;
 std::mutex gFrontendMutex;
+
+// --- estabilidad de la identidad de hilo frontend -> conexion --------------------------
+//
+// LA PREGUNTA QUE CONTESTA, y es la precondicion de una hipotesis concreta sobre el abort de
+// llama: `cudaStreamPerThread` (el literal 0x2) se resuelve EN EL BACKEND, al default stream
+// del hilo que atiende la RPC. Eso solo preserva la semantica si un hilo frontend es atendido
+// SIEMPRE por el mismo hilo de backend. Si dos llamadas del mismo hilo frontend salieran por
+// conexiones distintas, acabarian en default streams distintos y el orden se perderia dentro
+// de un mismo hilo -- que es justo la forma de fallo que produce un `invalid argument` al
+// sincronizar un stream que nunca recibio el trabajo.
+//
+// No hace falta un volcado para detectarlo: basta recordar por que conexion salio la ULTIMA
+// RPC de cada hilo y avisar si cambia. Coste: una busqueda en un mapa pequeno por RPC.
+// Va siempre encendido por la misma razon que la traza asincrona -- un aviso opt-in no estara
+// activo el dia que ocurra.
+namespace {
+std::mutex gIdMu;
+std::map<pid_t, const void *> gTidComm;
+std::atomic<unsigned long long> gIdCambios{0};
+
+void comprueba_identidad(pid_t tid, const void *comm, const char *routine) {
+    const void *previo = nullptr;
+    {
+        std::lock_guard<std::mutex> lk(gIdMu);
+        auto it = gTidComm.find(tid);
+        if (it == gTidComm.end()) { gTidComm.emplace(tid, comm); return; }
+        if (it->second == comm) return;
+        previo = it->second;
+        it->second = comm;
+    }
+    const unsigned long long n = ++gIdCambios;
+    if (n <= 20 || n % 1000 == 0) {
+        std::fprintf(stderr,
+            "[GVS IDENTITY] *** frontend thread %d changed communicator: %p -> %p at '%s' "
+            "(occurrence %llu). cudaStreamPerThread resolves on the BACKEND thread, so two "
+            "connections mean two different default streams for the SAME frontend thread.\n",
+            (int)tid, previo, comm, routine ? routine : "(null)", n);
+        std::fflush(stderr);
+    }
+}
+}  // namespace
+
 map<pthread_t, Frontend *> *Frontend::mpFrontends = NULL;
 static bool initialized = false;
 static std::atomic<std::uint64_t> gUcxAmRequestId{1};
@@ -533,6 +576,8 @@ void Frontend::ExecuteInternal(const char *routine, const Buffer *input_buffer,
                                                         << ", tid=" << tid << "]");
 
     frontend->mRoutinesExecuted++;
+
+    comprueba_identidad(tid, (const void *)frontend->_communicator->obj_ptr().get(), routine);
 
     const bool ucx_am_mode = frontend->_communicator->obj_ptr()->to_string() == "ucxcommunicator";
     // Fire-and-forget only applies to the UCX AM transport; other transports

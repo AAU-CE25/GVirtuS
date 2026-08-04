@@ -29,6 +29,8 @@
 #include <CudaRt_internal.h>
 
 #include "CudaRt.h"
+#include <chrono>
+#include <cstdio>
 #include "CudaRt_lazyfatbin.h"
 
 using namespace std;
@@ -181,19 +183,48 @@ extern "C" __host__ cudaError_t cudaLaunchHostFunc(cudaStream_t stream, cudaHost
     return cudaSuccess;
 }
 
+// --- localizador del bloqueo en el camino de lanzamiento -------------------------------
+// Medido 2026-08-04: con dos hilos, el lanzamiento de uno tarda 50 s mientras el otro tiene un
+// kernel largo en vuelo -- y el sync solo anade 0,1 ms, o sea que el bloqueo esta ENTERO
+// dentro de cudaLaunchKernel y antes de emitir la RPC. Esto dice en QUE tramo.
+// Sale por stderr solo si un tramo pasa de 100 ms, asi que en marcha normal no imprime nada.
+namespace {
+struct TramoLanz {
+    const char *nombre;
+    std::chrono::steady_clock::time_point t0;
+    explicit TramoLanz(const char *n)
+        : nombre(n), t0(std::chrono::steady_clock::now()) {}
+    ~TramoLanz() {
+        const double ms = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - t0).count();
+        if (ms > 100.0) {
+            std::fprintf(stderr, "[GVS LAUNCH] segment '%s' took %.1f ms\n", nombre, ms);
+            std::fflush(stderr);
+        }
+    }
+};
+}  // namespace
+
 extern "C" __host__ cudaError_t cudaLaunchKernel(const void *func, dim3 gridDim, dim3 blockDim,
                                                  void **args, size_t sharedMem,
                                                  cudaStream_t stream) {
-    if (gvirtus_lazyfat::enabled()) gvirtus_lazyfat::ensure_for_hostfun(func);
-    CudaRtFrontend::Prepare();
-    CudaRtFrontend::AddDevicePointerForArguments(func);
-    CudaRtFrontend::AddVariableForArguments(gridDim);
-    CudaRtFrontend::AddVariableForArguments(blockDim);
-    CudaRtFrontend::AddVariableForArguments(sharedMem);
-    CudaRtFrontend::AddDevicePointerForArguments(stream);
+    { TramoLanz t("ensure_for_hostfun");
+      if (gvirtus_lazyfat::enabled()) gvirtus_lazyfat::ensure_for_hostfun(func); }
+    { TramoLanz t("Prepare");
+      CudaRtFrontend::Prepare(); }
+    { TramoLanz t("AddArgs_header");
+      CudaRtFrontend::AddDevicePointerForArguments(func);
+      CudaRtFrontend::AddVariableForArguments(gridDim);
+      CudaRtFrontend::AddVariableForArguments(blockDim);
+      CudaRtFrontend::AddVariableForArguments(sharedMem);
+      CudaRtFrontend::AddDevicePointerForArguments(stream); }
 
-    std::string deviceFunc = CudaRtFrontend::getDeviceFunc(func);
-    NvInfoFunction infoFunction = CudaRtFrontend::getInfoFunc(deviceFunc);
+    std::string deviceFunc;
+    NvInfoFunction infoFunction;
+    { TramoLanz t("getDeviceFunc");
+      deviceFunc = CudaRtFrontend::getDeviceFunc(func); }
+    { TramoLanz t("getInfoFunc");
+      infoFunction = CudaRtFrontend::getInfoFunc(deviceFunc); }
 
     // to pass the args to the backend we need their total size
     // we have this info in the infoFunction, so we can calculate the total size
@@ -221,7 +252,8 @@ extern "C" __host__ cudaError_t cudaLaunchKernel(const void *func, dim3 gridDim,
     // cout << "SharedMem: " << sharedMem << endl;
     // cout << "Stream: " << stream << endl;
 
-    CudaRtFrontend::ExecuteMaybeAsync("cudaLaunchKernel");
+    { TramoLanz t("ExecuteMaybeAsync");
+      CudaRtFrontend::ExecuteMaybeAsync("cudaLaunchKernel"); }
     free(pArgsPayload);
     return CudaRtFrontend::GetExitCode();
 }
