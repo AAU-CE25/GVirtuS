@@ -28,6 +28,7 @@
  *            Department of Computer Science, University College Dublin
  */
 
+#include <dlfcn.h>
 #include <sys/syscall.h>
 #include <chrono>
 #include <gvirtus/backend/Process.h>
@@ -457,7 +458,32 @@ std::string getGVirtuSHome() {
     return gvirtus_home;
 }
 
+
+// CONTROL de la ultima hipotesis viva: cudaStreamSynchronize hace ESPERA ACTIVA por defecto, y
+// puede que ese spin retenga un cerrojo del driver que ucp_worker_progress necesita.
+//
+// Va en Process::Start y NO en Backend::Start: ese corre ANTES del fork, y un contexto CUDA no
+// sobrevive a fork -- ponerlo alli dejaba a los hijos con CUDA inservible (fase A con 8 errores
+// y slots_total=0), o sea un control que rompe el sistema en vez de medirlo.
+// cudaSetDeviceFlags exige que el contexto primario no exista aun; se imprime el codigo para no
+// dar por hecho que se aplico (34 = cudaErrorSetOnActiveProcess).
+static void gvs_quiza_blocking_sync() {
+    const char *e = std::getenv("GVS_BLOCKING_SYNC");
+    if (e == nullptr || e[0] != '1') return;
+    typedef int (*set_flags_t)(unsigned int);
+    void *h = dlopen("libcudart.so.12", RTLD_LAZY | RTLD_LOCAL);
+    if (h == nullptr) h = dlopen("libcudart.so", RTLD_LAZY | RTLD_LOCAL);
+    if (h == nullptr) { std::fprintf(stderr, "[GVS SCHED] sin libcudart; NO aplicado\n"); return; }
+    auto f = reinterpret_cast<set_flags_t>(dlsym(h, "cudaSetDeviceFlags"));
+    if (f == nullptr) { std::fprintf(stderr, "[GVS SCHED] sin simbolo; NO aplicado\n"); return; }
+    const int rc = f(0x04u);   // cudaDeviceScheduleBlockingSync
+    std::fprintf(stderr, "[GVS SCHED] pid=%d cudaSetDeviceFlags(BlockingSync) -> rc=%d%s\n",
+                 (int)getpid(), rc, rc == 0 ? " (aplicado)" : " (NO aplicado)");
+    std::fflush(stderr);
+}
+
 void Process::Start() {
+    gvs_quiza_blocking_sync();
     LOG4CPLUS_DEBUG(logger, "[Process " << getpid() << "] Process::Start() called.");
 
     for_each(mPlugins.begin(), mPlugins.end(), [this](const std::string &plug) {

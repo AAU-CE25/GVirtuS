@@ -28,6 +28,9 @@
  *            Department of Computer Science, University College Dublin
  */
 
+#include <cstdio>
+#include <cstdlib>
+#include <dlfcn.h>
 #include "gvirtus/backend/Backend.h"
 
 #include <gvirtus/communicators/CommunicatorFactory.h>
@@ -100,6 +103,37 @@ Backend::Backend(const fs::path &path) {
     }
 
     LOG4CPLUS_INFO(logger, "Backend Initialization is complete!");
+}
+
+// CONTROL: cudaStreamSynchronize hace ESPERA ACTIVA por defecto. La hipotesis que queda es que
+// ese spin retenga un cerrojo del driver que ucp_worker_progress necesita -- lo que explicaria
+// que progress no vuelva en 50 s aunque el hilo tenga su propia conexion y su propio worker, y
+// que ni el transporte IB ni el crecimiento del mpool lo eviten (ambos refutados por su control).
+//
+// cudaSetDeviceFlags tiene que ejecutarse ANTES de que exista el contexto primario; si llega
+// tarde devuelve cudaErrorSetOnActiveProcess (34) y hay que subirlo de sitio. Se imprime el
+// codigo justamente para no dar por hecho que se aplico.
+// Apagado por defecto: GVS_BLOCKING_SYNC=1.
+static void gvs_quiza_blocking_sync() {
+    const char *e = std::getenv("GVS_BLOCKING_SYNC");
+    if (e == nullptr || e[0] != '1') return;
+    typedef int (*set_flags_t)(unsigned int);
+    void *h = dlopen("libcudart.so.12", RTLD_LAZY | RTLD_LOCAL);
+    if (h == nullptr) h = dlopen("libcudart.so", RTLD_LAZY | RTLD_LOCAL);
+    if (h == nullptr) {
+        std::fprintf(stderr, "[GVS SCHED] no se pudo abrir libcudart; la perilla NO se aplica\n");
+        return;
+    }
+    auto f = reinterpret_cast<set_flags_t>(dlsym(h, "cudaSetDeviceFlags"));
+    if (f == nullptr) {
+        std::fprintf(stderr, "[GVS SCHED] cudaSetDeviceFlags no encontrado; NO se aplica\n");
+        return;
+    }
+    const unsigned int cudaDeviceScheduleBlockingSync_ = 0x04;
+    const int rc = f(cudaDeviceScheduleBlockingSync_);
+    std::fprintf(stderr, "[GVS SCHED] cudaSetDeviceFlags(BlockingSync) -> rc=%d%s\n", rc,
+                 rc == 0 ? " (aplicado)" : " (NO aplicado: 34 = contexto ya activo)");
+    std::fflush(stderr);
 }
 
 void Backend::Start() {
