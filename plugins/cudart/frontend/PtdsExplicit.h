@@ -18,6 +18,8 @@
 //     la causa es la resolucion del sentinel;
 //   - arreglo candidato, si resulta serlo.
 // Apagada por defecto: cambia el stream que ve el backend y eso no se activa en silencio.
+#include <atomic>
+#include <cstdio>
 #include <cstdlib>
 #include <cuda_runtime.h>
 
@@ -46,10 +48,42 @@ inline cudaStream_t mio() {
     return s;
 }
 
+// SENAL DE VITALIDAD, y existe por un error concreto: el brazo E se corrio una noche entera sin
+// que nada comprobara que la traduccion estuviera ocurriendo. El arnes vigilaba `admit_rma`, que
+// solo dice que el camino RMA esta vivo, y da igual lo que haga esta perilla. Un brazo E sin
+// traducciones ES el brazo D, y yo lo habria contado como E.
+// Se emite por stderr en la PRIMERA traduccion y cada 100.000: el arnes mata el proceso con
+// `docker rm -f`, asi que un contador de teardown no llegaria a imprimirse nunca.
+inline std::atomic<unsigned long> &traducciones() {
+    static std::atomic<unsigned long> n{0};
+    return n;
+}
+
+inline std::atomic<unsigned long> &fallos() {
+    static std::atomic<unsigned long> n{0};
+    return n;
+}
+
 inline cudaStream_t traduce(cudaStream_t in) {
     if (!activo() || in != cudaStreamPerThread) return in;
     cudaStream_t s = mio();
-    return s ? s : in;
+    if (s == nullptr) {
+        // Se CUENTA. Si la creacion del stream falla, el brazo E degrada en silencio al brazo D
+        // y sin este contador se leeria como "esta carga apenas usa PTDS", que es otra cosa.
+        const unsigned long f = fallos().fetch_add(1) + 1;
+        if (f == 1) std::fprintf(stderr, "[GVS PTDS] WARNING: explicit-stream creation failed; "
+                                         "falling back to the sentinel (untranslated=%lu)\n", f);
+        return in;
+    }
+    const unsigned long n = traducciones().fetch_add(1) + 1;
+    // Cadencia por potencias de diez: el arnes lee el ULTIMO valor impreso, asi que una cadencia
+    // gruesa convierte el conteo en un simple ">=1". Esto lo deja legible en orden de magnitud.
+    bool imprime = false;
+    for (unsigned long p = 1; p <= n; p *= 10) if (p == n) { imprime = true; break; }
+    if (imprime)
+        std::fprintf(stderr, "[GVS PTDS] cudaStreamPerThread -> explicit stream %p (translations=%lu untranslated=%lu)\n",
+                     (void *)s, n, fallos().load());
+    return s;
 }
 
 }  // namespace gvs_ptds

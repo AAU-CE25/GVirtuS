@@ -26,6 +26,7 @@
  *            School of Computer Science, University College Dublin
  */
 
+#include <atomic>
 #include "CudaRt.h"
 #include "PtdsExplicit.h"
 #include "CaptureMirror.h"
@@ -527,11 +528,58 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpy(void *dst, const void *src,
     // RAPIDS interop GATEADO: reclasifica D2H->D2D SOLO si NINGUNO es device registrado
     // (= punteros driver-API de CuPy) y comparten arena. Tus D2H (src device registrado)
     // NUNCA entran aquí -> Fase 4 intacta.
+    // `isInDeviceRange` ANADIDO, y esta es la correccion: `isDevicePointer` es una busqueda por
+    // direccion EXACTA, asi que un puntero con desplazamiento dentro de una asignacion propia
+    // -- `base + offset`, que es lo que pasa ggml_backend_cuda_buffer_get_tensor -- daba false y
+    // caia dentro de la puerta. El argumento de seguridad original ("tus D2H con src device
+    // registrado nunca entran aqui") solo valia para la direccion base.
+    // Reproducido deterministicamente en tests/semantic/d2hreclass.cu: con offset != 0 y dst en
+    // la misma ventana de 4 GiB, un D2H se ejecutaba como D2D -> cudaErrorInvalidValue y 64 KiB
+    // sin escribir. En produccion la coincidencia de ventana es azar del reparto de direcciones,
+    // que es por lo que el fallo se veia intermitente.
+    // El caso de RAPIDS se conserva: un puntero driver-API de CuPy no esta en ningun rango
+    // registrado, luego `isInDeviceRange` es false y la puerta sigue disparando para el.
     if (kind == cudaMemcpyDeviceToHost &&
         !CudaRtFrontend::isDevicePointer(dst) && !CudaRtFrontend::isDevicePointer(src)) {
         uintptr_t _dst_hi = reinterpret_cast<uintptr_t>(dst) >> 32;
         uintptr_t _src_hi = reinterpret_cast<uintptr_t>(src) >> 32;
-        if (_dst_hi == _src_hi && _dst_hi >= 0x7f00ULL) kind = cudaMemcpyDeviceToDevice;
+        if (_dst_hi == _src_hi && _dst_hi >= 0x7f00ULL) {
+            // Perilla de ABLACION: restaura el criterio anterior al arreglo. Existe para poder
+            // exhibir el defecto a voluntad -- una vez arreglado, un reproductor que ya no
+            // reproduce no sirve de prueba de nada. Por defecto APAGADA.
+            static const bool legado = [] {
+                const char *e = std::getenv("GVS_RECLASS_LEGACY");
+                return e != nullptr && e[0] == '1';
+            }();
+            if (!legado && CudaRtFrontend::isInDeviceRange(src)) {
+                // RAMA NUEVA = el arreglo. Y se CUENTA aparte a proposito: "cuantas veces habria
+                // disparado la puerta con el criterio viejo" es la unica forma de decir con una
+                // medida, y no con un argumento, si este cambio altera una carga concreta.
+                // suppressed=0 en una carga significa que el arreglo no la toca.
+                static std::atomic<unsigned long> suprimidos{0};
+                const unsigned long k = suprimidos.fetch_add(1) + 1;
+                bool imprime = false;
+                for (unsigned long p = 1; p <= k; p *= 10) if (p == k) { imprime = true; break; }
+                if (imprime)
+                    fprintf(stderr, "[GVS RECLASS] suppressed=%lu: D2H kept as D2H because src=%p is "
+                                    "inside a registered cudaMalloc range (dst=%p count=%zu). The old "
+                                    "exact-address test would have reclassified this to D2D.\n",
+                            k, const_cast<void *>(src), dst, count);
+            } else {
+                // Sigue siendo una HEURISTICA: "misma ventana de 4 GiB" es evidencia debil de que
+                // dst tambien sea memoria de dispositivo. Observable para poder afirmar en que
+                // cargas dispara, en vez de suponerlo.
+                static std::atomic<unsigned long> avisos{0};
+                const unsigned long k = avisos.fetch_add(1) + 1;
+                bool imprime = false;
+                for (unsigned long p = 1; p <= k; p *= 10) if (p == k) { imprime = true; break; }
+                if (imprime)
+                    fprintf(stderr, "[GVS RECLASS] fired=%lu: D2H reclassified as D2D (RAPIDS "
+                                    "driver-API heuristic): dst=%p src=%p count=%zu\n",
+                            k, dst, const_cast<void *>(src), count);
+                kind = cudaMemcpyDeviceToDevice;
+            }
+        }
     }
 
     CudaRtFrontend::Prepare();
@@ -794,11 +842,58 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpyAsync(void *dst, const void 
         kind = inferMemcpyKind(dst, src);
     }
     // Mismo gate que cudaMemcpy: no toca los D2H de tus workloads (src device registrado).
+    // `isInDeviceRange` ANADIDO, y esta es la correccion: `isDevicePointer` es una busqueda por
+    // direccion EXACTA, asi que un puntero con desplazamiento dentro de una asignacion propia
+    // -- `base + offset`, que es lo que pasa ggml_backend_cuda_buffer_get_tensor -- daba false y
+    // caia dentro de la puerta. El argumento de seguridad original ("tus D2H con src device
+    // registrado nunca entran aqui") solo valia para la direccion base.
+    // Reproducido deterministicamente en tests/semantic/d2hreclass.cu: con offset != 0 y dst en
+    // la misma ventana de 4 GiB, un D2H se ejecutaba como D2D -> cudaErrorInvalidValue y 64 KiB
+    // sin escribir. En produccion la coincidencia de ventana es azar del reparto de direcciones,
+    // que es por lo que el fallo se veia intermitente.
+    // El caso de RAPIDS se conserva: un puntero driver-API de CuPy no esta en ningun rango
+    // registrado, luego `isInDeviceRange` es false y la puerta sigue disparando para el.
     if (kind == cudaMemcpyDeviceToHost &&
         !CudaRtFrontend::isDevicePointer(dst) && !CudaRtFrontend::isDevicePointer(src)) {
         uintptr_t _dst_hi = reinterpret_cast<uintptr_t>(dst) >> 32;
         uintptr_t _src_hi = reinterpret_cast<uintptr_t>(src) >> 32;
-        if (_dst_hi == _src_hi && _dst_hi >= 0x7f00ULL) kind = cudaMemcpyDeviceToDevice;
+        if (_dst_hi == _src_hi && _dst_hi >= 0x7f00ULL) {
+            // Perilla de ABLACION: restaura el criterio anterior al arreglo. Existe para poder
+            // exhibir el defecto a voluntad -- una vez arreglado, un reproductor que ya no
+            // reproduce no sirve de prueba de nada. Por defecto APAGADA.
+            static const bool legado = [] {
+                const char *e = std::getenv("GVS_RECLASS_LEGACY");
+                return e != nullptr && e[0] == '1';
+            }();
+            if (!legado && CudaRtFrontend::isInDeviceRange(src)) {
+                // RAMA NUEVA = el arreglo. Y se CUENTA aparte a proposito: "cuantas veces habria
+                // disparado la puerta con el criterio viejo" es la unica forma de decir con una
+                // medida, y no con un argumento, si este cambio altera una carga concreta.
+                // suppressed=0 en una carga significa que el arreglo no la toca.
+                static std::atomic<unsigned long> suprimidos{0};
+                const unsigned long k = suprimidos.fetch_add(1) + 1;
+                bool imprime = false;
+                for (unsigned long p = 1; p <= k; p *= 10) if (p == k) { imprime = true; break; }
+                if (imprime)
+                    fprintf(stderr, "[GVS RECLASS] suppressed=%lu: D2H kept as D2H because src=%p is "
+                                    "inside a registered cudaMalloc range (dst=%p count=%zu). The old "
+                                    "exact-address test would have reclassified this to D2D.\n",
+                            k, const_cast<void *>(src), dst, count);
+            } else {
+                // Sigue siendo una HEURISTICA: "misma ventana de 4 GiB" es evidencia debil de que
+                // dst tambien sea memoria de dispositivo. Observable para poder afirmar en que
+                // cargas dispara, en vez de suponerlo.
+                static std::atomic<unsigned long> avisos{0};
+                const unsigned long k = avisos.fetch_add(1) + 1;
+                bool imprime = false;
+                for (unsigned long p = 1; p <= k; p *= 10) if (p == k) { imprime = true; break; }
+                if (imprime)
+                    fprintf(stderr, "[GVS RECLASS] fired=%lu: D2H reclassified as D2D (RAPIDS "
+                                    "driver-API heuristic): dst=%p src=%p count=%zu\n",
+                            k, dst, const_cast<void *>(src), count);
+                kind = cudaMemcpyDeviceToDevice;
+            }
+        }
     }
 
     CudaRtFrontend::Prepare();

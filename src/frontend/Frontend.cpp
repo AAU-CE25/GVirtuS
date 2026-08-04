@@ -158,6 +158,44 @@ using gvirtus::frontend::Frontend;
 static Frontend msFrontend;
 std::mutex gFrontendMutex;
 
+// --- ring de RPC del CLIENTE ------------------------------------------------------------
+// El ring del backend excluyo que el error venga de SU cudaStreamSynchronize: 0 volcados
+// mientras llama abortaba con "invalid argument" en esa misma llamada. Luego el codigo que
+// llama LEE se produce en este lado, o llega en una respuesta que no es la suya. Esto graba
+// que RPC se emitio, que codigo devolvio y de que tamano fue la respuesta, para poder mirar
+// la secuencia inmediatamente anterior al fallo en vez de reproducirlo dos veces.
+namespace gvs_cli {
+struct Rpc { const char *rutina; int rc; std::size_t out; std::uint64_t seq; };
+inline constexpr int kR = 64;
+struct Anillo { Rpc v[kR]; int sig = 0; std::uint64_t seq = 0; bool lleno = false; };
+// SIN `inline`, y a proposito. Con inline, cada .so obtiene su PROPIA copia del
+// thread_local: libgvirtus-frontend escribia en un anillo y el plugin cudart leia otro, asi
+// que el volcado salia vacio justo cuando importa. Se exporta una sola definicion.
+Anillo &anillo() { static thread_local Anillo a; return a; }
+
+void graba(const char *rutina, int rc, std::size_t out) {
+    Anillo &a = anillo();
+    a.v[a.sig] = Rpc{rutina, rc, out, ++a.seq};
+    a.sig = (a.sig + 1) % kR;
+    if (a.sig == 0) a.lleno = true;
+}
+
+void vuelca(const char *quien, int rc) {
+    Anillo &a = anillo();
+    const int m = a.lleno ? kR : a.sig;
+    std::fprintf(stderr,
+        "[GVS CLI] *** %s returned rc=%d on this FRONTEND thread. Last %d RPCs, newest first "
+        "(rc is what the reply carried):\n", quien, rc, m);
+    for (int k = 1; k <= m; ++k) {
+        const Rpc &r = a.v[(a.sig - k + kR) % kR];
+        if (r.rutina == nullptr) continue;
+        std::fprintf(stderr, "[GVS CLI]   seq=%llu %-28s rc=%d out=%zu\n",
+                     (unsigned long long)r.seq, r.rutina, r.rc, r.out);
+    }
+    std::fflush(stderr);
+}
+}  // namespace gvs_cli
+
 // --- estabilidad de la identidad de hilo frontend -> conexion --------------------------
 //
 // LA PREGUNTA QUE CONTESTA, y es la precondicion de una hipotesis concreta sobre el abort de
@@ -576,6 +614,11 @@ void Frontend::ExecuteInternal(const char *routine, const Buffer *input_buffer,
                                                         << ", tid=" << tid << "]");
 
     frontend->mRoutinesExecuted++;
+    // Se graba al SALIR, con el codigo real; ver el final de esta funcion.
+    struct GrabaAlSalir {
+        const char *r; Frontend *f;
+        ~GrabaAlSalir() { gvs_cli::graba(r, f->mExitCode, 0); }
+    } _graba{routine, frontend};
 
     comprueba_identidad(tid, (const void *)frontend->_communicator->obj_ptr().get(), routine);
 
