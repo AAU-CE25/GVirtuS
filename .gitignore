@@ -189,3 +189,9 @@ include/log4cplus/
 !results/asplos_campaign/**/*.csv
 !results/asplos_campaign/**/*.txt
 !results/asplos_campaign/**/*.json
+
+# Binarios compilados de los tests semanticos: son artefactos, no fuentes. Sin esto la
+# procedencia marca worktree_dirty=true y la campana final parece salir de un arbol sucio.
+tests/semantic/*
+!tests/semantic/*.cu
+!tests/semantic/*.sh
