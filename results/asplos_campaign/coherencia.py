@@ -5,7 +5,7 @@ Every key figure changed at least once today. This greps each of them across all
 reports where a document still carries a superseded value. It cannot know what is right -- it
 only shows disagreement, which is what has to be looked at.
 """
-import glob, re, os, collections
+import glob, io, re, os, collections
 os.chdir(os.path.expanduser('~/paper'))
 
 # etiqueta -> (patron correcto, [patrones superados])
@@ -123,3 +123,55 @@ print("documentos:", len(md), " comprobaciones con conflicto:", problemas,
       " comprobaciones vacias:", vacias)
 if vacias:
     print("AVISO: una comprobacion vacia hay que arreglarla o retirarla, no dejarla en verde.")
+
+# ---------------------------------------------------------------------------------------------
+# COMPROBACIONES DE ESTADO FINAL
+#
+# Las de arriba comparan CIFRAS entre documentos. No detectan una contradiccion NARRATIVA: que un
+# documento diga "quadrant es el defecto" y otro "el sistema evaluado usa scalar", o que uno cierre
+# el aborto y otro lo declare sin explicar. Eso paso: el script daba 0 conflictos mientras cuatro
+# documentos contaban la historia anterior.
+#
+# Cada entrada es una afirmacion que YA NO PUEDE aparecer sin marca de superada. La marca es
+# deliberadamente estrecha -- si un documento quiere conservar la frase vieja, tiene que decir en
+# la MISMA linea o en la anterior que esta superada, con fecha.
+ESTADO = [
+    ("escalar sigue desplegado",
+     r"(evaluated system runs the \*?scalar|deployed (and evaluated )?configuration is the \*?\*?scalar|4 MiB remains the deployed floor|runs the SCALAR policy)"),
+    ("el aborto sigue sin explicar",
+     r"(abort remains unexplained|intermittent frontend abort remains|its cause is still open)"),
+    ("el coste de quadrant sigue en 1,1 %",
+     r"(costs? 1\.1%|1\.1% loss|-1\.1%, outside noise)"),
+    ("quadrant no se usa para numeros end-to-end",
+     r"(used for any published end-to-end number \| \*\*no|not the configuration any end-to-end number)"),
+    ("quadrant colapsa a 8 slots",
+     r"(at CONC=8 with 8 slots it collapses)"),
+]
+MARCAS = re.compile(r"(until 2026-08|superseded|previously read|previously cited|this (row|cell|line|paragraph) "
+                    r"(previously|read)|hasta 2026-08|retract)", re.I)
+
+print()
+print("--- estado final (contradicciones narrativas) ---")
+malos_estado = 0
+for etiqueta, patron in ESTADO:
+    rx = re.compile(patron, re.I)
+    culpables = []
+    for f in md:
+        try:
+            lineas = io.open(f, encoding="utf-8", errors="replace").read().split("\n")
+        except Exception:
+            continue
+        for i, ln in enumerate(lineas):
+            if rx.search(ln):
+                ctx = "\n".join(lineas[max(0, i - 2):i + 2])
+                if not MARCAS.search(ctx):
+                    culpables.append("%s:%d" % (f, i + 1))
+    if culpables:
+        malos_estado += 1
+        print("XX %-34s SIN MARCA DE SUPERADA en: %s" % (etiqueta, ", ".join(culpables[:4])))
+    else:
+        print("   %-34s ok" % etiqueta)
+print()
+print("contradicciones de estado final:", malos_estado)
+if malos_estado:
+    print("AVISO: el paquete cuenta a la vez la historia vieja y la nueva. Eso lo ve un revisor.")

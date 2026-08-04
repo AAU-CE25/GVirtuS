@@ -28,6 +28,8 @@
  *            Department of Computer Science, University College Dublin
  */
 
+#include <sys/syscall.h>
+#include <chrono>
 #include <gvirtus/backend/Process.h>
 #include <gvirtus/common/JSON.h>
 #include <gvirtus/common/SignalException.h>
@@ -48,6 +50,26 @@
 #include "gvirtus/communicators/UcxAmProtocol.h"
 #include <sys/resource.h>   // RLIMIT_NOFILE, see the accept loop below
 #include <unistd.h>         // usleep
+
+// --- localizador de la serializacion entre conexiones ---------------------------------------
+// Medido: con dos hilos de cliente, el `cudaLaunchKernel` de uno espera 50 s mientras el otro
+// tiene un kernel largo, y el servidor dice srv_exec=0us. O sea que ejecutarlo no cuesta: lo que
+// no ocurre es LLEGAR A EJECUTARLO. Esto imprime, por RPC relevante, el hilo del backend y los
+// instantes de llegada y de fin, que es lo unico que distingue "el mensaje llego tarde" de
+// "el mensaje llego y nadie lo atendio".
+// Se activa con GVS_DISPATCH_TRACE=1 para no cobrar nada en marcha normal.
+static bool gvs_dispatch_trace() {
+    static const bool v = [] {
+        const char *e = std::getenv("GVS_DISPATCH_TRACE");
+        return e != nullptr && e[0] == '1';
+    }();
+    return v;
+}
+static double gvs_ahora_ms() {
+    using namespace std::chrono;
+    static const auto t0 = steady_clock::now();
+    return duration<double, std::milli>(steady_clock::now() - t0).count();
+}
 
 // DEBUG replaced with log4cplus, so that all diagnostics respect GVIRTUS_LOGLEVEL and share the unified format.
 
@@ -573,7 +595,17 @@ void Process::Start() {
                         gvirtus::communicators::tls_client_rma_put_capable =
                             client_comm->rma_put_capable();
                         auto start = steady_clock::now();
+                        const double _t_lleg = gvs_dispatch_trace() ? gvs_ahora_ms() : 0.0;
                         result = h->Execute(am_routine, am_input);
+                        if (gvs_dispatch_trace() &&
+                            (am_routine == "cudaLaunchKernel" ||
+                             am_routine == "cudaStreamSynchronize")) {
+                            std::fprintf(stderr,
+                                "[GVS DISPATCH] tid=%d conn=%p %-22s entro=%.1fms salio=%.1fms dur=%.1fms\n",
+                                (int)syscall(SYS_gettid), (void *)client_comm, am_routine.c_str(),
+                                _t_lleg, gvs_ahora_ms(), gvs_ahora_ms() - _t_lleg);
+                            std::fflush(stderr);
+                        }
                         result->TimeTaken(
                             std::chrono::duration_cast<std::chrono::milliseconds>(
                                 steady_clock::now() - start)
@@ -726,7 +758,16 @@ void Process::Start() {
                     result = std::make_shared<communicators::Result>(-1, std::make_shared<Buffer>());
                 } else {
                     auto start = steady_clock::now();
+                    const double _t_lleg = gvs_dispatch_trace() ? gvs_ahora_ms() : 0.0;
                     result = h->Execute(routine, input_buffer);
+                    if (gvs_dispatch_trace() &&
+                        (routine == "cudaLaunchKernel" || routine == "cudaStreamSynchronize")) {
+                        std::fprintf(stderr,
+                            "[GVS DISPATCH] tid=%d conn=%p %-22s entro=%.1fms salio=%.1fms dur=%.1fms\n",
+                            (int)syscall(SYS_gettid), (void *)this, routine.c_str(),
+                            _t_lleg, gvs_ahora_ms(), gvs_ahora_ms() - _t_lleg);
+                        std::fflush(stderr);
+                    }
                     result->TimeTaken(std::chrono::duration_cast<std::chrono::milliseconds>(
                                           steady_clock::now() - start)
                                           .count() /

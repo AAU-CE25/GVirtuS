@@ -220,7 +220,25 @@ void comprueba_identidad(pid_t tid, const void *comm, const char *routine) {
     {
         std::lock_guard<std::mutex> lk(gIdMu);
         auto it = gTidComm.find(tid);
-        if (it == gTidComm.end()) { gTidComm.emplace(tid, comm); return; }
+        if (it == gTidComm.end()) {
+            // COMPARTICION, que es una pregunta DISTINTA de la de abajo y que este check no
+            // sabia contestar: el de abajo avisa si UN hilo cambia de comunicador; este avisa
+            // si DOS hilos usan el MISMO. Si lo comparten, sus RPC se serializan en un unico
+            // canal y un `cudaLaunchKernel` puede esperar 50 s al kernel de otro hilo -- que es
+            // exactamente el sintoma que ptds_mt mide.
+            for (const auto &kv : gTidComm) {
+                if (kv.second == comm && kv.first != tid) {
+                    std::fprintf(stderr,
+                        "[GVS IDENTITY] *** SHARED communicator %p: frontend threads %d and %d "
+                        "use the same one at '%s'. Their RPCs serialise on a single channel.\n",
+                        comm, (int)kv.first, (int)tid, routine ? routine : "(null)");
+                    std::fflush(stderr);
+                    break;
+                }
+            }
+            gTidComm.emplace(tid, comm);
+            return;
+        }
         if (it->second == comm) return;
         previo = it->second;
         it->second = comm;
