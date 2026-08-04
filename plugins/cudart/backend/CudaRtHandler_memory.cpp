@@ -668,16 +668,31 @@ ShadowDrainRegistrar g_shadow_drain_registrar;
 // el barrido de politica no podia derivarlo: los cuatro brazos tomaban el mismo camino por
 // debajo de 4 MiB y salian indistinguibles (dispersion medida 0,2-2,4 % a todos los tamanos).
 //
-// DEFECTO = 128 KiB desde 2026-08-04, y es un cruce MEDIDO, no heredado. A/B de GPUDirect D2H
-// SIEMPRE contra NUNCA, 3 corridas por punto, cliente con GVIRTUS_RMA_MIN_BYTES=4096 para que la
-// puerta del cliente no lo enmascare (admit_rma=321 en los dos brazos):
+// DEFECTO = 512 KiB desde 2026-08-04, y el valor esta elegido para NO REGRESAR EN NINGUNO DE
+// LOS DOS REGIMENES DE MEMORIA. La historia importa porque yo mismo me equivoque en medio:
 //
-//     <= 32 KiB  staged gana 0,86-0,94x |  128 KiB  GPUDirect 1,17x  <-- cruce
-//        64 KiB  empate 1,03x           |    1 MiB  4,37x |  16 MiB  5,92x
+// Primero lo puse en 128 KiB, derivado de un A/B con sweep_bench cuyo log NO separa memoria
+// fijada de paginable. Es decir, apliqué un umbral UNICO a dos regimenes -- exactamente el error
+// que este sistema documenta que no hay que cometer con la colocacion. Medido por separado
+// (brazo quadrant, mediana de 3, frente al mismo barrido con el umbral en 4 MiB):
 //
-// El 4 MiB anterior estaba 32x por encima del cruce y costaba hasta 5,5x a cualquier D2H en la
-// banda. Su base empirica (a 256 KB y 1 MB el camino GPUDirect REGRESABA, 0,7/1,1 -> 1,5/1,9 ms)
-// era ANTERIOR a la reescritura del camino D2H (client-GET, 8,9 -> 24 GB/s) y ya no se sostiene.
+//     bytes    D2H FIJADA   D2H PAGINABLE
+//     128 KiB    1,19x         0,55x   <-- REGRESION del 45 %
+//     256 KiB    1,38x         0,68x   <-- REGRESION del 32 %
+//     512 KiB    2,65x         1,04x   <-- primer tamano seguro en AMBOS
+//       1 MiB    4,36x         1,69x
+//       2 MiB    5,21x         2,01x
+//
+// El cruce de la paginable esta entre 256 y 512 KiB; el de la fijada, en 128 KiB o por debajo.
+// 512 KiB es el menor valor que no perjudica a ninguno, y conserva 2,65x/5,21x en la fijada.
+// LO QUE FALTA: un umbral POR TIPO DE MEMORIA capturaria ademas el 1,19x/1,38x de la fijada
+// entre 128 y 256 KiB. Requiere que el backend conozca el tipo del buffer de host, que hoy no
+// viaja en el protocolo.
+//
+// El 4 MiB original estaba 8x por encima incluso de este valor conservador. Su base empirica (a
+// 256 KB y 1 MB el camino GPUDirect REGRESABA, 0,7/1,1 -> 1,5/1,9 ms) era ANTERIOR a la
+// reescritura del camino D2H (client-GET, 8,9 -> 24 GB/s); resulta que acertaba en la paginable
+// a 256 KB y se equivocaba por 8x en la fijada.
 //
 // Correccion verificada a 128 KiB: rma_verdict 0 fallos de 16 con device_ok(D2H at fault)=0,
 // growtest/dst_realloc/src_realloc PASS, graphvis 5/5, graphvis2, d2hpool, d2hreclass PASS.
@@ -688,7 +703,7 @@ ShadowDrainRegistrar g_shadow_drain_registrar;
 // que el suelo RMA: ponerla en el cliente no hace nada.
 static size_t gvs_gpudirect_d2h_min_bytes() {
     static const size_t v = [] {
-        size_t v = 128u * 1024u;   // cruce MEDIDO, ver arriba
+        size_t v = 512u * 1024u;   // cruce MEDIDO Y SEGURO EN AMBOS REGIMENES, ver arriba
         const char *e = std::getenv("GVIRTUS_GPUDIRECT_D2H_MIN_BYTES");
         bool override_env = false;
         if (e != nullptr) {
