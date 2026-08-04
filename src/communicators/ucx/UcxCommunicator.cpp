@@ -268,11 +268,26 @@ size_t ucx_slot_cap_bytes() {
 
 size_t ucx_rma_min_bytes() {
     static const size_t v = []() -> size_t {
+        // El DEFECTO se deriva de la politica activa (su umbral mas pequeno) en vez de ser un
+        // 4 MiB independiente. Un suelo por encima de lo que la politica admite hace que se
+        // admita trafico que no se puede servir de forma nativa, y eso costaba -1,1 % en llama
+        // 7B con quadrant. Ver policy_min_threshold() en RmaPolicy.h para la medida del escalon.
+        const size_t derivado = gvirtus::communicators::policy_min_threshold();
         const char *e = std::getenv("GVIRTUS_RMA_MIN_BYTES");
-        if (e == nullptr || e[0] == 0) return 4u * 1024u * 1024u;
+        if (e == nullptr || e[0] == 0) {
+            fprintf(stderr, "[GVS POOL] rma_min_bytes = %zu (derivado de la politica)\n", derivado);
+            return derivado;
+        }
         char *end = nullptr;
         unsigned long long parsed = std::strtoull(e, &end, 10);
-        return (end != e) ? static_cast<size_t>(parsed) : 4u * 1024u * 1024u;
+        const size_t v = (end != e) ? static_cast<size_t>(parsed) : derivado;
+        if (v > derivado)
+            fprintf(stderr, "[GVS POOL] AVISO: rma_min_bytes=%zu supera el umbral minimo de la "
+                            "politica (%zu): se admitira trafico que el pool no puede servir\n",
+                    v, derivado);
+        else
+            fprintf(stderr, "[GVS POOL] rma_min_bytes = %zu (env)\n", v);
+        return v;
     }();
     return v;
 }

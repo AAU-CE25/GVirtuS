@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <algorithm>
 #include <cstring>
 #include <cstdio>
 
@@ -52,9 +53,15 @@ inline std::size_t quadrant_threshold(bool h2d, bool pinned);
 inline RmaPolicy rma_policy() {
     static const RmaPolicy p = []() {
         const char *v = std::getenv("GVIRTUS_RMA_POLICY");
-        if (v == nullptr || v[0] == '\0' || std::strcmp(v, "scalar") == 0)
-            return RmaPolicy::Scalar;
-        if (std::strcmp(v, "quadrant") == 0) {
+        // QUADRANT ES EL DEFECTO desde 2026-08-04. Antes lo era `scalar` a 4 MiB, mientras el
+        // propio paquete demostraba que la forma escalar es incorrecta: quadrant queda a <=2 %
+        // del oraculo en las CUATRO combinaciones direccion x tipo de memoria, donde cualquier
+        // umbral unico cae al 22-31 % en una de ellas.
+        // El unico coste medido en su contra (-1,1 % en llama 7B) resulto ser la trampa de las
+        // dos perillas, no la politica: aparecia solo cuando el suelo del pool superaba el
+        // umbral MAS PEQUENO de la tabla. Ver policy_min_threshold() abajo, que lo hace
+        // imposible por construccion.
+        if (v == nullptr || v[0] == '\0' || std::strcmp(v, "quadrant") == 0) {
             // El banner IMPRIME la tabla, no una copia escrita a mano: al re-medir el cruce
             // a 16 KiB cambie la constante y este literal se quedo diciendo 8K, o sea que el
             // log contradecia al binario que lo emitia. Un valor citado a mano se queda atras;
@@ -68,13 +75,14 @@ inline RmaPolicy rma_policy() {
                          quadrant_threshold(false, false) >> 10);
             return RmaPolicy::Quadrant;
         }
+        if (std::strcmp(v, "scalar") == 0) return RmaPolicy::Scalar;
         if (std::strcmp(v, "oracle") == 0) {
             std::fprintf(stderr, "[GVS POLICY] ORACLE per-size placement "
                                  "(not deployable; upper bound only)\n");
             return RmaPolicy::Oracle;
         }
         std::fprintf(stderr, "[GVS POLICY] unknown value '%s'; using scalar\n", v);
-        return RmaPolicy::Scalar;
+        return RmaPolicy::Scalar;   // valor invalido: se degrada al conservador, no al defecto
     }();
     return p;
 }
@@ -145,6 +153,33 @@ inline bool oracle_prefers_rma(bool h2d, bool pinned, std::size_t bytes) {
 inline std::size_t scalar_floor_bytes() {
     static const std::size_t v = env_bytes("GVIRTUS_RMA_SCALAR_FLOOR", 4ull << 20);
     return v;
+}
+
+// EL SUELO DEL POOL NO PUEDE SER INDEPENDIENTE DE LA POLITICA, y esto esta medido, no razonado.
+// Si la politica admite a 16 KiB y el pool se provisiona a >=32 KiB, se admite trafico que no se
+// puede servir de forma nativa. El coste aparece EXACTAMENTE al cruzar el umbral mas pequeno de
+// la tabla:
+//
+//     GVIRTUS_RMA_MIN_BYTES   8K      16K     32K     64K     128K    256K
+//     llama 7B tg16 (t/s)     137,44  137,45  135,96  135,93  135,89  135,87
+//                                     ^ sin coste  ^ -1,1 %, y PLANO a partir de aqui
+//
+// El pool mide 1,0 MiB a los DOS lados del escalon, asi que no es aprovisionamiento: es admitir
+// lo que no se puede servir. Derivar el suelo de la politica lo hace imposible por construccion
+// y elimina la trampa de las dos perillas que causo tres confusiones distintas en esta campana.
+inline std::size_t policy_min_threshold() {
+    switch (rma_policy()) {
+        case RmaPolicy::Quadrant: {
+            std::size_t m = quadrant_threshold(true, true);
+            m = std::min(m, quadrant_threshold(true,  false));
+            m = std::min(m, quadrant_threshold(false, true));
+            m = std::min(m, quadrant_threshold(false, false));
+            return m;
+        }
+        case RmaPolicy::Oracle:   return 16ull << 10;   // el menor cruce del oraculo
+        case RmaPolicy::Scalar:
+        default:                  return scalar_floor_bytes();
+    }
 }
 
 inline bool prefer_rma(bool h2d, bool pinned, std::size_t bytes, std::size_t /*pool_floor*/) {
