@@ -241,10 +241,16 @@ ESTADO = [
     # justo uno de los documentos desde los que se redactan contribuciones y positioning.
     # El paper sostiene tres: frontera que preserva obligaciones, movimiento de datos tipado, y
     # ejecucion/reclamacion asincrona segura. Fairness es un hallazgo causal de evaluacion.
+    # OJO: el patron persigue la AFIRMACION, no la palabra. Un "fourth contribution" a secas
+    # tambien casa las frases que la RECHAZAN ("presenting it as a fourth contribution would
+    # dilute the three..."), y entonces el check obliga a conservar una nota historica junto a
+    # cada rechazo -- es decir, obliga a ensuciar el documento para pasar el limpiador. Se acota
+    # a las formas asertivas.
     ("fairness es la cuarta contribucion",
-     r"(fourth contribution|cuarta contribucion|"
+     r"((is|as) the fourth contribution|fairness[^.]{0,40}fourth contribution\b(?![^.]*(would|not|rather than))|"
+     r"decided: fourth contribution|cuarta contribucion\b(?![^.]*\bno\b)|"
      r"[Ff]airness is a contribution, not a weakness|"
-     r"[Pp]romoted to a full fourth|is the fourth contribution)"),
+     r"[Pp]romoted to a full fourth|contribution in its own right)"),
 ]
 MARCAS = re.compile(r"(until 2026-08|superseded|previously read|previously cited|this (row|cell|line|paragraph) "
                     r"(previously|read)|hasta 2026-08|retract|closed 2026-0|cerrado 2026-0|"
