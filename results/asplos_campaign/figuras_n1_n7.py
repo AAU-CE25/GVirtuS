@@ -135,10 +135,28 @@ guardar(fig, "fig6_n1_arbitraje")
 # del CSV del 2x2 y de los logs del quinto brazo, y se pinta TODO lo que no es cero.
 n7 = list(csv.DictReader(open(os.path.join(CAMP, "epoch_n7/n7_2x2.csv"))))
 
-CONT = [("parked",            "layout install deferred (park)",        BLUE),
-        ("ack_epoch_dropped", "epoch guard: stale ack rejected",       GREEN),
-        ("ack_gen_mismatch",  "generation guard: stale ack rejected",  AMBER),
-        ("ack_on_free",       "PREMATURE FREE of a live slot",         PINK)]
+# CORREGIDA 2026-08-05. Dos errores de LECTURA, no de dibujo:
+#
+#  1. `ack_on_free` se etiquetaba "PREMATURE FREE of a live slot". Es lo contrario: son acks que
+#     llegan a un slot que YA ESTA LIBRE, y se ignoran (N7_EPOCH.md 5, fila C: "81 more land on
+#     slots that are already free"). Es un evento inocuo, y presentarlo como el peligroso hacia
+#     que la figura contradijera al documento que la explica.
+#  2. `ack_gen_mismatch` significa cosas OPUESTAS segun el brazo. Con la guarda de generacion
+#     ENCENDIDA cuenta acks rechazados (brazo C: 38). Con la guarda APAGADA cuenta acks que
+#     liberaron un slot vivo (brazo E: 114) -- el evento peligroso de verdad. Una sola etiqueta
+#     para las dos no puede ser correcta, asi que la etiqueta depende del brazo.
+GUARDA_GEN_OFF = {"park_off_both_off"}
+
+def etiqueta_gen(arm):
+    return ("PREMATURE FREE of a live slot (generation guard OFF)"
+            if arm in GUARDA_GEN_OFF else "generation guard: stale ack rejected")
+
+CONT = [("parked",            "layout install deferred (park)",              BLUE),
+        ("ack_epoch_dropped", "epoch guard: stale ack rejected",             GREEN),
+        ("ack_gen_mismatch",  None,                                          AMBER),
+        # Gris, NO rosa: es el evento inocuo. Dejarlo del color de peligro hacia que la fila 5
+        # mostrara dos barras rosas y pareciera que 81+114 son todas liberaciones prematuras.
+        ("ack_on_free",       "ack lands on an ALREADY-FREE slot (ignored)", MUTED)]
 
 ARM_LAB = [("park_on_guard_on",   "park on,  epoch guard on"),
            ("park_on_guard_off",  "park on,  epoch guard off"),
@@ -168,14 +186,16 @@ fig, ax = plt.subplots(figsize=(7.9, 3.4))
 y = np.arange(len(ARM_LAB))[::-1]
 alto = 0.19
 for yy, (arm, _) in zip(y, ARM_LAB):
-    activos = [(k, lab, col) for k, lab, col in CONT if vals.get((arm, k))]
+    activos = [(k, lab, col) for k, lab, col in CONT if vals.get((arm, k))]  # lab None -> por brazo
     for j, (k, lab, col) in enumerate(activos):
         v = vals[(arm, k)]
         off = (j - (len(activos) - 1) / 2.0) * alto
+        if k == "ack_gen_mismatch" and arm in GUARDA_GEN_OFF: col = PINK
         ax.barh(yy + off, v, height=alto * 0.86, color=col, linewidth=0.8,
                 edgecolor=SURF, zorder=2)
         ax.annotate(f"{v}", (v, yy + off), textcoords="offset points", xytext=(4, 0),
                     va="center", fontsize=7.8, color=INK, fontweight="bold")
+        if lab is None: lab = etiqueta_gen(arm)
         ax.annotate(lab, (v, yy + off), textcoords="offset points", xytext=(26, 0),
                     va="center", fontsize=6.9, color=MUTED)
 ax.set_yticks(y)
@@ -188,12 +208,14 @@ ax.grid(axis="x", color=GRID, lw=0.6, zorder=0)
 ax.set_axisbelow(True)
 for sp in ("top", "right", "left"):
     ax.spines[sp].set_visible(False)
-ax.set_title("With the park on, the epoch guard is unreachable -- so ablating it measures nothing",
+ax.set_title("Layered defences: the park hides the epoch guard, which hides the generation guard",
              fontsize=9.4, color=INK, loc="left", pad=10, fontweight="bold")
 pie = ("Rows 1-2 are identical: with the park on, no ack ever reaches the epoch guard, so "
        "turning it off changes nothing.\n"
-       "Row 4 is the one to read twice -- 81 PREMATURE FREES of live slots, and still "
-       "0 corrupted bytes in every arm.\n")
+       "Row 4 (park OFF, epoch guard off, generation guard ON): 38 stale acks rejected by the "
+       "generation guard, 81 landing on\nalready-free slots and ignored -- ZERO premature frees. "
+       "Row 5 is the dangerous one: with the generation guard off too,\n114 acks per run free a "
+       "slot that is still in flight. Still 0 corrupted bytes in every arm.\n")
 pie += ("Every counter is identical across the 3 repetitions of its arm."
         if not spread else
         "NOT identical across repetitions: " + "; ".join(f"{a}.{k}={x}" for a, k, x in spread))

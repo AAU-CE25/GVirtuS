@@ -69,7 +69,10 @@ for ax, (col, titulo, ylab, ylim) in zip(axes, PANELES):
                        linewidths=0, zorder=2)
         ax.plot(lams, med, color=colr, lw=1.7, marker=mk, ms=4.6,
                 label=lab, zorder=3)
-    ax.set_xlabel("offered load lambda (req/s per tenant)", fontsize=7.6)
+    # lambda es la carga ofrecida TOTAL, no por inquilino: `bench.py` reparte RATE entre los N
+    # clientes. Etiquetarlo "per tenant" multiplica por N la lectura de cada celda y cambia
+    # por completo la interpretacion de N=8, lambda=0.5.
+    ax.set_xlabel("total offered load lambda (req/s)", fontsize=7.6)
     ax.set_ylabel(ylab, fontsize=7.6)
     ax.set_title(titulo, fontsize=8.2, color=INK, loc="left", pad=8)
     ax.grid(color=GRID, lw=0.6, zorder=0); ax.set_axisbelow(True)
