@@ -74,7 +74,13 @@ CHECKS = [
  ("coste flush device",  r"0\.729-0\.738|~0\.73 us|0\.73 us",              []),
 ]
 
-md = sorted(glob.glob("*.md"))
+# `history/` esta EXCLUIDA a proposito: son documentos RETIRADOS (ver history/LEEME.md).
+# El glob de abajo no recursa, asi que hoy basta -- pero la exclusion se hace EXPLICITA
+# para que pasarlo a recursivo no vuelva a meter cifras retiradas en la comprobacion.
+def _no_historico(rutas):
+    return [r for r in rutas if not r.replace("\\", "/").startswith("history/")]
+
+md = _no_historico(sorted(glob.glob("*.md")))
 texts = {f: open(f, encoding="utf-8", errors="replace").read() for f in md}
 problemas = 0
 vacias = 0

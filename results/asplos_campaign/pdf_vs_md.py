@@ -132,7 +132,14 @@ def autocontrol():
     render = os.path.expanduser("~/paper/cudf_etl/md2pdf.py")
     if not os.path.exists(render):
         return False, "no encuentro md2pdf.py, no puedo construir el control"
-    sanos = [m for m in sorted(glob.glob("*.md")) if os.path.exists(m[:-3] + ".pdf")]
+# `history/` esta EXCLUIDA a proposito: son documentos RETIRADOS (ver history/LEEME.md).
+# El glob de abajo no recursa, asi que hoy basta -- pero la exclusion se hace EXPLICITA
+# para que pasarlo a recursivo no vuelva a meter cifras retiradas en la comprobacion.
+def _no_historico(rutas):
+    return [r for r in rutas if not r.replace("\\", "/").startswith("history/")]
+
+    sanos = [m for m in _no_historico(sorted(glob.glob("*.md")))
+             if os.path.exists(m[:-3] + ".pdf")]
     if not sanos:
         return False, "no hay ningun par .md/.pdf"
     md = sanos[0]
@@ -167,7 +174,7 @@ if not ok:
     sys.exit(2)
 
 malos, avisos = 0, 0
-for md in sorted(glob.glob("*.md")):
+for md in _no_historico(sorted(glob.glob("*.md"))):
     pdf = md[:-3] + ".pdf"
     if not os.path.exists(pdf):
         print("  SIN PDF  %s" % md)
