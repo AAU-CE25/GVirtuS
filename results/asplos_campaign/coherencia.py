@@ -235,6 +235,16 @@ ESTADO = [
     ("D2H no merece decision",
      r"(no placement choice worth making|nothing to win by adding one|"
      r"choice worth making for D2H)"),
+    # Anadida 2026-08-05 (noche). Cuarta ronda seguida en que una decision editorial se toma en
+    # PAPER_OPENING.md y NO se propaga: fairness quedo como "cuarta contribucion" en NOVELTY,
+    # RESULTS y REVIEWER_ITEMS mientras PAPER_OPENING fijaba el recuento en TRES. NOVELTY es
+    # justo uno de los documentos desde los que se redactan contribuciones y positioning.
+    # El paper sostiene tres: frontera que preserva obligaciones, movimiento de datos tipado, y
+    # ejecucion/reclamacion asincrona segura. Fairness es un hallazgo causal de evaluacion.
+    ("fairness es la cuarta contribucion",
+     r"(fourth contribution|cuarta contribucion|"
+     r"[Ff]airness is a contribution, not a weakness|"
+     r"[Pp]romoted to a full fourth|is the fourth contribution)"),
 ]
 MARCAS = re.compile(r"(until 2026-08|superseded|previously read|previously cited|this (row|cell|line|paragraph) "
                     r"(previously|read)|hasta 2026-08|retract|closed 2026-0|cerrado 2026-0|"
