@@ -162,6 +162,9 @@ ESTADO = [
     ("la averia del 08-05 sigue sin atribuir",
      r"(An environment fault, unattributed|no code from this session is implicated|"
      r"every large transfer fails)"),
+    ("el residual sigue en <= 0,2 %",
+     r"(<= ?0\.2%|≤ ?0,2 ?%|residual is ≤ ?0\.2%|residual of <= ?0\.2%|"
+     r"at the edge of (what n=8 resolves|resolution at n=8)|-0\.21%|-0\.14%)"),
     ("el suelo de 4 MiB sigue vigente",
      r"(only ever fires above the 4 MiB|above the 4 MiB RMA floor|"
      r"the same 4 MiB RMA floor|below the 4 MiB RMA floor|"
@@ -173,9 +176,22 @@ ESTADO = [
     # que es H2D; `GetFromRemoteGpu` no consulta ningun umbral (CONTRACTS.md 2.0c). Siete
     # documentos seguian con la reticula simetrica despues de que 2.0c lo refutara.
     ("cuatro cuadrantes de placement",
-     r"(four[- ]quadrant|four quadrants|cuatro cuadrantes|all four (placement )?(quadrants|regimes)|"
-     r"in all four regimes|four placement (thresholds|quadrants|decisions)|"
-     r"four data paths whose measured\s+crossovers)"),
+     # OJO con la anchura. "all four" a secas cazaba "all four synchronise the whole device",
+    # "all four tenant counts", "all four systems"... 20 de 21 falsos positivos. Un aviso con ese
+    # ruido entrena a ignorarlo, que es peor que no tenerlo. Se acota al sentido de COLOCACION.
+    r"(four[- ]quadrant|four quadrants|cuatro cuadrantes|"
+     r"all four (placement|direction|memory[- ]kind|quadrant)[- ]?(quadrants|regimes|cells)?\b|"
+     r"all four (quadrants|regimes)\b|"
+     r"(within|stays within) 2% in all four|oracle in all four|"
+     r"four placement (thresholds|quadrants|decisions)|"
+     r"four data paths|decide between four|choose between four)"),
+    # El "sign reversal" ENTRE DIRECCIONES era el otro pilar del titular viejo, y cae con el
+    # mismo hallazgo: si D2H no tiene decision de colocacion, no hay dos umbrales del mismo tipo
+    # que puedan invertir el signo. El motivo por el que un escalar falla es OTRO -- dentro de
+    # H2D, fijada y paginable estan a 64x.
+    ("inversion de signo entre direcciones",
+     r"(sign revers|reverses between directions|reverses below 1 MiB for D2H|"
+     r"no scalar satisfies both directions|no single threshold can be right)"),
     # Y el rango 16 KiB-2 MiB presentado como si fuera UN eje de placement: sus extremos son de
     # dos mecanismos distintos (16 KiB placement H2D, 2 MiB una celda que no decide nada).
     ("rango 16 KiB-2 MiB como placement",
@@ -190,23 +206,52 @@ MARCAS = re.compile(r"(until 2026-08|superseded|previously read|previously cited
 
 print()
 print("--- estado final (contradicciones narrativas) ---")
+
+# REESCRITO 2026-08-05 (tarde) para trabajar POR PARRAFO en vez de por linea. Dos fallos reales
+# del recorrido anterior, los dos daban VERDE sobre documentos que conservaban el claim viejo:
+#
+#  1. Iba LINEA A LINEA, asi que una frase partida en dos lineas -- que en estos documentos, con
+#     el margen a 95 columnas, es lo normal -- no la veia ninguna expresion regular. "four data
+#     paths whose measured\ncrossovers span 128x" se le escapaba entero.
+#  2. La ventana de marca era +-2 LINEAS, y MARCAS incluye palabras frecuentes ("inert", "2.0c").
+#     Un parrafo activo con el claim viejo pasaba solo por estar cerca de otro que si lo retiraba.
+#
+# Ahora: se normaliza el parrafo (se juntan sus lineas y se colapsan los espacios), se busca en
+# el TEXTO NORMALIZADO, y la marca tiene que estar en EL MISMO parrafo. Un parrafo es su propia
+# unidad de afirmacion: si dice la cosa vieja, tiene que retirarla ahi, no dos parrafos mas
+# abajo.
+def _parrafos(texto):
+    """Devuelve [(linea_inicial, texto_normalizado)] por parrafo separado por linea en blanco."""
+    fuera, buf, n0 = [], [], 1
+    for i, ln in enumerate(texto.split("\n"), 1):
+        if ln.strip() == "":
+            if buf: fuera.append((n0, re.sub(r"\s+", " ", " ".join(buf)))); buf = []
+            n0 = i + 1
+        else:
+            if not buf: n0 = i
+            # Se quitan los marcadores de cita y de lista ANTES de juntar. Sin esto, un ">" de
+            # blockquote a principio de linea queda EN MEDIO de la frase al normalizar y parte
+            # cualquier patron que cruce el salto -- que es como el parrafo de sintesis de
+            # NOVELTY.md ("four data paths\n> whose measured crossovers") se escapaba entero.
+            buf.append(re.sub(r"^\s*[>|]+\s?", "", ln))
+    if buf: fuera.append((n0, re.sub(r"\s+", " ", " ".join(buf))))
+    return fuera
+
 malos_estado = 0
 for etiqueta, patron in ESTADO:
-    rx = re.compile(patron, re.I)
+    rx = re.compile(re.sub(r"\s+", r"\\s+", patron) if False else patron, re.I)
     culpables = []
     for f in md:
         try:
-            lineas = io.open(f, encoding="utf-8", errors="replace").read().split("\n")
+            texto = io.open(f, encoding="utf-8", errors="replace").read()
         except Exception:
             continue
-        for i, ln in enumerate(lineas):
-            if rx.search(ln):
-                ctx = "\n".join(lineas[max(0, i - 2):i + 2])
-                if not MARCAS.search(ctx):
-                    culpables.append("%s:%d" % (f, i + 1))
+        for n0, par in _parrafos(texto):
+            if rx.search(par) and not MARCAS.search(par):
+                culpables.append("%s:%d" % (f, n0))
     if culpables:
         malos_estado += 1
-        print("XX %-34s SIN MARCA DE SUPERADA en %d sitio(s): %s%s" %
+        print("XX %-34s SIN MARCA DE SUPERADA en %d parrafo(s): %s%s" %
               (etiqueta, len(culpables), ", ".join(culpables[:8]),
                "" if len(culpables) <= 8 else " ... (+%d mas)" % (len(culpables) - 8)))
     else:

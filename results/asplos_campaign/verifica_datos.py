@@ -303,7 +303,13 @@ else:
 # el -1,1 % ya superado, asi que el verificador daba verde sobre el numero viejo. Ahora se
 # recomputa el actual desde su raw, con el diseno PAREADO (los brazos se alternaron) y se
 # comprueba lo que de verdad se afirma: que la diferencia NO es separable de cero.
-fr = os.path.join(P, "canonica", "raw_0805", "residual_llama7b.csv")
+# Se prefiere la version CONTRABALANCEADA (v2, 10 pares). La v1 alternaba brazos pero ponia
+# siempre quadrant primero dentro del par, asi que un efecto de posicion caia entero sobre un
+# brazo. Si v2 no esta, se cae a v1 y se dice.
+fr = os.path.join(P, "canonica", "raw_0805", "residual_llama7b_v2.csv")
+_v2 = os.path.exists(fr)
+if not _v2:
+    fr = os.path.join(P, "canonica", "raw_0805", "residual_llama7b.csv")
 if os.path.exists(fr):
     filas = list(csv.DictReader(open(fr)))
     q = [float(x["tps"]) for x in filas if x["politica"] == "quadrant"]
@@ -311,7 +317,17 @@ if os.path.exists(fr):
     if len(q) == len(sc) and q:
         d = [a - b for a, b in zip(q, sc)]
         media = st.mean(d)
-        chk("residual llama 7B: media pareada (%)", -0.087, 100 * media / st.mean(sc), tol=0.35)
+        chk("residual llama 7B: media pareada (%)", -0.083 if _v2 else -0.087,
+            100 * media / st.mean(sc), tol=0.35,
+            nota="(contrabalanceado, n=%d)" % len(d) if _v2 else "(v1, no contrabalanceado)")
+        # Intervalo t PAREADO, no solo bootstrap: es el mas conservador de los dos y es el que
+        # se publica. Con n=10 da [-0,24 %, +0,08 %].
+        import math as _m
+        _t = {5: 2.776, 6: 2.571, 7: 2.447, 8: 2.365, 9: 2.306, 10: 2.262}.get(len(d), 2.262)
+        _h = _t * st.stdev(d) / _m.sqrt(len(d))
+        chk("residual llama 7B: el IC t-pareado contiene cero", True,
+            (media - _h) <= 0 <= (media + _h),
+            nota="(IC95 t [%+.2f%%, %+.2f%%])" % (100*(media-_h)/st.mean(sc), 100*(media+_h)/st.mean(sc)))
         # Lo que se AFIRMA es que contiene cero. Un IC que no lo contuviera invalidaria la frase
         # aunque la media coincidiera, asi que se comprueba la afirmacion, no solo el numero.
         import random as _rnd
