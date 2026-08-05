@@ -29,6 +29,14 @@ rota. Un verificador cuyo alcance no se ha comprobado es como no tener verificad
 """
 import zlib, re, os, sys, glob, random, shutil, subprocess, tempfile
 
+# `history/` esta EXCLUIDA a proposito: son documentos RETIRADOS (ver history/LEEME.md).
+# El glob no recursa, asi que hoy ya quedarian fuera -- la exclusion se hace EXPLICITA para que
+# pasarlo a recursivo mas adelante no vuelva a meter cifras retiradas en la comprobacion.
+def _no_historico(rutas):
+    return [r for r in rutas if not r.replace("\\", "/").startswith("history/")]
+
+
+
 os.chdir(os.path.expanduser("~/paper"))
 LIT = re.compile(rb"\((?:\\.|[^()\\])*\)", re.S)
 UMBRAL = 1.00
@@ -132,12 +140,6 @@ def autocontrol():
     render = os.path.expanduser("~/paper/cudf_etl/md2pdf.py")
     if not os.path.exists(render):
         return False, "no encuentro md2pdf.py, no puedo construir el control"
-# `history/` esta EXCLUIDA a proposito: son documentos RETIRADOS (ver history/LEEME.md).
-# El glob de abajo no recursa, asi que hoy basta -- pero la exclusion se hace EXPLICITA
-# para que pasarlo a recursivo no vuelva a meter cifras retiradas en la comprobacion.
-def _no_historico(rutas):
-    return [r for r in rutas if not r.replace("\\", "/").startswith("history/")]
-
     sanos = [m for m in _no_historico(sorted(glob.glob("*.md")))
              if os.path.exists(m[:-3] + ".pdf")]
     if not sanos:
