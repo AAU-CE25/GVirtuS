@@ -37,7 +37,23 @@ def _no_historico(rutas):
 
 
 
-os.chdir(os.path.expanduser("~/paper"))
+# RAIZ DEL PAQUETE. Antes esto era `os.chdir(os.path.expanduser("~/paper"))` fijo, y eso hacia
+# falsa la afirmacion del LEEME: la copia que viaja DENTRO del paquete, al desempaquetarlo en
+# cualquier otro sitio, comprobaba el ~/paper de la maquina -- otra carpeta -- o no encontraba
+# nada. Un verificador que valida algo distinto de lo que acompana es peor que ninguno.
+# Orden: GVS_PAPER, luego el padre del directorio del script (que es como viaja, en
+# <paper>/verificacion/), y por ultimo ~/paper.
+def _raiz_paper():
+    e = os.environ.get("GVS_PAPER")
+    if e:
+        return os.path.abspath(os.path.expanduser(e))
+    aqui = os.path.dirname(os.path.abspath(__file__))
+    padre = os.path.dirname(aqui)
+    if os.path.basename(aqui) == "verificacion" and os.path.isdir(padre):
+        return padre
+    return os.path.expanduser("~/paper")
+
+os.chdir(_raiz_paper())
 LIT = re.compile(rb"\((?:\\.|[^()\\])*\)", re.S)
 UMBRAL = 1.00
 
@@ -137,7 +153,7 @@ def autocontrol():
     se quedaba a medias y producia un PDF valido con menos paginas -- y eso es lo que se simula
     aqui rindiendo una fuente recortada.
     """
-    render = os.path.expanduser("~/paper/cudf_etl/md2pdf.py")
+    render = os.path.join(_raiz_paper(), "cudf_etl", "md2pdf.py")
     if not os.path.exists(render):
         return False, "no encuentro md2pdf.py, no puedo construir el control"
     sanos = [m for m in _no_historico(sorted(glob.glob("*.md")))

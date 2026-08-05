@@ -10,7 +10,23 @@ sobre cero documentos.
 import collections, csv, os, sys, glob, statistics as st, collections
 
 H = os.path.expanduser("~")
-P = os.environ.get("GVS_PAPER") or os.path.join(H, "paper")
+# RAIZ DEL PAQUETE. Antes esto era `os.chdir(os.path.expanduser("~/paper"))` fijo, y eso hacia
+# falsa la afirmacion del LEEME: la copia que viaja DENTRO del paquete, al desempaquetarlo en
+# cualquier otro sitio, comprobaba el ~/paper de la maquina -- otra carpeta -- o no encontraba
+# nada. Un verificador que valida algo distinto de lo que acompana es peor que ninguno.
+# Orden: GVS_PAPER, luego el padre del directorio del script (que es como viaja, en
+# <paper>/verificacion/), y por ultimo ~/paper.
+def _raiz_paper():
+    e = os.environ.get("GVS_PAPER")
+    if e:
+        return os.path.abspath(os.path.expanduser(e))
+    aqui = os.path.dirname(os.path.abspath(__file__))
+    padre = os.path.dirname(aqui)
+    if os.path.basename(aqui) == "verificacion" and os.path.isdir(padre):
+        return padre
+    return os.path.expanduser("~/paper")
+
+P = _raiz_paper()
 
 # AUTOCONTENCION. Cuatro fuentes vivian FUERA de paper/ (fairness de miniBUDE, el 2x2 de epoch,
 # la matriz A1 y el barrido cross_out), asi que este script pasaba entero en la maquina y
@@ -342,6 +358,37 @@ if os.path.exists(fr):
         chk("residual final de la politica", True, None, nota="(brazos desparejados)")
 else:
     chk("residual final de la politica", True, None, nota="(raw_0805/residual_llama7b.csv no esta)")
+
+
+# ---------------------------------------------- 15. aterrizaje D2H PAGINABLE (la celda que faltaba)
+# Anadido 2026-08-05. Era la unica de las cuatro celdas del titular sin fichero en el paquete: los
+# 512 KiB vivian en prosa y en un comentario del codigo. Ahora hay A/B propio (aterrizaje en GPU
+# SIEMPRE contra NUNCA) y se comprueba lo que de verdad se afirma: que 512 KiB es el PRIMER tamano
+# en que el camino directo gana, y que por debajo PIERDE -- que es la razon de que un umbral unico
+# no sirva para los dos regimenes.
+def _mediana_landing(nombre, mem):
+    import statistics as _st
+    q = os.path.join(P, "canonica", "raw_0805", nombre)
+    if not os.path.exists(q):
+        return None
+    d = collections.defaultdict(list)
+    for x in csv.DictReader(open(q)):
+        if x["memoria"] == mem and x["modo"] == "sync":
+            d[int(x["bytes"])].append(float(x["gbps"]))
+    return {k: _st.median(v) for k, v in d.items()}
+
+ON = _mediana_landing("d2h_landing_pageable_on.csv", "pageable")
+OFF = _mediana_landing("d2h_landing_pageable_off.csv", "pageable")
+if ON and OFF:
+    rat = {b: ON[b] / OFF[b] for b in ON if b in OFF and OFF[b] > 0}
+    chk("aterrizaje D2H paginable: gana a 512 KiB", True, rat.get(524288, 0) > 1.05,
+        nota="(%.2fx)" % rat.get(524288, 0))
+    chk("aterrizaje D2H paginable: PIERDE a 128 KiB", True, rat.get(131072, 9) < 1.0,
+        nota="(%.2fx -- por eso 128 KiB no vale para paginable)" % rat.get(131072, 9))
+    primero = min((b for b in sorted(rat) if rat[b] > 1.05), default=None)
+    chk("aterrizaje D2H paginable: 512 KiB es el primero que gana", 524288, primero)
+else:
+    chk("aterrizaje D2H paginable", True, None, nota="(raw_0805/d2h_landing_pageable_*.csv no estan)")
 
 
 print("\n  ok=%d  FALLO=%d" % (ok, fail))

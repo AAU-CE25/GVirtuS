@@ -6,7 +6,23 @@ reports where a document still carries a superseded value. It cannot know what i
 only shows disagreement, which is what has to be looked at.
 """
 import glob, io, re, os, collections
-os.chdir(os.path.expanduser('~/paper'))
+# RAIZ DEL PAQUETE. Antes esto era `os.chdir(os.path.expanduser("~/paper"))` fijo, y eso hacia
+# falsa la afirmacion del LEEME: la copia que viaja DENTRO del paquete, al desempaquetarlo en
+# cualquier otro sitio, comprobaba el ~/paper de la maquina -- otra carpeta -- o no encontraba
+# nada. Un verificador que valida algo distinto de lo que acompana es peor que ninguno.
+# Orden: GVS_PAPER, luego el padre del directorio del script (que es como viaja, en
+# <paper>/verificacion/), y por ultimo ~/paper.
+def _raiz_paper():
+    e = os.environ.get("GVS_PAPER")
+    if e:
+        return os.path.abspath(os.path.expanduser(e))
+    aqui = os.path.dirname(os.path.abspath(__file__))
+    padre = os.path.dirname(aqui)
+    if os.path.basename(aqui) == "verificacion" and os.path.isdir(padre):
+        return padre
+    return os.path.expanduser("~/paper")
+
+os.chdir(_raiz_paper())
 
 # etiqueta -> (patron correcto, [patrones superados])
 CHECKS = [
