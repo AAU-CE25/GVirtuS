@@ -1311,6 +1311,9 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
     void *src = NULL;
 
     try {
+        // Bit de tipo de memoria del host: ultimo que anade el frontend, primero que se lee.
+        // Va en las cuatro direcciones porque este manejador es compartido. Solo se USA en D2H.
+        const bool host_pinned = input_buffer->BackGet<int>() != 0;
         cudaStream_t stream = input_buffer->BackGet<cudaStream_t>();
         cudaMemcpyKind kind = input_buffer->BackGet<cudaMemcpyKind>();
         size_t count = input_buffer->BackGet<size_t>();
@@ -1487,7 +1490,11 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
                 // asi que aqui no se puede elegir por regimen: se usa el valor PAGINABLE,
                 // que es el conservador -- el menor que no regresa en ninguno de los dos.
                 // Extenderlo exige anadir el bit tambien a esa ruta del protocolo.
-                const size_t kGpuDirectD2HThreshold = gvs_gpudirect_d2h_min_bytes(false);
+                // Antes: `false` fijo, o sea el umbral PAGINABLE en los dos regimenes, porque
+                // esta ruta no recibia el bit. Cedia el 1,19x-1,38x que la memoria fijada gana
+                // entre 128 y 256 KiB. Desde 2026-08-05 el bit viaja y la decision es la misma
+                // que en la ruta sincrona.
+                const size_t kGpuDirectD2HThreshold = gvs_gpudirect_d2h_min_bytes(host_pinned);
                 if (gvirtus_gpudirect_d2h_enabled() && count >= kGpuDirectD2HThreshold) {
                     void *gpu_scratch = get_d2h_get_scratch(count);
                     if (gpu_scratch != nullptr) {

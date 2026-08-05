@@ -937,6 +937,13 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpyAsync(void *dst, const void 
             CudaRtFrontend::AddHostPointerForArguments("");
             CudaRtFrontend::AddVariableForArguments(kind);
             CudaRtFrontend::AddDevicePointerForArguments(stream);
+            // BIT DE TIPO DE MEMORIA DEL HOST. Ultimo argumento y por eso el PRIMERO que
+            // lee el backend. Se manda en las CUATRO direcciones porque el manejador
+            // MemcpyAsync es compartido: mandarlo solo donde se usa desalinearia el
+            // parseo de las demas. Solo lo USA D2H, para el umbral de aterrizaje por
+            // regimen -- que hasta 2026-08-05 esta ruta no podia aplicar y resolvia
+            // siempre por el valor paginable, conservador.
+            CudaRtFrontend::AddVariableForArguments<int>(0);
             CudaRtFrontend::Execute("cudaMemcpyAsync");
             if (memmove(dst, src, count) == NULL) {
                 return cudaErrorInvalidValue;
@@ -958,6 +965,14 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpyAsync(void *dst, const void 
             CudaRtFrontend::AddVariableForArguments(count);
             CudaRtFrontend::AddVariableForArguments(kind);
             CudaRtFrontend::AddDevicePointerForArguments(stream);
+            // BIT DE TIPO DE MEMORIA DEL HOST. Ultimo argumento y por eso el PRIMERO que
+            // lee el backend. Se manda en las CUATRO direcciones porque el manejador
+            // MemcpyAsync es compartido: mandarlo solo donde se usa desalinearia el
+            // parseo de las demas. Solo lo USA D2H, para el umbral de aterrizaje por
+            // regimen -- que hasta 2026-08-05 esta ruta no podia aplicar y resolvia
+            // siempre por el valor paginable, conservador.
+            CudaRtFrontend::AddVariableForArguments<int>(
+                gvirtus::communicators::HostMemoryIsPinned(src, count) ? 1 : 0);
             // H2D returns no data. Small copies fire-and-forget on the AM path;
             // large copies take the RMA path where the frontend's slot flow
             // control keeps them async while a free remote slot exists and
@@ -977,6 +992,14 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpyAsync(void *dst, const void 
             CudaRtFrontend::AddVariableForArguments(count);
             CudaRtFrontend::AddVariableForArguments(kind);
             CudaRtFrontend::AddDevicePointerForArguments(stream);
+            // BIT DE TIPO DE MEMORIA DEL HOST. Ultimo argumento y por eso el PRIMERO que
+            // lee el backend. Se manda en las CUATRO direcciones porque el manejador
+            // MemcpyAsync es compartido: mandarlo solo donde se usa desalinearia el
+            // parseo de las demas. Solo lo USA D2H, para el umbral de aterrizaje por
+            // regimen -- que hasta 2026-08-05 esta ruta no podia aplicar y resolvia
+            // siempre por el valor paginable, conservador.
+            CudaRtFrontend::AddVariableForArguments<int>(
+                gvirtus::communicators::HostMemoryIsPinned(dst, count) ? 1 : 0);
             // D2H returns data. When the async gate is on AND dst is one of our
             // tracked pinned buffers, defer: the frontend writes dst at the next
             // sync point (Phase 3). Otherwise (gate off, or pageable dst) copy
@@ -1017,6 +1040,13 @@ extern "C" __host__ cudaError_t CUDARTAPI cudaMemcpyAsync(void *dst, const void 
             CudaRtFrontend::AddVariableForArguments(count);
             CudaRtFrontend::AddVariableForArguments(kind);
             CudaRtFrontend::AddDevicePointerForArguments(stream);
+            // BIT DE TIPO DE MEMORIA DEL HOST. Ultimo argumento y por eso el PRIMERO que
+            // lee el backend. Se manda en las CUATRO direcciones porque el manejador
+            // MemcpyAsync es compartido: mandarlo solo donde se usa desalinearia el
+            // parseo de las demas. Solo lo USA D2H, para el umbral de aterrizaje por
+            // regimen -- que hasta 2026-08-05 esta ruta no podia aplicar y resolvia
+            // siempre por el valor paginable, conservador.
+            CudaRtFrontend::AddVariableForArguments<int>(0);
             // D2D carries only pointers (small AM payload) and returns no data,
             // so it is always safe to fire-and-forget when the gate is on.
             CudaRtFrontend::ExecuteMaybeAsync("cudaMemcpyAsync");
