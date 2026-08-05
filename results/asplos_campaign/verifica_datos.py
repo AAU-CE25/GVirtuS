@@ -298,5 +298,35 @@ else:
     chk("placement D2H inerte", True, None, nota="(raw_0805/d2h_placement_*.csv no estan)")
 
 
+# ------------------------------------------------ 14. residual final de la politica sobre llama
+# Anadido 2026-08-05. El residual de titular vivia SOLO en prosa: el CSV que si se comprobaba era
+# el -1,1 % ya superado, asi que el verificador daba verde sobre el numero viejo. Ahora se
+# recomputa el actual desde su raw, con el diseno PAREADO (los brazos se alternaron) y se
+# comprueba lo que de verdad se afirma: que la diferencia NO es separable de cero.
+fr = os.path.join(P, "canonica", "raw_0805", "residual_llama7b.csv")
+if os.path.exists(fr):
+    filas = list(csv.DictReader(open(fr)))
+    q = [float(x["tps"]) for x in filas if x["politica"] == "quadrant"]
+    sc = [float(x["tps"]) for x in filas if x["politica"] == "scalar"]
+    if len(q) == len(sc) and q:
+        d = [a - b for a, b in zip(q, sc)]
+        media = st.mean(d)
+        chk("residual llama 7B: media pareada (%)", -0.087, 100 * media / st.mean(sc), tol=0.35)
+        # Lo que se AFIRMA es que contiene cero. Un IC que no lo contuviera invalidaria la frase
+        # aunque la media coincidiera, asi que se comprueba la afirmacion, no solo el numero.
+        import random as _rnd
+        _rnd.seed(7)
+        bs = sorted(st.mean([_rnd.choice(d) for _ in d]) for _ in range(20000))
+        lo, hi = bs[int(0.025 * len(bs))], bs[int(0.975 * len(bs))]
+        chk("residual llama 7B: el IC95 contiene cero", True, lo <= 0 <= hi,
+            nota="(IC95 [%+.2f%%, %+.2f%%])" % (100 * lo / st.mean(sc), 100 * hi / st.mean(sc)))
+        chk("residual llama 7B: cota <= 0.5%", True,
+            max(abs(lo), abs(hi)) / st.mean(sc) * 100 <= 0.5)
+    else:
+        chk("residual final de la politica", True, None, nota="(brazos desparejados)")
+else:
+    chk("residual final de la politica", True, None, nota="(raw_0805/residual_llama7b.csv no esta)")
+
+
 print("\n  ok=%d  FALLO=%d" % (ok, fail))
 sys.exit(1 if fail else 0)

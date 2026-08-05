@@ -166,10 +166,27 @@ ESTADO = [
      r"(only ever fires above the 4 MiB|above the 4 MiB RMA floor|"
      r"the same 4 MiB RMA floor|below the 4 MiB RMA floor|"
      r"4 MiB RMA floor \(`(GVIRTUS_RMA_MIN_BYTES|ucx_rma_min_bytes))"),
+    # Anadidas 2026-08-05 (tarde). Las de arriba persiguen FRASES concretas; esta persigue la
+    # ESTRUCTURA del claim central, que es lo que ninguna comprobacion veia. El sistema NO tiene
+    # cuatro cuadrantes de placement: tiene DOS umbrales de placement (H2D fijada/paginable) y
+    # DOS de aterrizaje (D2H fijada/paginable). `prefer_rma()` solo se llama desde `WriteIov`,
+    # que es H2D; `GetFromRemoteGpu` no consulta ningun umbral (CONTRACTS.md 2.0c). Siete
+    # documentos seguian con la reticula simetrica despues de que 2.0c lo refutara.
+    ("cuatro cuadrantes de placement",
+     r"(four[- ]quadrant|four quadrants|cuatro cuadrantes|all four (placement )?(quadrants|regimes)|"
+     r"in all four regimes|four placement (thresholds|quadrants|decisions)|"
+     r"four data paths whose measured\s+crossovers)"),
+    # Y el rango 16 KiB-2 MiB presentado como si fuera UN eje de placement: sus extremos son de
+    # dos mecanismos distintos (16 KiB placement H2D, 2 MiB una celda que no decide nada).
+    ("rango 16 KiB-2 MiB como placement",
+     r"(16 KiB (against|to|--|-) 2 MiB|16 KiB.{0,40}2 MiB for pageable D2H|span 16 KiB.{0,10}2 MiB)"),
 ]
 MARCAS = re.compile(r"(until 2026-08|superseded|previously read|previously cited|this (row|cell|line|paragraph) "
                     r"(previously|read)|hasta 2026-08|retract|closed 2026-0|cerrado 2026-0|"
-                    r"former 4-MiB|under the former|no longer the deployed)", re.I)
+                    r"former 4-MiB|under the former|no longer the deployed|"
+                    # Citar 2.0c O decir "inert" ES la marca: son las dos formas en que un
+                    # documento reconoce que las dos celdas D2H no deciden nada.
+                    r"2\.0c|\binert\b|\binertes?\b|is not four|not four placement)", re.I)
 
 print()
 print("--- estado final (contradicciones narrativas) ---")
