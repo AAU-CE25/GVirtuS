@@ -3496,20 +3496,6 @@ void UcxCommunicator::drain_device_if_async_pending() {
     // deberia llegar a ponerse -- el handler bajo captura sale por el camino de staging antes
     // de marcarla -- asi que esto es la red, no el mecanismo.
     if (captura_abierta()) return;
-
-    // 2026-08-04: esto era un cudaDeviceSynchronize a secas, o sea esperar a que la GPU entera
-    // quedase ociosa -- kernels de los OTROS clientes incluidos, porque el backend comparte un
-    // solo contexto CUDA. La garantia que hace falta es "las copias que leen la sombra de este
-    // slot han terminado", y quien sabe en QUE streams van esas copias es el plugin, no el
-    // transporte: las emite en los streams del cliente. Asi que se delega en el gancho que el
-    // plugin ya registra (gvirtus_shadow_drain), que las espera por evento.
-    //
-    // El gancho consume tls_async_gpu_pending. Si al volver sigue puesta, es que no habia
-    // gancho registrado -- un transporte sin el plugin de cudart -- y entonces se mantiene el
-    // drenaje device-wide, que es lo unico correcto sin saber nada de los streams.
-    gvirtus::communicators::RunFrameDrainHook();
-    if (!gvirtus::communicators::tls_async_gpu_pending) return;
-
     gvirtus::communicators::tls_async_gpu_pending = false;
     auto fn = g_cuda_device_sync.load();
     if (fn != nullptr) fn();

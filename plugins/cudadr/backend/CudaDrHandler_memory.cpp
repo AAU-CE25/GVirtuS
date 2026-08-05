@@ -129,17 +129,6 @@ char *gvs_get_dtoh_slot(size_t bytes) {
 // los bytes que ahorra. Es el mismo valor que usa cudart.
 constexpr size_t kGpuDirectD2HThreshold = 4u * 1024u * 1024u;
 
-// Misma valvula que en el gemelo de cudart: GVS_DRAIN_DEVICEWIDE=1 devuelve el drenaje
-// device-wide (aqui, cuCtxSynchronize) para poder comparar las dos variantes con el MISMO
-// binario si alguna vez una corrupcion apunta a este camino.
-bool gvs_dr_drenaje_devicewide() {
-    static const bool v = [] {
-        const char *e = std::getenv("GVS_DRAIN_DEVICEWIDE");
-        return e != nullptr && e[0] == '1';
-    }();
-    return v;
-}
-
 bool gvs_dr_gpudirect_d2h_enabled() {
     static const bool process_active = []() {
         const char *v = std::getenv("GVIRTUS_GPUDIRECT_ACTIVE");
@@ -291,29 +280,9 @@ CUDA_DRIVER_HANDLER(MemcpyDtoH) {
             // llenando. No es hipotetico: es la causa raiz de la corrupcion "got ==
             // want - 31" que se atribuyo cinco veces al camino H2D/RMA antes de
             // encontrarse aqui, en el gemelo de cudart.
-            // ...pero NO hace falta esperar a que la GPU entera quede ociosa, que es lo que
-            // hacia cuCtxSynchronize: el backend comparte un solo contexto CUDA entre todos
-            // los clientes, asi que eso esperaba tambien a los kernels de los DEMAS. Y este
-            // camino se recorre en CADA D2H por encima del umbral -- que desde el 2026-08-04
-            // son 128 KiB, no 4 MiB --, o sea en pleno regimen de cargas como cuDF.
-            //
-            // Un evento grabado en el MISMO stream (el legacy, 0, donde va cuMemcpyDtoD)
-            // completa exactamente cuando la copia termina, y no mira a ningun otro stream.
-            // Misma garantia, mismo orden, espera acotada. Si el evento no se puede crear o
-            // grabar, se cae a cuCtxSynchronize: mas caro, nunca menos seguro.
             if (rc == CUDA_SUCCESS) {
-                static thread_local CUevent ev_d2d = nullptr;
-                if (ev_d2d == nullptr && !gvs_dr_drenaje_devicewide())
-                    cuEventCreate(&ev_d2d, CU_EVENT_DISABLE_TIMING);
-                CUresult rc_ev = (ev_d2d != nullptr) ? cuEventRecord(ev_d2d, 0)
-                                                     : CUDA_ERROR_INVALID_VALUE;
-                if (rc_ev == CUDA_SUCCESS) {
-                    rc = cuEventSynchronize(ev_d2d);
-                    if (rc != CUDA_SUCCESS) gvs_dr_note_fastpath("cuEventSynchronize", (int)rc);
-                } else {
-                    rc = cuCtxSynchronize();
-                    if (rc != CUDA_SUCCESS) gvs_dr_note_fastpath("cuCtxSynchronize", (int)rc);
-                }
+                rc = cuCtxSynchronize();
+                if (rc != CUDA_SUCCESS) gvs_dr_note_fastpath("cuCtxSynchronize", (int)rc);
             }
             if (rc == CUDA_SUCCESS) {
                 gvs_dr_note_fastpath("OK: payload de GPU adjuntado", 0);
