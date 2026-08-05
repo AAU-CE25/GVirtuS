@@ -39,8 +39,11 @@ def peor(mem, arm):
 
 fig, axes = plt.subplots(1, 2, figsize=(9.4, 3.6), facecolor=SURF)
 CRUCE = {"pinned": (16 << 10, "16 KiB"), "pageable": (1 << 20, "1 MiB")}
-ARMS = [("am",       "scalar set HIGH (4 MiB) -- never RMA",  AMBAR, "--", "s"),
-        ("scalar",   "scalar set LOW (16 KiB) -- always RMA", ROSA,  ":",  "v"),
+# "never"/"always" no son literalmente ciertos en los extremos del barrido: el brazo alto SI
+# entra en RMA por encima de 4 MiB, y el bajo no entra por debajo de 16 KiB. Se nombran por su
+# VALOR, que es exacto y ademas mas corto de leer en una leyenda.
+ARMS = [("am",       "Scalar-4MiB",  AMBAR, "--", "s"),
+        ("scalar",   "Scalar-16KiB", ROSA,  ":",  "v"),
         ("oracle",   "oracle (needs the answer in advance)",  VERDE, "-",  ""),
         ("quadrant", "typed selector (deployed)",             AZUL,  "-",  "o")]
 
@@ -61,11 +64,11 @@ for ax, mem in zip(axes, ("pinned", "pageable")):
                 fontsize=7.6, color=INK2, va="bottom", fontweight="bold")
     # El brazo que se hunde en ESTE regimen, dicho sobre la propia figura.
     malo = "am" if mem == "pinned" else "scalar"
-    lab_malo = "set HIGH" if malo == "am" else "set LOW"
+    lab_malo = "Scalar-4MiB" if malo == "am" else "Scalar-16KiB"
     ax.set_title("H2D, %s host memory" % mem, fontsize=9.4, color=INK, loc="left",
                  fontweight="bold", pad=16)
     # El brazo que se hunde AQUI, sobre la propia figura: es el numero que hay que leer.
-    ax.annotate("a scalar %s falls to %.1f%% of the oracle here" % (lab_malo, peor(mem, malo)),
+    ax.annotate("%s falls to %.1f%% of the oracle here" % (lab_malo, peor(mem, malo)),
                 (0.0, 1.015), xycoords="axes fraction", fontsize=7.8, color=ROSA if malo=="scalar" else AMBAR,
                 fontweight="bold", va="bottom")
     ax.set_xscale("log", base=2)
@@ -81,8 +84,8 @@ axes[0].legend(fontsize=7.0, frameon=False, loc="upper left")
 fig.suptitle("One direction, two host memory kinds, 64x apart — and no single threshold serves both",
              fontsize=10.8, color=INK, x=0.008, ha="left", y=1.03, fontweight="bold")
 fig.text(0.008, -0.13,
-         "The two worst cases come from OPPOSITE settings of the same scalar knob: set it high and "
-         "pinned collapses to %.1f%%; set it low and\npageable collapses to %.1f%%. The typed "
+         "The two worst cases come from OPPOSITE settings of the same scalar knob: Scalar-4MiB "
+         "collapses pinned to %.1f%%;\nScalar-16KiB collapses pageable to %.1f%%. The typed "
          "selector reaches %.1f%% and %.1f%% of the oracle without probing the pointer. "
          "Device-to-host is\ndeliberately absent: its typed decision is landing, not placement "
          "(CONTRACTS.md 2.0c)."
