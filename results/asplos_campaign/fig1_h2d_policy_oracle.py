@@ -68,7 +68,7 @@ for ax, mem in zip(axes, ("pinned", "pageable")):
     ax.set_title("H2D, %s host memory" % mem, fontsize=9.4, color=INK, loc="left",
                  fontweight="bold", pad=16)
     # El brazo que se hunde AQUI, sobre la propia figura: es el numero que hay que leer.
-    ax.annotate("%s: %.1f%% of oracle" % (lab_malo, peor(mem, malo)),
+    ax.annotate("%s: worst case %.1f%% of oracle" % (lab_malo, peor(mem, malo)),
                 (0.0, 1.015), xycoords="axes fraction", fontsize=7.4,
                 color=ROSA if malo == "scalar" else AMBAR, fontweight="bold", va="bottom")
     ax.set_xscale("log", base=2)
@@ -84,9 +84,10 @@ axes[0].legend(fontsize=7.0, frameon=False, loc="upper left")
 
 CAPTION = (
     "One direction, two host memory kinds, 64x apart -- and no single threshold serves both. "
-    "The two worst cases come from OPPOSITE settings of the same scalar knob: Scalar-4MiB "
-    "collapses pinned to %.1f%% of the measured oracle, Scalar-16KiB collapses pageable to %.1f%%, "
-    "while the typed selector reaches %.1f%% and %.1f%% without probing the pointer. "
+    "The two worst cases come from OPPOSITE settings of the same scalar knob: at its worst point "
+    "Scalar-4MiB reaches only %.1f%% of the measured oracle on pinned memory, and Scalar-16KiB "
+    "only %.1f%% on pageable, while the typed selector never falls below %.1f%% and %.1f%% "
+    "respectively, without probing the pointer. "
     "Device-to-host is deliberately absent: its typed decision is landing, not placement."
 ) % (peor("pinned", "am"), peor("pageable", "scalar"),
      peor("pinned", "quadrant"), peor("pageable", "quadrant"))
