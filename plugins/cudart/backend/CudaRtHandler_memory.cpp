@@ -26,6 +26,8 @@
  *             Department of Computer Science, University College Dublin
  */
 
+#include <vector>
+
 #include "CudaRtHandler.h"
 #include "AsyncErrorTrace.h"
 
@@ -584,6 +586,72 @@ thread_local bool g_shadow_copy_pending = false;
 // copy is genuinely outstanding.
 thread_local bool g_shadow_async_pending = false;
 
+// --- Drenaje PRECISO de las copias async, por EVENTOS -----------------------------------
+//
+// El parrafo de arriba explica por que un cudaStreamSynchronize no vale: las copias van en
+// los streams del CLIENTE y pueden ser varios. La conclusion que se saco entonces fue
+// "entonces device-wide", y ahi se quedo. Pero device-wide espera a la GPU ENTERA, o sea
+// tambien a los kernels de los OTROS inquilinos del backend, que comparten un unico contexto
+// CUDA. Eso es serializacion entre clientes en el camino de una respuesta.
+//
+// El mecanismo que SI cubre "N streams desconocidos" sin mirar a nadie mas es un evento por
+// copia: se graba en el stream en el que se emitio y se espera solo a el. Un evento completa
+// cuando termina el trabajo que le precede EN SU STREAM; el trabajo de otro inquilino en
+// otro stream no lo retrasa.
+//
+// Los eventos se reciclan en un pool por hilo (uno por conexion): cudaEventCreate en el
+// camino caliente costaria mas que lo que ahorra, y con DISABLE_TIMING no llevan reloj.
+thread_local std::vector<cudaEvent_t> g_shadow_ev_pendientes;
+thread_local std::vector<cudaEvent_t> g_shadow_ev_libres;
+
+// Repliegue explicito: con esto a 1 vuelve el drenaje device-wide en los tres sitios que lo
+// tenian. Mismo binario para las dos variantes -- si algun dia una corrupcion apunta aqui, se
+// compara sin recompilar, que es como se han medido todas las ablaciones de esta campana.
+bool gvs_drenaje_devicewide() {
+    static const bool v = [] {
+        const char *e = std::getenv("GVS_DRAIN_DEVICEWIDE");
+        const bool on = e != nullptr && e[0] == '1';
+        if (on)
+            std::fprintf(stderr, "[GVS DRAIN] *** drenaje DEVICE-WIDE forzado: cada drenaje "
+                                 "espera a la GPU entera, kernels de otros clientes incluidos\n");
+        return on;
+    }();
+    return v;
+}
+
+// Graba un evento en el stream donde se acaba de emitir la copia. Devuelve false si no se
+// pudo, y entonces el llamante DEBE quedarse con el drenaje device-wide: perder la espera no
+// es una opcion -- es exactamente la carrera que libera el slot mientras el motor de copia lo
+// sigue leyendo.
+bool gvs_marca_copia_async(cudaStream_t stream) {
+    if (gvs_drenaje_devicewide()) return false;
+    cudaEvent_t ev = nullptr;
+    if (!g_shadow_ev_libres.empty()) {
+        ev = g_shadow_ev_libres.back();
+        g_shadow_ev_libres.pop_back();
+    } else if (cudaEventCreateWithFlags(&ev, cudaEventDisableTiming) != cudaSuccess) {
+        return false;
+    }
+    if (cudaEventRecord(ev, stream) != cudaSuccess) {
+        g_shadow_ev_libres.push_back(ev);   // el evento sirve, lo que fallo es la grabacion
+        return false;
+    }
+    g_shadow_ev_pendientes.push_back(ev);
+    return true;
+}
+
+// Espera a las copias async marcadas. Devuelve false si no habia ninguna marcada, que es la
+// senal de que hay que replegarse al drenaje device-wide.
+bool gvs_espera_copias_async() {
+    if (g_shadow_ev_pendientes.empty()) return false;
+    for (cudaEvent_t ev : g_shadow_ev_pendientes) {
+        cudaEventSynchronize(ev);
+        g_shadow_ev_libres.push_back(ev);
+    }
+    g_shadow_ev_pendientes.clear();
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // H2D trace (GVIRTUS_H2D_TRACE=1). Diagnostic only, off by default.
 // ---------------------------------------------------------------------------
@@ -647,8 +715,17 @@ void gvirtus_shadow_drain() {
     // a burst of them nothing drained at all: ReleaseFrame freed the slot, the client
     // reused it, and the next peer-DMA landed on the shadow mid-copy. The sync path
     // was fixed for exactly this hazard; the async path was left behind.
+    //
+    // 2026-08-04: ese cudaDeviceSynchronize esperaba a la GPU entera -- incluidos los kernels
+    // de los OTROS clientes del backend, que comparten el contexto CUDA primario. La garantia
+    // que hace falta es "las copias que leen esta sombra han terminado", no "la GPU esta
+    // ociosa". Se espera a los eventos grabados en los streams donde se emitieron; si no hay
+    // ninguno marcado (no se pudo grabar, o GVS_DRAIN_DEVICEWIDE=1), se mantiene el drenaje
+    // device-wide, que es mas caro pero nunca menos seguro.
     if (g_shadow_async_pending) {
-        cudaDeviceSynchronize();
+        if (!gvs_espera_copias_async()) {
+            cudaDeviceSynchronize();
+        }
         g_shadow_async_pending = false;
         gvirtus::communicators::tls_async_gpu_pending = false;
     }
@@ -1393,6 +1470,11 @@ CUDA_ROUTINE_HANDLER(MemcpyAsync) {
                         // slot was released, acked, and reused while this D2D was still
                         // reading the shadow. See gvirtus_shadow_drain().
                         g_shadow_async_pending = true;
+                        // Marca ESTA copia en SU stream. Es lo que permite que el drenaje
+                        // espere solo a ella en vez de a la GPU entera. Si no se puede
+                        // marcar, la bandera de arriba deja el drenaje device-wide: se
+                        // pierde velocidad, nunca la garantia.
+                        gvs_marca_copia_async(stream);
                     }
                     result = std::make_shared<Result>(exit_code);
                     break;
