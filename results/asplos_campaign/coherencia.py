@@ -218,6 +218,23 @@ ESTADO = [
     # dos mecanismos distintos (16 KiB placement H2D, 2 MiB una celda que no decide nada).
     ("rango 16 KiB-2 MiB como placement",
      r"(16 KiB (against|to|--|-) 2 MiB|16 KiB.{0,40}2 MiB for pageable D2H|span 16 KiB.{0,10}2 MiB)"),
+    # Anadidas 2026-08-05 (noche). Las tres nacen del mismo fallo: una correccion se aplico en
+    # TYPED_DATA_MOVEMENT_FINAL.md y NO se propago a los cuatro documentos que alimentan
+    # introduccion, contratos y novedad. El verificador no podia verlo porque comprueba cada
+    # documento contra los CSV, no los documentos entre si en el nivel de la AFIRMACION.
+    ("la banda no se ocupa",
+     r"(bracket the band|bracket that\s+band|no evaluated workload occupies the band|"
+     r"without occupying it)"),
+    # El control negativo NO esta inmovil: hay un offset de campana del 2-10 %. Decir que no se
+    # mueve es mas fuerte que el dato y es facil de refutar leyendo el CSV.
+    ("el control pageable esta inmovil",
+     r"(pageable unmoved|did not move, so (it|they) must not move|"
+     r"pageable, every size \| -- \| -- \| 0\.90)"),
+    # El overclaim sobre D2H: medimos que las celdas no se consultan, no que una decision D2H
+    # real fuera inutil. Los dos brazos ejecutan el MISMO codigo.
+    ("D2H no merece decision",
+     r"(no placement choice worth making|nothing to win by adding one|"
+     r"choice worth making for D2H)"),
 ]
 MARCAS = re.compile(r"(until 2026-08|superseded|previously read|previously cited|this (row|cell|line|paragraph) "
                     r"(previously|read)|hasta 2026-08|retract|closed 2026-0|cerrado 2026-0|"

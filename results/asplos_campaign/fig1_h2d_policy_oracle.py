@@ -15,7 +15,7 @@ OJO CON LOS NOMBRES DE LOS BRAZOS, que me los cruce una vez y la figura decia lo
 Los dos porcentajes del titular salen de brazos DISTINTOS, y ese es justo el argumento: no hay un
 solo valor bueno. Comprobado contra verifica_datos.py, que recomputa los dos.
 """
-import csv, os, sys, collections
+import csv, io, os, sys, collections
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -44,7 +44,7 @@ CRUCE = {"pinned": (16 << 10, "16 KiB"), "pageable": (1 << 20, "1 MiB")}
 # VALOR, que es exacto y ademas mas corto de leer en una leyenda.
 ARMS = [("am",       "Scalar-4MiB",  AMBAR, "--", "s"),
         ("scalar",   "Scalar-16KiB", ROSA,  ":",  "v"),
-        ("oracle",   "oracle (needs the answer in advance)",  VERDE, "-",  ""),
+        ("oracle",   "measured oracle",  VERDE, "-",  ""),
         ("quadrant", "typed selector (deployed)",             AZUL,  "-",  "o")]
 
 for ax, mem in zip(axes, ("pinned", "pageable")):
@@ -68,9 +68,9 @@ for ax, mem in zip(axes, ("pinned", "pageable")):
     ax.set_title("H2D, %s host memory" % mem, fontsize=9.4, color=INK, loc="left",
                  fontweight="bold", pad=16)
     # El brazo que se hunde AQUI, sobre la propia figura: es el numero que hay que leer.
-    ax.annotate("%s falls to %.1f%% of the oracle here" % (lab_malo, peor(mem, malo)),
-                (0.0, 1.015), xycoords="axes fraction", fontsize=7.8, color=ROSA if malo=="scalar" else AMBAR,
-                fontweight="bold", va="bottom")
+    ax.annotate("%s: %.1f%% of oracle" % (lab_malo, peor(mem, malo)),
+                (0.0, 1.015), xycoords="axes fraction", fontsize=7.4,
+                color=ROSA if malo == "scalar" else AMBAR, fontweight="bold", va="bottom")
     ax.set_xscale("log", base=2)
     ax.set_xlabel("transfer size (bytes, log2)", fontsize=8, color=INK2)
     ax.grid(color=GRID, lw=0.6, zorder=0)
@@ -81,18 +81,20 @@ for ax, mem in zip(axes, ("pinned", "pageable")):
 axes[0].set_ylabel("GB/s (median of 3 runs)", fontsize=8, color=INK2)
 axes[0].legend(fontsize=7.0, frameon=False, loc="upper left")
 
-fig.suptitle("One direction, two host memory kinds, 64x apart — and no single threshold serves both",
-             fontsize=10.8, color=INK, x=0.008, ha="left", y=1.03, fontweight="bold")
-fig.text(0.008, -0.13,
-         "The two worst cases come from OPPOSITE settings of the same scalar knob: Scalar-4MiB "
-         "collapses pinned to %.1f%%;\nScalar-16KiB collapses pageable to %.1f%%. The typed "
-         "selector reaches %.1f%% and %.1f%% of the oracle without probing the pointer. "
-         "Device-to-host is\ndeliberately absent: its typed decision is landing, not placement "
-         "(CONTRACTS.md 2.0c)."
-         % (peor("pinned", "am"), peor("pageable", "scalar"),
-            peor("pinned", "quadrant"), peor("pageable", "quadrant")),
-         fontsize=7.2, color=MUTED, ha="left")
+
+CAPTION = (
+    "One direction, two host memory kinds, 64x apart -- and no single threshold serves both. "
+    "The two worst cases come from OPPOSITE settings of the same scalar knob: Scalar-4MiB "
+    "collapses pinned to %.1f%% of the measured oracle, Scalar-16KiB collapses pageable to %.1f%%, "
+    "while the typed selector reaches %.1f%% and %.1f%% without probing the pointer. "
+    "Device-to-host is deliberately absent: its typed decision is landing, not placement."
+) % (peor("pinned", "am"), peor("pageable", "scalar"),
+     peor("pinned", "quadrant"), peor("pageable", "quadrant"))
+
 fig.tight_layout()
 sal = os.path.join(RAIZ, "figures", "fig1_h2d_policy_oracle.png")
 fig.savefig(sal, dpi=200, bbox_inches="tight", facecolor=SURF)
+cap = sal.replace(".png", ".caption.txt")
+io.open(cap, "w", encoding="utf-8").write(CAPTION + "\n")
 print("  -> %s" % sal)
+print("  -> %s" % cap)
