@@ -10,8 +10,24 @@ sobre cero documentos.
 import collections, csv, os, sys, glob, statistics as st, collections
 
 H = os.path.expanduser("~")
-P = os.path.join(H, "paper")
-C = os.path.join(H, "GVirtuS/results/asplos_campaign")
+P = os.environ.get("GVS_PAPER") or os.path.join(H, "paper")
+
+# AUTOCONTENCION. Cuatro fuentes vivian FUERA de paper/ (fairness de miniBUDE, el 2x2 de epoch,
+# la matriz A1 y el barrido cross_out), asi que este script pasaba entero en la maquina y
+# declaraba "SIN FUENTE" en cuatro comprobaciones al correrlo sobre el tar -- es decir, el
+# paquete no se validaba a si mismo y el LEEME decia que si. Ahora hay copia dentro, en
+# paper/fuentes_verificacion/, y se usa cuando la ruta viva no existe.
+# GVS_FORZAR_PAQUETE=1 ignora la ruta viva: es la unica forma de COMPROBAR que el paquete se
+# valida solo, en vez de suponerlo desde una maquina que tiene los dos.
+_FORZAR = os.environ.get("GVS_FORZAR_PAQUETE") == "1"
+_VIVO = os.path.join(H, "GVirtuS/results/asplos_campaign")
+_PAQ = os.path.join(P, "fuentes_verificacion", "asplos_campaign")
+C = _PAQ if (_FORZAR or not os.path.isdir(_VIVO)) else _VIVO
+
+def _cross_out():
+    vivo = os.path.join(H, "cross_out")
+    paq = os.path.join(P, "fuentes_verificacion", "cross_out")
+    return paq if (_FORZAR or not os.path.isdir(vivo)) else vivo
 ok = fail = 0
 
 def chk(nombre, esperado, obtenido, tol=0.02, nota=""):
@@ -122,7 +138,7 @@ else:
     chk("A1 assume 64 MiB (GB/s)", 22.804, None)
 
 # ---------------------------------------------------------------- 7. cruce 16 KiB
-fs = glob.glob(os.path.join(H, "cross_out", "out_*_pinned_r*.csv"))
+fs = glob.glob(os.path.join(_cross_out(), "out_*_pinned_r*.csv"))
 if fs:
     d = collections.defaultdict(list)
     for f in fs:
@@ -233,6 +249,53 @@ if os.path.exists(fd):
         nota="(65536 es el primero >1.00; 128 KiB es el primero con margen)")
 else:
     chk("umbral de aterrizaje D2H", True, None, nota="(canonica/d2h_crossover.csv no esta)")
+
+
+# ------------------------------------------- 13. bit de memtype en async, y placement D2H inerte
+# Anadido 2026-08-05. Dos afirmaciones nuevas que NO deben quedarse solo en prosa:
+#   (a) el bit en cudaMemcpyAsync gana 1,54x/1,86x en fijada entre 128 y 256 KiB, y NO toca
+#       paginable -- el control negativo importa tanto como el efecto;
+#   (b) el placement D2H no decide: forzar AM y forzar RMA dan lo mismo.
+def _mediana_por(p_, filtro):
+    import statistics as _st
+    d = collections.defaultdict(list)
+    if not os.path.exists(p_): return None
+    for x in csv.DictReader(open(p_)):
+        if filtro(x): d[int(x["bytes"])].append(float(x["gbps"]))
+    return {k: _st.median(v) for k, v in d.items()}
+
+RAW = os.path.join(P, "canonica", "raw_0805")
+nue = _mediana_por(os.path.join(RAW, "async_bit_nuevo.csv"),
+                   lambda x: x["modo"] == "async" and x["memoria"] == "pinned")
+vie = _mediana_por(os.path.join(RAW, "async_bit_viejo.csv"),
+                   lambda x: x["modo"] == "async" and x["memoria"] == "pinned")
+if nue and vie:
+    for b, esperado in ((131072, 1.54), (262144, 1.86)):
+        r = (nue[b] / vie[b]) if (b in nue and b in vie) else None
+        chk("bit async: D2H fijada %d KiB" % (b >> 10), esperado, r, tol=0.06)
+    # Control negativo: paginable NO se mueve. Si se moviera, el efecto de arriba seria de otra
+    # cosa (deriva de la maquina) y no del bit.
+    npag = _mediana_por(os.path.join(RAW, "async_bit_nuevo.csv"),
+                        lambda x: x["modo"] == "async" and x["memoria"] == "pageable")
+    vpag = _mediana_por(os.path.join(RAW, "async_bit_viejo.csv"),
+                        lambda x: x["modo"] == "async" and x["memoria"] == "pageable")
+    peor = max(abs(npag[b] / vpag[b] - 1.0) for b in npag if b in vpag) if (npag and vpag) else None
+    chk("bit async: control paginable NO se mueve", True, (peor is not None and peor <= 0.12),
+        nota="(desviacion maxima %.0f%%)" % (100 * peor) if peor is not None else "")
+else:
+    chk("bit de memtype en async", True, None, nota="(raw_0805/async_bit_*.csv no estan)")
+
+am = _mediana_por(os.path.join(RAW, "d2h_placement_am.csv"),
+                  lambda x: x["modo"] == "sync" and x["memoria"] == "pinned")
+rm = _mediana_por(os.path.join(RAW, "d2h_placement_rma.csv"),
+                  lambda x: x["modo"] == "sync" and x["memoria"] == "pinned")
+if am and rm:
+    peor = max(abs(rm[b] / am[b] - 1.0) for b in am if b in rm)
+    # La afirmacion es "no decide", asi que lo que se comprueba es que NINGUN tamano se separa.
+    chk("placement D2H inerte: AM == RMA en todo tamano", True, peor <= 0.05,
+        nota="(separacion maxima %.1f%%)" % (100 * peor))
+else:
+    chk("placement D2H inerte", True, None, nota="(raw_0805/d2h_placement_*.csv no estan)")
 
 
 print("\n  ok=%d  FALLO=%d" % (ok, fail))
