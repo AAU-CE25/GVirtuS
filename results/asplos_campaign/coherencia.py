@@ -146,9 +146,30 @@ ESTADO = [
      r"(used for any published end-to-end number \| \*\*no|not the configuration any end-to-end number)"),
     ("quadrant colapsa a 8 slots",
      r"(at CONC=8 with 8 slots it collapses)"),
+    ("los hilos de un proceso ya solapan",
+     r"(single process with N threads is,? (for now,? )?(effectively )?serialis|threads of one process do not overlap|is serialised, and `llama-server --parallel 8`|every concurrency conclusion in this package is about \*\*processes|mechanism unidentified|mechanism not identified|mechanism NOT identified)"),
+    # Anadidas 2026-08-05. La primera caza el umbral de ATERRIZAJE D2H descrito como un escalar
+    # compilado a 4 MiB e inmutable: dejo de serlo el 08-04 (per-memtype 128 KiB / 512 KiB, y
+    # settable por entorno), y cuatro documentos seguian afirmandolo en presente. Ninguna
+    # comprobacion de CIFRAS lo veia, porque "4 MiB" aparece legitimamente en muchos sitios --
+    # lo que esta superado es la afirmacion sobre el CODIGO, no el numero.
+    ("el umbral D2H sigue compilado",
+     r"kGpuDirectD2HThreshold"),
+    # La segunda caza la atribucion equivocada de la averia del 08-05. Se dio por "fallo de
+    # entorno, no atribuido" y por bisecada; era un desajuste de protocolo de este mismo trabajo.
+    # Que un documento del paquete diga que no hay codigo implicado es exactamente el tipo de
+    # afirmacion que un revisor comprueba.
+    ("la averia del 08-05 sigue sin atribuir",
+     r"(An environment fault, unattributed|no code from this session is implicated|"
+     r"every large transfer fails)"),
+    ("el suelo de 4 MiB sigue vigente",
+     r"(only ever fires above the 4 MiB|above the 4 MiB RMA floor|"
+     r"the same 4 MiB RMA floor|below the 4 MiB RMA floor|"
+     r"4 MiB RMA floor \(`(GVIRTUS_RMA_MIN_BYTES|ucx_rma_min_bytes))"),
 ]
 MARCAS = re.compile(r"(until 2026-08|superseded|previously read|previously cited|this (row|cell|line|paragraph) "
-                    r"(previously|read)|hasta 2026-08|retract)", re.I)
+                    r"(previously|read)|hasta 2026-08|retract|closed 2026-0|cerrado 2026-0|"
+                    r"former 4-MiB|under the former|no longer the deployed)", re.I)
 
 print()
 print("--- estado final (contradicciones narrativas) ---")
@@ -168,7 +189,9 @@ for etiqueta, patron in ESTADO:
                     culpables.append("%s:%d" % (f, i + 1))
     if culpables:
         malos_estado += 1
-        print("XX %-34s SIN MARCA DE SUPERADA en: %s" % (etiqueta, ", ".join(culpables[:4])))
+        print("XX %-34s SIN MARCA DE SUPERADA en %d sitio(s): %s%s" %
+              (etiqueta, len(culpables), ", ".join(culpables[:8]),
+               "" if len(culpables) <= 8 else " ... (+%d mas)" % (len(culpables) - 8)))
     else:
         print("   %-34s ok" % etiqueta)
 print()

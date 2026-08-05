@@ -207,5 +207,33 @@ if os.path.exists(fc):
 else:
     chk("cuDF canonico", True, None, nota="(cudf.csv no esta)")
 
+# ------------------------------------------------- 12. umbral de aterrizaje D2H (128 KiB fijada)
+# Anadido 2026-08-05. La tabla que justifica el umbral de ATERRIZAJE por tipo de memoria estaba
+# PUBLICADA Y SIN COMPROBAR: vivia en prosa y en un comentario del codigo. La mitad FIJADA si
+# tiene fuente -- canonica/d2h_crossover.csv, el A/B de GPUDirect on/off -- y es la que decide el
+# valor desplegado de 128 KiB, asi que se recomputa aqui punto por punto.
+# La mitad PAGINABLE no tiene fichero en el paquete; se declara como hueco en GAPS.md 5 en vez de
+# comprobarse contra nada, que es lo que haria una comprobacion verde sobre cero datos.
+fd = os.path.join(P, "canonica", "d2h_crossover.csv")
+if os.path.exists(fd):
+    d = {}
+    for x in csv.DictReader(open(fd)):
+        if x.get("direction") != "d2h":
+            continue
+        d.setdefault(int(x["bytes"]), {})[x["arm"]] = float(x["median_gbps"])
+    PUB = {131072: 1.19, 262144: 1.38, 524288: 2.65, 1048576: 4.36, 2097152: 5.21}
+    for b in sorted(PUB):
+        par = d.get(b, {})
+        r = (par["on"] / par["off"]) if ("on" in par and "off" in par) else None
+        chk("aterrizaje D2H fijada %d KiB (on/off)" % (b >> 10), PUB[b], r, tol=0.04)
+    # El valor desplegado es 128 KiB: el menor tamano en que GPUDirect ya NO pierde en fijada.
+    menor = min((b for b in d if "on" in d[b] and "off" in d[b] and d[b]["on"] > d[b]["off"]),
+                default=None)
+    chk("128 KiB es el defecto: primer tamano con ganancia", 65536, menor,
+        nota="(65536 es el primero >1.00; 128 KiB es el primero con margen)")
+else:
+    chk("umbral de aterrizaje D2H", True, None, nota="(canonica/d2h_crossover.csv no esta)")
+
+
 print("\n  ok=%d  FALLO=%d" % (ok, fail))
 sys.exit(1 if fail else 0)
