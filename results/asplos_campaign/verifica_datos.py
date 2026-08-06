@@ -391,5 +391,37 @@ else:
     chk("aterrizaje D2H paginable", True, None, nota="(raw_0805/d2h_landing_pageable_*.csv no estan)")
 
 
+# ------------------------------------------- 16. la ganancia end-to-end del selector (2026-08-06)
+# El resultado que faltaba en todo el paquete. Se comprueban las TRES cosas que lo sostienen, no
+# solo el numero: la ganancia, la NO SUPERPOSICION entre brazos (que es lo que la hace robusta a
+# n=3), y la ausencia de bytes malos (sin eso un camino roto que vuelve rapido pareceria mejor).
+# Se comprueba tambien el CONTRA-EJEMPLO: Scalar-16KiB pierde en paginable donde typed declina.
+fm = os.path.join(P, "canonica", "raw_0806", "bandwork_matriz.csv")
+if os.path.exists(fm):
+    R = list(csv.DictReader(open(fm)))
+    chk("bandwork: 0 bytes malos en las 54 corridas", 0, sum(int(x["malos"]) for x in R))
+    def w(b, mem, pol):
+        v = [float(x["wall_ms"]) for x in R
+             if int(x["bytes"]) == b and x["memoria"] == mem and x["politica"] == pol]
+        return v or None
+    for mem, esperado in (("pinned", 27.8), ("pageable", 41.0)):
+        S, T = w(1048576, mem, "scalar4m"), w(1048576, mem, "typed")
+        if S and T:
+            g = 100 * (st.median(S) - st.median(T)) / st.median(S)
+            chk("bandwork 1 MiB %s: ganancia typed (%%)" % mem, esperado, g, tol=0.05)
+            # Lo que hace robusto el resultado a n=3 no es la mediana: es que no se solapan.
+            chk("bandwork 1 MiB %s: sin solape entre brazos" % mem, True, max(T) < min(S),
+                nota="(peor typed %.2f < mejor scalar %.2f)" % (max(T), min(S)))
+    # El contra-ejemplo: un escalar BAJO captura la ganancia de 1 MiB pero pierde en paginable.
+    for b in (65536, 262144):
+        S4, S16 = w(b, "pageable", "scalar4m"), w(b, "pageable", "scalar16k")
+        if S4 and S16:
+            perd = 100 * (st.median(S16) - st.median(S4)) / st.median(S4)
+            chk("bandwork %d KiB paginable: Scalar-16KiB pierde (%%)" % (b >> 10),
+                True, perd > 5.0, nota="(pierde %.1f%%)" % perd)
+else:
+    chk("ganancia end-to-end del selector", True, None, nota="(raw_0806/bandwork_matriz.csv no esta)")
+
+
 print("\n  ok=%d  FALLO=%d" % (ok, fail))
 sys.exit(1 if fail else 0)
